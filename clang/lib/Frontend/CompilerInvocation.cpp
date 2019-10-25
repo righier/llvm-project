@@ -1403,6 +1403,9 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.SymbolPartition = Args.getLastArgValue(OPT_fsymbol_partition_EQ);
 
+  Opts.DisableLegacyLoopTransformation =
+      Args.hasArg(OPT_disable_legacy_loop_transformations);
+
   return Success;
 }
 
