@@ -225,6 +225,12 @@ struct PragmaUnrollHintHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaTransformHandler : public PragmaHandler {
+  PragmaTransformHandler() : PragmaHandler("transform") {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &FirstToken) override;
+};
+
 struct PragmaMSRuntimeChecksHandler : public EmptyPragmaHandler {
   PragmaMSRuntimeChecksHandler() : EmptyPragmaHandler("runtime_checks") {}
 };
@@ -376,6 +382,9 @@ void Parser::initializePragmaHandlers() {
       std::make_unique<PragmaUnrollHintHandler>("nounroll_and_jam");
   PP.AddPragmaHandler(NoUnrollAndJamHintHandler.get());
 
+  TransformHandler = std::make_unique<PragmaTransformHandler>();
+  PP.AddPragmaHandler("clang", TransformHandler.get());
+
   FPHandler = std::make_unique<PragmaFPHandler>();
   PP.AddPragmaHandler("clang", FPHandler.get());
 
@@ -481,6 +490,9 @@ void Parser::resetPragmaHandlers() {
 
   PP.RemovePragmaHandler(NoUnrollAndJamHintHandler.get());
   NoUnrollAndJamHintHandler.reset();
+
+  PP.RemovePragmaHandler("clang", TransformHandler.get());
+  TransformHandler.reset();
 
   PP.RemovePragmaHandler("clang", FPHandler.get());
   FPHandler.reset();
@@ -3005,6 +3017,71 @@ void PragmaUnrollHintHandler::HandlePragma(Preprocessor &PP,
   TokenArray[0].setAnnotationEndLoc(PragmaName.getLocation());
   TokenArray[0].setAnnotationValue(static_cast<void *>(Info));
   PP.EnterTokenStream(std::move(TokenArray), 1,
+                      /*DisableMacroExpansion=*/false, /*IsReinject=*/false);
+}
+
+/// Handle
+///   #pragma clang transform ...
+void PragmaTransformHandler::HandlePragma(Preprocessor &PP,
+                                          PragmaIntroducer Introducer,
+                                          Token &FirstTok) {
+  // "clang" token is not passed
+  // "transform" is FirstTok
+  // Everything up until tok::eod (or tok::eof) is wrapped between
+  // tok::annot_pragma_transform and tok::annot_pragma_transform_end, and
+  // pushed-back into the token stream. The tok::eod/eof is consumed as well:
+  //
+  // Token stream before:
+  //   FirstTok:"transform" | <trans> [clauses..] eod   ...
+  //
+  // Token stream after :
+  //            "transform"   <trans> [clauses..] eod | ...
+  // After pushing the annotation tokens:
+  //
+  // | annot_pragma_transform <trans> [clauses..] annot_pragma_transform_end ...
+  //
+  // The symbol | is before the next token returned by PP.Lex()
+  SmallVector<Token, 16> PragmaToks;
+
+  Token StartTok;
+  StartTok.startToken();
+  StartTok.setKind(tok::annot_pragma_transform);
+  StartTok.setLocation(FirstTok.getLocation());
+  PragmaToks.push_back(StartTok);
+
+  SourceLocation EodLoc = FirstTok.getLocation();
+  while (true) {
+    Token Tok;
+    PP.Lex(Tok);
+
+    // TODO: Handle nested pragmas as in r325369.
+    assert(!Tok.isAnnotation());
+    assert(Tok.isNot(tok::annot_pragma_transform));
+    assert(Tok.isNot(tok::annot_pragma_transform_end));
+    assert(Tok.isNot(tok::annot_pragma_openmp));
+    assert(Tok.isNot(tok::annot_pragma_openmp_end));
+    assert(Tok.isNot(tok::annot_pragma_loop_hint));
+
+    if (Tok.is(tok::eod) || Tok.is(tok::eof)) {
+      EodLoc = Tok.getLocation();
+      break;
+    }
+
+    PragmaToks.push_back(Tok);
+  }
+
+  Token EndTok;
+  EndTok.startToken();
+  EndTok.setKind(tok::annot_pragma_transform_end);
+  EndTok.setLocation(EodLoc);
+  PragmaToks.push_back(EndTok);
+
+  // Copy tokens for the preprocessor to own and free.
+  auto Toks = std::make_unique<Token[]>(PragmaToks.size());
+  std::copy(PragmaToks.begin(), PragmaToks.end(), Toks.get());
+
+  // Handle in parser
+  PP.EnterTokenStream(std::move(Toks), PragmaToks.size(),
                       /*DisableMacroExpansion=*/false, /*IsReinject=*/false);
 }
 
