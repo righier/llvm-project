@@ -1196,6 +1196,9 @@ public:
   ///     VersionTuple is returner.
   virtual llvm::VersionTuple GetHostOSVersion() { return llvm::VersionTuple(); }
 
+  /// \return the macCatalyst version of the host OS.
+  virtual llvm::VersionTuple GetHostMacCatalystVersion() { return {}; }
+
   /// Get the target object pointer for this module.
   ///
   /// \return
@@ -2462,6 +2465,11 @@ public:
   virtual Status GetTraceConfig(lldb::user_id_t uid, TraceOptions &options) {
     return Status("Not implemented");
   }
+
+  // This calls a function of the form "void * (*)(void)".
+  bool CallVoidArgVoidPtrReturn(const Address *address,
+                                lldb::addr_t &returned_func,
+                                bool trap_exceptions = false);
 
 protected:
   void SetState(lldb::EventSP &event_sp);

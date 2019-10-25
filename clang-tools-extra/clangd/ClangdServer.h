@@ -11,7 +11,6 @@
 
 #include "../clang-tidy/ClangTidyOptions.h"
 #include "Cancellation.h"
-#include "ClangdUnit.h"
 #include "CodeComplete.h"
 #include "FSProvider.h"
 #include "FormattedString.h"
@@ -52,8 +51,6 @@ public:
   virtual void onFileUpdated(PathRef File, const TUStatus &Status){};
 
   /// Called by ClangdServer when some \p Highlightings for \p File are ready.
-  /// \p NumLines are the number of lines in the file where the highlightings
-  /// where generated from.
   virtual void
   onHighlightingsReady(PathRef File,
                        std::vector<HighlightingToken> Highlightings) {}
@@ -279,6 +276,10 @@ public:
   /// Clangd extension - not part of official LSP.
   void symbolInfo(PathRef File, Position Pos,
                   Callback<std::vector<SymbolDetails>> CB);
+
+  /// Get semantic ranges around a specified position in a file.
+  void semanticRanges(PathRef File, Position Pos,
+                      Callback<std::vector<Range>> CB);
 
   /// Returns estimated memory usage for each of the currently open files.
   /// The order of results is unspecified.

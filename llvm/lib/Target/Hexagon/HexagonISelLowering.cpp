@@ -1235,9 +1235,9 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
       Subtarget(ST) {
   auto &HRI = *Subtarget.getRegisterInfo();
 
-  setPrefLoopAlignment(4);
-  setPrefFunctionAlignment(4);
-  setMinFunctionAlignment(2);
+  setPrefLoopAlignment(llvm::Align(16));
+  setMinFunctionAlignment(llvm::Align(4));
+  setPrefFunctionAlignment(llvm::Align(16));
   setStackPointerRegisterToSaveRestore(HRI.getStackRegister());
   setBooleanContents(TargetLoweringBase::UndefinedBooleanContent);
   setBooleanVectorContents(TargetLoweringBase::UndefinedBooleanContent);
@@ -1439,12 +1439,12 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
     ISD::CONCAT_VECTORS,        ISD::VECTOR_SHUFFLE
   };
 
-  for (MVT VT : MVT::vector_valuetypes()) {
+  for (MVT VT : MVT::fixedlen_vector_valuetypes()) {
     for (unsigned VectExpOp : VectExpOps)
       setOperationAction(VectExpOp, VT, Expand);
 
     // Expand all extending loads and truncating stores:
-    for (MVT TargetVT : MVT::vector_valuetypes()) {
+    for (MVT TargetVT : MVT::fixedlen_vector_valuetypes()) {
       if (TargetVT == VT)
         continue;
       setLoadExtAction(ISD::EXTLOAD, TargetVT, VT, Expand);
@@ -1864,7 +1864,7 @@ bool HexagonTargetLowering::isShuffleMaskLegal(ArrayRef<int> Mask,
 
 TargetLoweringBase::LegalizeTypeAction
 HexagonTargetLowering::getPreferredVectorAction(MVT VT) const {
-  if (VT.getVectorNumElements() == 1)
+  if (VT.getVectorNumElements() == 1 || VT.isScalableVector())
     return TargetLoweringBase::TypeScalarizeVector;
 
   // Always widen vectors of i1.
@@ -2902,7 +2902,8 @@ HexagonTargetLowering::ReplaceNodeResults(SDNode *N,
       if (N->getValueType(0) == MVT::i8) {
         SDValue P = getInstr(Hexagon::C2_tfrpr, dl, MVT::i32,
                              N->getOperand(0), DAG);
-        Results.push_back(P);
+        SDValue T = DAG.getAnyExtOrTrunc(P, dl, MVT::i8);
+        Results.push_back(T);
       }
       break;
   }

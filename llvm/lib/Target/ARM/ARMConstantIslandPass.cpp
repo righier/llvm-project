@@ -29,6 +29,7 @@
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
+#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -70,6 +71,7 @@ STATISTIC(NumT2BrShrunk, "Number of Thumb2 immediate branches shrunk");
 STATISTIC(NumCBZ,        "Number of CBZ / CBNZ formed");
 STATISTIC(NumJTMoved,    "Number of jump table destination blocks moved");
 STATISTIC(NumJTInserted, "Number of jump table intermediate blocks inserted");
+STATISTIC(NumLEInserted, "Number of LE backwards branches inserted");
 
 static cl::opt<bool>
 AdjustJumpTableBlocks("arm-adjust-jump-tables", cl::Hidden, cl::init(true),
@@ -213,6 +215,7 @@ namespace {
     const ARMBaseInstrInfo *TII;
     const ARMSubtarget *STI;
     ARMFunctionInfo *AFI;
+    MachineDominatorTree *DT = nullptr;
     bool isThumb;
     bool isThumb1;
     bool isThumb2;
@@ -224,6 +227,11 @@ namespace {
     ARMConstantIslands() : MachineFunctionPass(ID) {}
 
     bool runOnMachineFunction(MachineFunction &MF) override;
+
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
+      AU.addRequired<MachineDominatorTree>();
+      MachineFunctionPass::getAnalysisUsage(AU);
+    }
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
@@ -350,6 +358,7 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   isPositionIndependentOrROPI =
       STI->getTargetLowering()->isPositionIndependent() || STI->isROPI();
   AFI = MF->getInfo<ARMFunctionInfo>();
+  DT = &getAnalysis<MachineDominatorTree>();
 
   isThumb = AFI->isThumbFunction();
   isThumb1 = AFI->isThumb1OnlyFunction();
@@ -396,7 +405,7 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   // Functions with jump tables need an alignment of 4 because they use the ADR
   // instruction, which aligns the PC to 4 bytes before adding an offset.
   if (!T2JumpTables.empty())
-    MF->ensureAlignment(2);
+    MF->ensureAlignment(llvm::Align(4));
 
   /// Remove dead constant pool entries.
   MadeChange |= removeUnusedCPEntries();
@@ -486,10 +495,10 @@ ARMConstantIslands::doInitialConstPlacement(std::vector<MachineInstr*> &CPEMIs) 
   MF->push_back(BB);
 
   // MachineConstantPool measures alignment in bytes. We measure in log2(bytes).
-  unsigned MaxAlign = Log2_32(MCP->getConstantPoolAlignment());
+  unsigned MaxLogAlign = Log2_32(MCP->getConstantPoolAlignment());
 
   // Mark the basic block as required by the const-pool.
-  BB->setAlignment(MaxAlign);
+  BB->setLogAlignment(MaxLogAlign);
 
   // The function needs to be as aligned as the basic blocks. The linker may
   // move functions around based on their alignment.
@@ -499,7 +508,8 @@ ARMConstantIslands::doInitialConstPlacement(std::vector<MachineInstr*> &CPEMIs) 
   // alignment of all entries as long as BB is sufficiently aligned.  Keep
   // track of the insertion point for each alignment.  We are going to bucket
   // sort the entries as they are created.
-  SmallVector<MachineBasicBlock::iterator, 8> InsPoint(MaxAlign + 1, BB->end());
+  SmallVector<MachineBasicBlock::iterator, 8> InsPoint(MaxLogAlign + 1,
+                                                       BB->end());
 
   // Add all of the constants from the constant pool to the end block, use an
   // identity mapping of CPI's to CPE's.
@@ -524,7 +534,7 @@ ARMConstantIslands::doInitialConstPlacement(std::vector<MachineInstr*> &CPEMIs) 
 
     // Ensure that future entries with higher alignment get inserted before
     // CPEMI. This is bucket sort with iterators.
-    for (unsigned a = LogAlign + 1; a <= MaxAlign; ++a)
+    for (unsigned a = LogAlign + 1; a <= MaxLogAlign; ++a)
       if (InsPoint[a] == InsAt)
         InsPoint[a] = CPEMI;
 
@@ -685,7 +695,7 @@ initializeFunctionInfo(const std::vector<MachineInstr*> &CPEMIs) {
   BBInfoVector &BBInfo = BBUtils->getBBInfo();
   // The known bits of the entry block offset are determined by the function
   // alignment.
-  BBInfo.front().KnownBits = MF->getAlignment();
+  BBInfo.front().KnownBits = Log2(MF->getAlignment());
 
   // Compute block offsets and known bits.
   BBUtils->adjustBBOffsetsAfter(&MF->front());
@@ -1015,11 +1025,11 @@ bool ARMConstantIslands::isWaterInRange(unsigned UserOffset,
   BBInfoVector &BBInfo = BBUtils->getBBInfo();
   unsigned CPELogAlign = getCPELogAlign(U.CPEMI);
   unsigned CPEOffset = BBInfo[Water->getNumber()].postOffset(CPELogAlign);
-  unsigned NextBlockOffset, NextBlockAlignment;
+  unsigned NextBlockOffset;
+  llvm::Align NextBlockAlignment;
   MachineFunction::const_iterator NextBlock = Water->getIterator();
   if (++NextBlock == MF->end()) {
     NextBlockOffset = BBInfo[Water->getNumber()].postOffset();
-    NextBlockAlignment = 0;
   } else {
     NextBlockOffset = BBInfo[NextBlock->getNumber()].Offset;
     NextBlockAlignment = NextBlock->getAlignment();
@@ -1034,13 +1044,14 @@ bool ARMConstantIslands::isWaterInRange(unsigned UserOffset,
     Growth = CPEEnd - NextBlockOffset;
     // Compute the padding that would go at the end of the CPE to align the next
     // block.
-    Growth += OffsetToAlignment(CPEEnd, 1ULL << NextBlockAlignment);
+    Growth += offsetToAlignment(CPEEnd, NextBlockAlignment);
 
     // If the CPE is to be inserted before the instruction, that will raise
     // the offset of the instruction. Also account for unknown alignment padding
     // in blocks between CPE and the user.
     if (CPEOffset < UserOffset)
-      UserOffset += Growth + UnknownPadding(MF->getAlignment(), CPELogAlign);
+      UserOffset +=
+          Growth + UnknownPadding(Log2(MF->getAlignment()), CPELogAlign);
   } else
     // CPE fits in existing padding.
     Growth = 0;
@@ -1315,7 +1326,7 @@ void ARMConstantIslands::createNewWater(unsigned CPUserIndex,
   // Try to split the block so it's fully aligned.  Compute the latest split
   // point where we can add a 4-byte branch instruction, and then align to
   // LogAlign which is the largest possible alignment in the function.
-  unsigned LogAlign = MF->getAlignment();
+  unsigned LogAlign = Log2(MF->getAlignment());
   assert(LogAlign >= CPELogAlign && "Over-aligned constant pool entry");
   unsigned KnownBits = UserBBI.internalKnownBits();
   unsigned UPad = UnknownPadding(LogAlign, KnownBits);
@@ -1493,9 +1504,9 @@ bool ARMConstantIslands::handleConstantPoolUser(unsigned CPUserIndex,
   // Always align the new block because CP entries can be smaller than 4
   // bytes. Be careful not to decrease the existing alignment, e.g. NewMBB may
   // be an already aligned constant pool block.
-  const unsigned Align = isThumb ? 1 : 2;
-  if (NewMBB->getAlignment() < Align)
-    NewMBB->setAlignment(Align);
+  const unsigned LogAlign = isThumb ? 1 : 2;
+  if (NewMBB->getLogAlignment() < LogAlign)
+    NewMBB->setLogAlignment(LogAlign);
 
   // Remove the original WaterList entry; we want subsequent insertions in
   // this vicinity to go after the one we're about to insert.  This
@@ -1524,7 +1535,7 @@ bool ARMConstantIslands::handleConstantPoolUser(unsigned CPUserIndex,
   decrementCPEReferenceCount(CPI, CPEMI);
 
   // Mark the basic block as aligned as required by the const-pool entry.
-  NewIsland->setAlignment(getCPELogAlign(U.CPEMI));
+  NewIsland->setLogAlignment(getCPELogAlign(U.CPEMI));
 
   // Increase the size of the island block to account for the new entry.
   BBUtils->adjustBBSize(NewIsland, Size);
@@ -1558,10 +1569,10 @@ void ARMConstantIslands::removeDeadCPEMI(MachineInstr *CPEMI) {
     BBInfo[CPEBB->getNumber()].Size = 0;
 
     // This block no longer needs to be aligned.
-    CPEBB->setAlignment(0);
+    CPEBB->setLogAlignment(0);
   } else
     // Entries are sorted by descending alignment, so realign from the front.
-    CPEBB->setAlignment(getCPELogAlign(&*CPEBB->begin()));
+    CPEBB->setLogAlignment(getCPELogAlign(&*CPEBB->begin()));
 
   BBUtils->adjustBBOffsetsAfter(CPEBB);
   // An island has only one predecessor BB and one successor BB. Check if
@@ -1807,16 +1818,10 @@ bool ARMConstantIslands::optimizeThumb2Instructions() {
   return MadeChange;
 }
 
-bool ARMConstantIslands::optimizeThumb2Branches() {
-  bool MadeChange = false;
 
-  // The order in which branches appear in ImmBranches is approximately their
-  // order within the function body. By visiting later branches first, we reduce
-  // the distance between earlier forward branches and their targets, making it
-  // more likely that the cbn?z optimization, which can only apply to forward
-  // branches, will succeed.
-  for (unsigned i = ImmBranches.size(); i != 0; --i) {
-    ImmBranch &Br = ImmBranches[i-1];
+bool ARMConstantIslands::optimizeThumb2Branches() {
+
+  auto TryShrinkBranch = [this](ImmBranch &Br) {
     unsigned Opcode = Br.MI->getOpcode();
     unsigned NewOpc = 0;
     unsigned Scale = 1;
@@ -1844,47 +1849,115 @@ bool ARMConstantIslands::optimizeThumb2Branches() {
         BBUtils->adjustBBSize(MBB, -2);
         BBUtils->adjustBBOffsetsAfter(MBB);
         ++NumT2BrShrunk;
-        MadeChange = true;
+        return true;
       }
     }
+    return false;
+  };
 
-    Opcode = Br.MI->getOpcode();
-    if (Opcode != ARM::tBcc)
-      continue;
+  struct ImmCompare {
+    MachineInstr* MI = nullptr;
+    unsigned NewOpc = 0;
+  };
+
+  auto FindCmpForCBZ = [this](ImmBranch &Br, ImmCompare &ImmCmp,
+                              MachineBasicBlock *DestBB) {
+    ImmCmp.MI = nullptr;
+    ImmCmp.NewOpc = 0;
 
     // If the conditional branch doesn't kill CPSR, then CPSR can be liveout
     // so this transformation is not safe.
     if (!Br.MI->killsRegister(ARM::CPSR))
-      continue;
+      return false;
 
-    NewOpc = 0;
     unsigned PredReg = 0;
+    unsigned NewOpc = 0;
     ARMCC::CondCodes Pred = getInstrPredicate(*Br.MI, PredReg);
     if (Pred == ARMCC::EQ)
       NewOpc = ARM::tCBZ;
     else if (Pred == ARMCC::NE)
       NewOpc = ARM::tCBNZ;
-    if (!NewOpc)
-      continue;
-    MachineBasicBlock *DestBB = Br.MI->getOperand(0).getMBB();
+    else
+      return false;
+
     // Check if the distance is within 126. Subtract starting offset by 2
     // because the cmp will be eliminated.
     unsigned BrOffset = BBUtils->getOffsetOf(Br.MI) + 4 - 2;
     BBInfoVector &BBInfo = BBUtils->getBBInfo();
     unsigned DestOffset = BBInfo[DestBB->getNumber()].Offset;
     if (BrOffset >= DestOffset || (DestOffset - BrOffset) > 126)
-      continue;
+      return false;
 
     // Search backwards to find a tCMPi8
     auto *TRI = STI->getRegisterInfo();
     MachineInstr *CmpMI = findCMPToFoldIntoCBZ(Br.MI, TRI);
     if (!CmpMI || CmpMI->getOpcode() != ARM::tCMPi8)
+      return false;
+
+    ImmCmp.MI = CmpMI;
+    ImmCmp.NewOpc = NewOpc;
+    return true;
+  };
+
+  auto TryConvertToLE = [this](ImmBranch &Br, ImmCompare &Cmp) {
+    if (Br.MI->getOpcode() != ARM::t2Bcc || !STI->hasLOB() ||
+        STI->hasMinSize())
+      return false;
+
+    MachineBasicBlock *MBB = Br.MI->getParent();
+    MachineBasicBlock *DestBB = Br.MI->getOperand(0).getMBB();
+    if (BBUtils->getOffsetOf(MBB) < BBUtils->getOffsetOf(DestBB) ||
+        !BBUtils->isBBInRange(Br.MI, DestBB, 4094))
+      return false;
+
+    if (!DT->dominates(DestBB, MBB))
+      return false;
+
+    // We queried for the CBN?Z opcode based upon the 'ExitBB', the opposite
+    // target of Br. So now we need to reverse the condition.
+    Cmp.NewOpc = Cmp.NewOpc == ARM::tCBZ ? ARM::tCBNZ : ARM::tCBZ;
+
+    MachineInstrBuilder MIB = BuildMI(*MBB, Br.MI, Br.MI->getDebugLoc(),
+                                      TII->get(ARM::t2LE));
+    MIB.add(Br.MI->getOperand(0));
+    Br.MI->eraseFromParent();
+    Br.MI = MIB;
+    ++NumLEInserted;
+    return true;
+  };
+
+  bool MadeChange = false;
+
+  // The order in which branches appear in ImmBranches is approximately their
+  // order within the function body. By visiting later branches first, we reduce
+  // the distance between earlier forward branches and their targets, making it
+  // more likely that the cbn?z optimization, which can only apply to forward
+  // branches, will succeed.
+  for (ImmBranch &Br : reverse(ImmBranches)) {
+    MachineBasicBlock *DestBB = Br.MI->getOperand(0).getMBB();
+    MachineBasicBlock *MBB = Br.MI->getParent();
+    MachineBasicBlock *ExitBB = &MBB->back() == Br.MI ?
+      MBB->getFallThrough() :
+      MBB->back().getOperand(0).getMBB();
+
+    ImmCompare Cmp;
+    if (FindCmpForCBZ(Br, Cmp, ExitBB) && TryConvertToLE(Br, Cmp)) {
+      DestBB = ExitBB;
+      MadeChange = true;
+    } else {
+      FindCmpForCBZ(Br, Cmp, DestBB);
+      MadeChange |= TryShrinkBranch(Br);
+    }
+
+    unsigned Opcode = Br.MI->getOpcode();
+    if ((Opcode != ARM::tBcc && Opcode != ARM::t2LE) || !Cmp.NewOpc)
       continue;
 
-    Register Reg = CmpMI->getOperand(0).getReg();
+    Register Reg = Cmp.MI->getOperand(0).getReg();
 
     // Check for Kill flags on Reg. If they are present remove them and set kill
     // on the new CBZ.
+    auto *TRI = STI->getRegisterInfo();
     MachineBasicBlock::iterator KillMI = Br.MI;
     bool RegKilled = false;
     do {
@@ -1894,19 +1967,32 @@ bool ARMConstantIslands::optimizeThumb2Branches() {
         RegKilled = true;
         break;
       }
-    } while (KillMI != CmpMI);
+    } while (KillMI != Cmp.MI);
 
     // Create the new CBZ/CBNZ
-    MachineBasicBlock *MBB = Br.MI->getParent();
-    LLVM_DEBUG(dbgs() << "Fold: " << *CmpMI << " and: " << *Br.MI);
+    LLVM_DEBUG(dbgs() << "Fold: " << *Cmp.MI << " and: " << *Br.MI);
     MachineInstr *NewBR =
-        BuildMI(*MBB, Br.MI, Br.MI->getDebugLoc(), TII->get(NewOpc))
+        BuildMI(*MBB, Br.MI, Br.MI->getDebugLoc(), TII->get(Cmp.NewOpc))
             .addReg(Reg, getKillRegState(RegKilled))
             .addMBB(DestBB, Br.MI->getOperand(0).getTargetFlags());
-    CmpMI->eraseFromParent();
-    Br.MI->eraseFromParent();
-    Br.MI = NewBR;
+
+    Cmp.MI->eraseFromParent();
+    BBInfoVector &BBInfo = BBUtils->getBBInfo();
     BBInfo[MBB->getNumber()].Size -= 2;
+
+    if (Br.MI->getOpcode() == ARM::tBcc) {
+      Br.MI->eraseFromParent();
+      Br.MI = NewBR;
+    } else if (&MBB->back() != Br.MI) {
+      // We've generated an LE and already erased the original conditional
+      // branch. The CBN?Z is now used to branch to the other successor, so an
+      // unconditional branch terminator is now redundant.
+      MachineInstr *LastMI = &MBB->back();
+      if (LastMI != Br.MI) {
+        BBInfo[MBB->getNumber()].Size -= LastMI->getDesc().getSize();
+        LastMI->eraseFromParent();
+      }
+    }
     BBUtils->adjustBBOffsetsAfter(MBB);
     ++NumCBZ;
     MadeChange = true;

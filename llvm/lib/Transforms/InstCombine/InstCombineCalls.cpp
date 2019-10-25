@@ -4188,13 +4188,14 @@ static void annotateAnyAllocSite(CallBase &Call, const TargetLibraryInfo *TLI) {
     return;
 
   if (isMallocLikeFn(&Call, TLI) && Op0C) {
-    Call.addAttribute(AttributeList::ReturnIndex,
-                      Attribute::getWithDereferenceableOrNullBytes(
-                          Call.getContext(), Op0C->getZExtValue()));
-  } else if (isOpNewLikeFn(&Call, TLI) && Op0C) {
-    Call.addAttribute(AttributeList::ReturnIndex,
-                      Attribute::getWithDereferenceableBytes(
-                          Call.getContext(), Op0C->getZExtValue()));
+    if (isOpNewLikeFn(&Call, TLI))
+      Call.addAttribute(AttributeList::ReturnIndex,
+                        Attribute::getWithDereferenceableBytes(
+                            Call.getContext(), Op0C->getZExtValue()));
+    else
+      Call.addAttribute(AttributeList::ReturnIndex,
+                        Attribute::getWithDereferenceableOrNullBytes(
+                            Call.getContext(), Op0C->getZExtValue()));
   } else if (isReallocLikeFn(&Call, TLI) && Op1C) {
     Call.addAttribute(AttributeList::ReturnIndex,
                       Attribute::getWithDereferenceableOrNullBytes(
@@ -4207,6 +4208,12 @@ static void annotateAnyAllocSite(CallBase &Call, const TargetLibraryInfo *TLI) {
       Call.addAttribute(AttributeList::ReturnIndex,
                         Attribute::getWithDereferenceableOrNullBytes(
                             Call.getContext(), Size.getZExtValue()));
+  } else if (isStrdupLikeFn(&Call, TLI) && Call.getNumArgOperands() == 1) {
+    // TODO: handle strndup
+    if (uint64_t Len = GetStringLength(Call.getOperand(0)))
+      Call.addAttribute(
+          AttributeList::ReturnIndex,
+          Attribute::getWithDereferenceableOrNullBytes(Call.getContext(), Len));
   }
 }
 

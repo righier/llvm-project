@@ -128,8 +128,6 @@ struct CopyConfig {
   StringRef OutputFilename;
   FileFormat OutputFormat;
 
-  // Only applicable for --input-format=binary
-  MachineInfo BinaryArch;
   // Only applicable when --output-format!=binary (e.g. elf64-x86-64).
   Optional<MachineInfo> OutputArch;
 
@@ -145,6 +143,7 @@ struct CopyConfig {
   StringRef SymbolsPrefix;
   StringRef AllocSectionsPrefix;
   DiscardType DiscardMode = DiscardType::None;
+  Optional<uint8_t> NewSymbolVisibility;
 
   // Repeated options
   std::vector<StringRef> AddSection;

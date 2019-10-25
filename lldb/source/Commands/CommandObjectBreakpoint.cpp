@@ -668,7 +668,7 @@ protected:
         }
 
         bp_sp = target.CreateFuncRegexBreakpoint(
-            &(m_options.m_modules), &(m_options.m_filenames), regexp,
+            &(m_options.m_modules), &(m_options.m_filenames), std::move(regexp),
             m_options.m_language, m_options.m_skip_prologue, internal,
             m_options.m_hardware);
       }
@@ -699,7 +699,7 @@ protected:
       }
       bp_sp = target.CreateSourceRegexBreakpoint(
           &(m_options.m_modules), &(m_options.m_filenames),
-          m_options.m_source_regex_func_names, regexp, internal,
+          m_options.m_source_regex_func_names, std::move(regexp), internal,
           m_options.m_hardware, m_options.m_move_to_nearest_code);
     } break;
     case eSetTypeException: {
@@ -1707,7 +1707,7 @@ protected:
     // Make a pass through first to see that all the names are legal.
     for (auto &entry : command.entries()) {
       Status error;
-      if (!BreakpointID::StringIsBreakpointName(entry.ref, error))
+      if (!BreakpointID::StringIsBreakpointName(entry.ref(), error))
       {
         result.AppendErrorWithFormat("Invalid breakpoint name: %s - %s",
                                      entry.c_str(), error.AsCString());

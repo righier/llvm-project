@@ -3220,6 +3220,8 @@ bool Sema::CheckPPCBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case PPC::BI__builtin_altivec_crypto_vshasigmad:
     return SemaBuiltinConstantArgRange(TheCall, 1, 0, 1) ||
            SemaBuiltinConstantArgRange(TheCall, 2, 0, 15);
+  case PPC::BI__builtin_altivec_dss:
+    return SemaBuiltinConstantArgRange(TheCall, 0, 0, 3);
   case PPC::BI__builtin_tbegin:
   case PPC::BI__builtin_tend: i = 0; l = 0; u = 1; break;
   case PPC::BI__builtin_tsr: i = 0; l = 0; u = 7; break;
@@ -3229,6 +3231,11 @@ bool Sema::CheckPPCBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case PPC::BI__builtin_tabortdci:
     return SemaBuiltinConstantArgRange(TheCall, 0, 0, 31) ||
            SemaBuiltinConstantArgRange(TheCall, 2, 0, 31);
+  case PPC::BI__builtin_altivec_dst:
+  case PPC::BI__builtin_altivec_dstt:
+  case PPC::BI__builtin_altivec_dstst:
+  case PPC::BI__builtin_altivec_dststt:
+    return SemaBuiltinConstantArgRange(TheCall, 2, 0, 3);
   case PPC::BI__builtin_vsx_xxpermdi:
   case PPC::BI__builtin_vsx_xxsldwi:
     return SemaBuiltinVSX(TheCall);
@@ -3539,9 +3546,11 @@ bool Sema::CheckX86BuiltinRoundingOrSAE(unsigned BuiltinID, CallExpr *TheCall) {
 
   // Make sure rounding mode is either ROUND_CUR_DIRECTION or ROUND_NO_EXC bit
   // is set. If the intrinsic has rounding control(bits 1:0), make sure its only
-  // combined with ROUND_NO_EXC.
+  // combined with ROUND_NO_EXC. If the intrinsic does not have rounding
+  // control, allow ROUND_NO_EXC and ROUND_CUR_DIRECTION together.
   if (Result == 4/*ROUND_CUR_DIRECTION*/ ||
       Result == 8/*ROUND_NO_EXC*/ ||
+      (!HasRC && Result == 12/*ROUND_CUR_DIRECTION|ROUND_NO_EXC*/) ||
       (HasRC && Result.getZExtValue() >= 8 && Result.getZExtValue() <= 11))
     return false;
 
@@ -10831,6 +10840,26 @@ static void DiagnoseImpCast(Sema &S, Expr *E, QualType T,
   DiagnoseImpCast(S, E, E->getType(), T, CContext, diag, pruneControlFlow);
 }
 
+static bool isObjCSignedCharBool(Sema &S, QualType Ty) {
+  return Ty->isSpecificBuiltinType(BuiltinType::SChar) &&
+      S.getLangOpts().ObjC && S.NSAPIObj->isObjCBOOLType(Ty);
+}
+
+static void adornObjCBoolConversionDiagWithTernaryFixit(
+    Sema &S, Expr *SourceExpr, const Sema::SemaDiagnosticBuilder &Builder) {
+  Expr *Ignored = SourceExpr->IgnoreImplicit();
+  if (const auto *OVE = dyn_cast<OpaqueValueExpr>(Ignored))
+    Ignored = OVE->getSourceExpr();
+  bool NeedsParens = isa<AbstractConditionalOperator>(Ignored) ||
+                     isa<BinaryOperator>(Ignored) ||
+                     isa<CXXOperatorCallExpr>(Ignored);
+  SourceLocation EndLoc = S.getLocForEndOfToken(SourceExpr->getEndLoc());
+  if (NeedsParens)
+    Builder << FixItHint::CreateInsertion(SourceExpr->getBeginLoc(), "(")
+            << FixItHint::CreateInsertion(EndLoc, ")");
+  Builder << FixItHint::CreateInsertion(EndLoc, " ? YES : NO");
+}
+
 /// Diagnose an implicit cast from a floating point value to an integer value.
 static void DiagnoseFloatingImpCast(Sema &S, Expr *E, QualType T,
                                     SourceLocation CContext) {
@@ -10850,6 +10879,13 @@ static void DiagnoseFloatingImpCast(Sema &S, Expr *E, QualType T,
   bool IsConstant =
     E->EvaluateAsFloat(Value, S.Context, Expr::SE_AllowSideEffects);
   if (!IsConstant) {
+    if (isObjCSignedCharBool(S, T)) {
+      return adornObjCBoolConversionDiagWithTernaryFixit(
+          S, E,
+          S.Diag(CContext, diag::warn_impcast_float_to_objc_signed_char_bool)
+              << E->getType());
+    }
+
     return DiagnoseImpCast(S, E, T, CContext,
                            diag::warn_impcast_float_integer, PruneWarnings);
   }
@@ -10860,6 +10896,23 @@ static void DiagnoseFloatingImpCast(Sema &S, Expr *E, QualType T,
                             T->hasUnsignedIntegerRepresentation());
   llvm::APFloat::opStatus Result = Value.convertToInteger(
       IntegerValue, llvm::APFloat::rmTowardZero, &isExact);
+
+  // FIXME: Force the precision of the source value down so we don't print
+  // digits which are usually useless (we don't really care here if we
+  // truncate a digit by accident in edge cases).  Ideally, APFloat::toString
+  // would automatically print the shortest representation, but it's a bit
+  // tricky to implement.
+  SmallString<16> PrettySourceValue;
+  unsigned precision = llvm::APFloat::semanticsPrecision(Value.getSemantics());
+  precision = (precision * 59 + 195) / 196;
+  Value.toString(PrettySourceValue, precision);
+
+  if (isObjCSignedCharBool(S, T) && IntegerValue != 0 && IntegerValue != 1) {
+    return adornObjCBoolConversionDiagWithTernaryFixit(
+        S, E,
+        S.Diag(CContext, diag::warn_impcast_constant_value_to_objc_bool)
+            << PrettySourceValue);
+  }
 
   if (Result == llvm::APFloat::opOK && isExact) {
     if (IsLiteral) return;
@@ -10903,16 +10956,6 @@ static void DiagnoseFloatingImpCast(Sema &S, Expr *E, QualType T,
     // Warn on evaluatable floating point expression to integer conversion.
     DiagID = diag::warn_impcast_float_to_integer;
   }
-
-  // FIXME: Force the precision of the source value down so we don't print
-  // digits which are usually useless (we don't really care here if we
-  // truncate a digit by accident in edge cases).  Ideally, APFloat::toString
-  // would automatically print the shortest representation, but it's a bit
-  // tricky to implement.
-  SmallString<16> PrettySourceValue;
-  unsigned precision = llvm::APFloat::semanticsPrecision(Value.getSemantics());
-  precision = (precision * 59 + 195) / 196;
-  Value.toString(PrettySourceValue, precision);
 
   SmallString<16> PrettyTargetValue;
   if (IsBool)
@@ -11190,11 +11233,6 @@ static bool isSameWidthConstantConversion(Sema &S, Expr *E, QualType T,
   return true;
 }
 
-static bool isObjCSignedCharBool(Sema &S, QualType Ty) {
-  return Ty->isSpecificBuiltinType(BuiltinType::SChar) &&
-         S.getLangOpts().ObjC && S.NSAPIObj->isObjCBOOLType(Ty);
-}
-
 static void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
                                     SourceLocation CC,
                                     bool *ICContext = nullptr,
@@ -11245,19 +11283,13 @@ static void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
   if (isObjCSignedCharBool(S, T) && Source->isIntegralType(S.Context)) {
     Expr::EvalResult Result;
     if (E->EvaluateAsInt(Result, S.getASTContext(),
-                         Expr::SE_AllowSideEffects) &&
-        Result.Val.getInt() != 1 && Result.Val.getInt() != 0) {
-      auto Builder = S.Diag(CC, diag::warn_impcast_constant_int_to_objc_bool)
-                     << Result.Val.getInt().toString(10);
-      Expr *Ignored = E->IgnoreImplicit();
-      bool NeedsParens = isa<AbstractConditionalOperator>(Ignored) ||
-                         isa<BinaryOperator>(Ignored) ||
-                         isa<CXXOperatorCallExpr>(Ignored);
-      SourceLocation EndLoc = S.getLocForEndOfToken(E->getEndLoc());
-      if (NeedsParens)
-        Builder << FixItHint::CreateInsertion(E->getBeginLoc(), "(")
-                << FixItHint::CreateInsertion(EndLoc, ")");
-      Builder << FixItHint::CreateInsertion(EndLoc, " ? YES : NO");
+                         Expr::SE_AllowSideEffects)) {
+      if (Result.Val.getInt() != 1 && Result.Val.getInt() != 0) {
+        adornObjCBoolConversionDiagWithTernaryFixit(
+            S, E,
+            S.Diag(CC, diag::warn_impcast_constant_value_to_objc_bool)
+                << Result.Val.getInt().toString(10));
+      }
       return;
     }
   }
@@ -11499,6 +11531,14 @@ static void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
   // in templates, macros, etc, are reduced or removed.
   if (Target->isSpecificBuiltinType(BuiltinType::Bool))
     return;
+
+  if (isObjCSignedCharBool(S, T) && !Source->isCharType() &&
+      !E->isKnownToHaveBooleanValue()) {
+    return adornObjCBoolConversionDiagWithTernaryFixit(
+        S, E,
+        S.Diag(CC, diag::warn_impcast_int_to_objc_signed_char_bool)
+            << E->getType());
+  }
 
   IntRange SourceRange = GetExprRange(S.Context, E, S.isConstantEvaluated());
   IntRange TargetRange = IntRange::forTargetOfCanonicalType(S.Context, Target);
@@ -13001,7 +13041,7 @@ void Sema::CheckArrayAccess(const Expr *BaseExpr, const Expr *IndexExpr,
 
   if (ND)
     DiagRuntimeBehavior(ND->getBeginLoc(), BaseExpr,
-                        PDiag(diag::note_array_index_out_of_bounds)
+                        PDiag(diag::note_array_declared_here)
                             << ND->getDeclName());
 }
 
