@@ -2012,6 +2012,7 @@ public:
   void VisitPseudoObjectExpr(const PseudoObjectExpr *E);
   void VisitOpaqueValueExpr(const OpaqueValueExpr *E);
   void VisitLambdaExpr(const LambdaExpr *E);
+  void VisitTransformExecutableDirective(const TransformExecutableDirective *D);
   void VisitOMPExecutableDirective(const OMPExecutableDirective *D);
   void VisitOMPLoopDirective(const OMPLoopDirective *D);
   void VisitOMPParallelDirective(const OMPParallelDirective *D);
@@ -2740,6 +2741,10 @@ void EnqueueVisitor::VisitLambdaExpr(const LambdaExpr *E) {
 void EnqueueVisitor::VisitPseudoObjectExpr(const PseudoObjectExpr *E) {
   // Treat the expression like its syntactic form.
   Visit(E->getSyntacticForm());
+}
+
+void EnqueueVisitor::VisitTransformExecutableDirective(const TransformExecutableDirective *D) {
+  VisitStmt(D);
 }
 
 void EnqueueVisitor::VisitOMPExecutableDirective(
@@ -5527,6 +5532,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
       return cxstring::createRef("attribute(warn_unused_result)");
   case CXCursor_AlignedAttr:
       return cxstring::createRef("attribute(aligned)");
+  case CXCursor_TransformExecutableDirective:
+    return cxstring::createRef("TransformExecutableDirective");
   }
 
   llvm_unreachable("Unhandled CXCursorKind");

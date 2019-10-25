@@ -2006,7 +2006,33 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 
 void ASTStmtReader::VisitTransformExecutableDirective(
     TransformExecutableDirective *D) {
-  llvm_unreachable("not implemented");
+  VisitStmt(D);
+  D->setLoc(ReadSourceRange());
+  uint64_t NumClauses = Record.readInt();
+  SmallVector<TransformClause *, 8> Clauses;
+  for (uint64_t i = 0; i < NumClauses; ++i) {
+    auto ClauseKind = Record.readInt();
+    auto ClauseLoc = Record.readSourceRange();
+    TransformClause *Clause;
+    switch (ClauseKind) {
+    case TransformClause::UnknownKind:
+      llvm_unreachable("Cannot read unknown clause");
+    case TransformClause::FullKind:
+      Clause = FullClause::createEmpty(Record.getContext());
+      break;
+    case TransformClause::FactorKind:
+      Clause = FactorClause::createEmpty(Record.getContext());
+      static_cast<FactorClause *>(Clause)->setFactor(Record.readSubExpr());
+      break;
+    case TransformClause::WidthKind:
+      Clause = WidthClause::createEmpty(Record.getContext());
+      static_cast<WidthClause *>(Clause)->setWidth(Record.readSubExpr());
+      break;
+    }
+    Clauses.push_back(Clause);
+  }
+  D->setClauses(Clauses);
+  D->setAssociated(Record.readSubStmt());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2922,6 +2948,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
                                               NestedNameSpecifierLoc(),
                                               DeclarationNameInfo(),
                                               nullptr);
+      break;
+
+    case STMT_TRANSFORM_EXECUTABLE_DIRECTIVE:
+      S = TransformExecutableDirective::createEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields]);
       break;
 
     case STMT_OMP_PARALLEL_DIRECTIVE:
