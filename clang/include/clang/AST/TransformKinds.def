@@ -1,0 +1,39 @@
+
+#ifndef TRANSFORM_DIRECTIVE
+#  define TRANSFORM_DIRECTIVE(Keyword, Name)
+#endif
+#ifndef TRANSFORM_DIRECTIVE_LAST
+#  define TRANSFORM_DIRECTIVE_LAST(Keyword, Name) TRANSFORM_DIRECTIVE(Keyword, Name)
+#endif
+
+// Loop transformations
+TRANSFORM_DIRECTIVE(distribute,LoopDistribution)
+TRANSFORM_DIRECTIVE(vectorize,LoopVectorization)
+TRANSFORM_DIRECTIVE(interleave,LoopInterleaving)
+TRANSFORM_DIRECTIVE(vectorize_interleave,LoopVectorizationInterleaving)
+TRANSFORM_DIRECTIVE(unrollandjam,LoopUnrollAndJam)
+TRANSFORM_DIRECTIVE(unroll,LoopUnrolling)
+TRANSFORM_DIRECTIVE(pipeline,LoopPipelining)
+
+// Assumptions
+TRANSFORM_DIRECTIVE_LAST(assume_parallel,LoopAssumeParallel)
+
+#undef TRANSFORM_DIRECTIVE
+#undef TRANSFORM_DIRECTIVE_LAST
+
+
+#ifndef TRANSFORM_CLAUSE
+#  define TRANSFORM_CLAUSE(Keyword, Name)
+#endif
+#ifndef TRANSFORM_CLAUSE_LAST
+#  define TRANSFORM_CLAUSE_LAST(Keyword, Name)  TRANSFORM_CLAUSE(Keyword, Name)
+#endif
+
+TRANSFORM_CLAUSE(full,Full)
+TRANSFORM_CLAUSE(partial,Partial)
+
+TRANSFORM_CLAUSE(width,Width)
+TRANSFORM_CLAUSE_LAST(factor,Factor)
+
+#undef TRANSFORM_CLAUSE
+#undef TRANSFORM_CLAUSE_LAST
