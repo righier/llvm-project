@@ -17,6 +17,32 @@
 
 using namespace clang;
 
+TransformExecutableDirective *TransformExecutableDirective::create(
+    ASTContext &Ctx, SourceRange Range, Stmt *Associated, Transform *Trans,
+    ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<TransformClause *>(Clauses.size()));
+  return new (Mem) TransformExecutableDirective(Range, Associated, Trans,
+                                                Clauses, TransKind);
+}
+
+TransformExecutableDirective *
+TransformExecutableDirective::createEmpty(ASTContext &Ctx,
+                                          unsigned NumClauses) {
+  void *Mem = Ctx.Allocate(totalSizeToAlloc<TransformClause *>(NumClauses));
+  return new (Mem) TransformExecutableDirective(NumClauses);
+}
+
+llvm::StringRef TransformClause::getClauseName(Kind K) {
+  assert(K >= UnknownKind);
+  assert(K <= LastKind);
+  const char *Names[LastKind + 1] = {
+      "Unknown",
+#define TRANSFORM_CLAUSE(Keyword, Name) #Name,
+#include "clang/AST/TransformKinds.def"
+  };
+  return Names[K];
+}
+
 bool TransformClause::isValidForTransform(Transform::Kind TransformKind,
                                           TransformClause::Kind ClauseKind) {
   switch (TransformKind) {
@@ -44,6 +70,56 @@ TransformClause ::getClauseKind(Transform::Kind TransformKind,
   return TransformClause::UnknownKind;
 }
 
+TransformClause ::child_range TransformClause ::children() {
+  switch (getKind()) {
+  case UnknownKind:
+    llvm_unreachable("Unknown child");
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    return static_cast<Name##Clause *>(this)->children();
+#include "clang/AST/TransformKinds.def"
+  }
+  llvm_unreachable("Unhandled clause kind");
+}
+
+void TransformClause ::print(llvm::raw_ostream &OS,
+                             const PrintingPolicy &Policy) const {
+  assert(getKind() > UnknownKind);
+  assert(getKind() <= LastKind);
+  static decltype(&TransformClause::print) PrintFuncs[LastKind] = {
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  static_cast<decltype(&TransformClause::print)>(&Name##Clause ::print),
+#include "clang/AST/TransformKinds.def"
+  };
+  (this->*PrintFuncs[getKind() - 1])(OS, Policy);
+}
+
+void FullClause::print(llvm::raw_ostream &OS,
+                       const PrintingPolicy &Policy) const {
+  OS << "full";
+}
+
+void PartialClause::print(llvm::raw_ostream &OS,
+                          const PrintingPolicy &Policy) const {
+  OS << "partial(";
+  Factor->printPretty(OS, nullptr, Policy, 0);
+  OS << ')';
+}
+
+void WidthClause::print(llvm::raw_ostream &OS,
+                        const PrintingPolicy &Policy) const {
+  OS << "width(";
+  Width->printPretty(OS, nullptr, Policy, 0);
+  OS << ')';
+}
+
+void FactorClause::print(llvm::raw_ostream &OS,
+                         const PrintingPolicy &Policy) const {
+  OS << "factor(";
+  Factor->printPretty(OS, nullptr, Policy, 0);
+  OS << ')';
+}
+
 const Stmt *clang::getAssociatedLoop(const Stmt *S) {
   switch (S->getStmtClass()) {
   case Stmt::ForStmtClass:
@@ -55,6 +131,9 @@ const Stmt *clang::getAssociatedLoop(const Stmt *S) {
     return getAssociatedLoop(cast<CapturedStmt>(S)->getCapturedStmt());
   case Stmt::AttributedStmtClass:
     return getAssociatedLoop(cast<AttributedStmt>(S)->getSubStmt());
+  case Stmt::TransformExecutableDirectiveClass:
+    return getAssociatedLoop(
+        cast<TransformExecutableDirective>(S)->getAssociated());
   default:
     if (auto LD = dyn_cast<OMPLoopDirective>(S))
       return getAssociatedLoop(LD->getAssociatedStmt());

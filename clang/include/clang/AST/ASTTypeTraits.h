@@ -20,6 +20,7 @@
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/LLVM.h"
@@ -71,6 +72,8 @@ public:
   static ASTNodeKind getFromNode(const Stmt &S);
   static ASTNodeKind getFromNode(const Type &T);
   static ASTNodeKind getFromNode(const OMPClause &C);
+  static ASTNodeKind getFromNode(const TransformClause &C);
+  static ASTNodeKind getFromNode(const Transform &T);
   /// \}
 
   /// Returns \c true if \c this and \c Other represent the same kind.
@@ -152,6 +155,12 @@ private:
     NKI_OMPClause,
 #define OPENMP_CLAUSE(TextualSpelling, Class) NKI_##Class,
 #include "clang/Basic/OpenMPKinds.def"
+    NKI_TransformClause,
+#define TRANSFORM_CLAUSE(Keyword, Name) NKI_##Name##Clause,
+#include "clang/AST/TransformKinds.def"
+    NKI_Transform,
+#define TRANSFORM_DIRECTIVE(Keyworld, Name) NKI_##Name##Transform,
+#include "clang/AST/TransformKinds.def"
     NKI_NumberOfKinds
   };
 
@@ -208,6 +217,10 @@ KIND_TO_KIND_ID(OMPClause)
 #include "clang/AST/TypeNodes.inc"
 #define OPENMP_CLAUSE(TextualSpelling, Class) KIND_TO_KIND_ID(Class)
 #include "clang/Basic/OpenMPKinds.def"
+#define TRANSFORM_CLAUSE(Keyword, Name) KIND_TO_KIND_ID(Name##Clause)
+#include "clang/AST/TransformKinds.def"
+#define TRANSFORM_DIRECTIVE(Keyworld, Name) KIND_TO_KIND_ID(Name##Transform)
+#include "clang/AST/TransformKinds.def"
 #undef KIND_TO_KIND_ID
 
 inline raw_ostream &operator<<(raw_ostream &OS, ASTNodeKind K) {

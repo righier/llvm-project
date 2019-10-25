@@ -9994,4 +9994,31 @@ def err_bit_cast_non_trivially_copyable : Error<
   "__builtin_bit_cast %select{source|destination}0 type must be trivially copyable">;
 def err_bit_cast_type_size_mismatch : Error<
   "__builtin_bit_cast source size does not equal destination size (%0 vs %1)">;
+
+// Pragma transform support.
+def err_sema_transform_unrollandjam_expect_nested_loop : Error<
+  "unroll-and-jam requires exactly one nested loop">;
+def err_sema_transform_unrollandjam_not_innermost : Error<
+  "inner loop of unroll-and-jam is not the innermost">;
+def err_sema_transform_missing_loop : Error<
+  "transformation did not find its loop to transform; it might have been consumed by another transformations">;
+def err_sema_transform_unroll_full_or_partial : Error<
+  "unroll full/partial clauses specified multiple times">;
+def err_sema_transform_unroll_factor_expect_int : Error<
+  "unroll partial clause expects an int">;
+def err_sema_transform_unroll_partial_once : Error<
+  "unroll-and-jam partial clause can only be used once">;
+def err_sema_transform_vectorize_width_once : Error<
+  "vectorize width clause can only be used once">;
+def err_sema_transform_interleave_factor_once : Error<
+  "interleave factor clause can only be used once">;
+def err_sema_transform_expected_loop : Error<
+  "cannot find loop to transform">;
+def err_sema_transform_unroll_partial_ge_two : Error<
+  "unroll factor must be at least two">;
+  def err_sema_transform_interleave_factor_ge_two : Error<
+  "interleave factor must be at least two">;
+def warn_sema_transform_pass_order : Warning<
+  "the LLVM pass structure currently is not able to apply the transformations in this order">, InGroup<ClangTransform>;
+
 } // end of sema component.

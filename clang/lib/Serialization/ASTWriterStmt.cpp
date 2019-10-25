@@ -1943,6 +1943,14 @@ void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
   Record.AddSourceLocation(S->getLeaveLoc());
   Code = serialization::STMT_SEH_LEAVE;
 }
+//===----------------------------------------------------------------------===//
+// Transformation Directives.
+//===----------------------------------------------------------------------===//
+
+void ASTStmtWriter::VisitTransformExecutableDirective(
+    TransformExecutableDirective *D) {
+  llvm_unreachable("not implemented");
+}
 
 //===----------------------------------------------------------------------===//
 // OpenMP Directives.

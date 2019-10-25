@@ -2001,6 +2001,15 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 }
 
 //===----------------------------------------------------------------------===//
+// Transformation Directives.
+//===----------------------------------------------------------------------===//
+
+void ASTStmtReader::VisitTransformExecutableDirective(
+    TransformExecutableDirective *D) {
+  llvm_unreachable("not implemented");
+}
+
+//===----------------------------------------------------------------------===//
 // OpenMP Directives.
 //===----------------------------------------------------------------------===//
 

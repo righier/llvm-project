@@ -46,3 +46,46 @@ llvm::StringRef Transform ::getTransformDirectiveName(Kind K) {
   };
   return Keywords[K];
 }
+
+int Transform::getLoopPipelineStage() const {
+  switch (getKind()) {
+  case Transform::Kind::LoopDistributionKind:
+    return 1;
+  case Transform::Kind::LoopUnrollingKind:
+    return cast<LoopUnrollingTransform>(this)->isFull() ? 0 : 4;
+  case Transform::Kind::LoopInterleavingKind:
+  case Transform::Kind::LoopVectorizationKind:
+  case Transform::Kind::LoopVectorizationInterleavingKind:
+    return 2;
+  case Transform::Kind::LoopUnrollAndJamKind:
+    return 3;
+  default:
+    return -1;
+  }
+}
+
+int Transform::getNumInputs() const {
+  assert(getKind() > UnknownKind);
+  assert(getKind() <= LastKind);
+  static const decltype(
+      &Transform::getNumInputs) GetNumInputFuncs[Transform::Kind::LastKind] = {
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  static_cast<decltype(&Transform::getNumInputs)>(                             \
+      &Name##Transform ::getNumInputs),
+#include "clang/AST/TransformKinds.def"
+  };
+  return (this->*GetNumInputFuncs[getKind() - 1])();
+}
+
+int Transform::getNumFollowups() const {
+  assert(getKind() > UnknownKind);
+  assert(getKind() <= LastKind);
+  static const decltype(&Transform::getNumInputs)
+      GetNumFollowupFuncs[Transform::Kind::LastKind] = {
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  static_cast<decltype(&Transform::getNumFollowups)>(                          \
+      &Name##Transform ::getNumFollowups),
+#include "clang/AST/TransformKinds.def"
+      };
+  return (this->*GetNumFollowupFuncs[getKind() - 1])();
+}

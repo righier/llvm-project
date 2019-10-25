@@ -167,6 +167,10 @@ void JSONNodeDumper::Visit(const CXXCtorInitializer *Init) {
 
 void JSONNodeDumper::Visit(const OMPClause *C) {}
 
+void JSONNodeDumper::Visit(const TransformClause *C) {}
+
+void JSONNodeDumper::Visit(const Transform *T) {}
+
 void JSONNodeDumper::Visit(const BlockDecl::Capture &C) {
   JOS.attribute("kind", "Capture");
   attributeOnlyIfTrue("byref", C.isByRef());

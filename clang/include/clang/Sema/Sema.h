@@ -11549,6 +11549,8 @@ public:
   TransformClause *ActOnPartialClause(SourceRange Loc, Expr *Factor);
   TransformClause *ActOnWidthClause(SourceRange Loc, Expr *Width);
   TransformClause *ActOnFactorClause(SourceRange Loc, Expr *Factor);
+
+  void HandleLoopTransformations(FunctionDecl *FD);
 };
 
 /// RAII object that enters a new expression evaluation context.
