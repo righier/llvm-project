@@ -81,13 +81,24 @@ ProcessSP ProcessWindows::CreateInstance(lldb::TargetSP target_sp,
   return ProcessSP(new ProcessWindows(target_sp, listener_sp));
 }
 
-void ProcessWindows::Initialize() {
-  static llvm::once_flag g_once_flag;
+static bool ShouldUseLLDBServer() {
+  llvm::StringRef use_lldb_server = ::getenv("LLDB_USE_LLDB_SERVER");
+  return use_lldb_server.equals_lower("on") ||
+         use_lldb_server.equals_lower("yes") ||
+         use_lldb_server.equals_lower("1") ||
+         use_lldb_server.equals_lower("true");
+}
 
-  llvm::call_once(g_once_flag, []() {
-    PluginManager::RegisterPlugin(GetPluginNameStatic(),
-                                  GetPluginDescriptionStatic(), CreateInstance);
-  });
+void ProcessWindows::Initialize() {
+  if (!ShouldUseLLDBServer()) {
+    static llvm::once_flag g_once_flag;
+
+    llvm::call_once(g_once_flag, []() {
+      PluginManager::RegisterPlugin(GetPluginNameStatic(),
+                                    GetPluginDescriptionStatic(),
+                                    CreateInstance);
+    });
+  }
 }
 
 void ProcessWindows::Terminate() {}
@@ -170,9 +181,9 @@ Status ProcessWindows::DoDetach(bool keep_stopped) {
     else
       LLDB_LOG(log, "Detaching process error: {0}", error);
   } else {
-    error.SetErrorStringWithFormat("error: process {0} in state = {1}, but "
-                                   "cannot detach it in this state.",
-                                   GetID(), private_state);
+    error.SetErrorStringWithFormatv("error: process {0} in state = {1}, but "
+                                    "cannot detach it in this state.",
+                                    GetID(), private_state);
     LLDB_LOG(log, "error: {0}", error);
   }
   return error;

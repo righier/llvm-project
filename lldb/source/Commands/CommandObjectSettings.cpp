@@ -130,9 +130,8 @@ insert-before or insert-after.");
 
     const size_t argc = request.GetParsedLine().GetArgumentCount();
     const char *arg = nullptr;
-    int setting_var_idx;
-    for (setting_var_idx = 0; setting_var_idx < static_cast<int>(argc);
-         ++setting_var_idx) {
+    size_t setting_var_idx;
+    for (setting_var_idx = 0; setting_var_idx < argc; ++setting_var_idx) {
       arg = request.GetParsedLine().GetArgumentAtIndex(setting_var_idx);
       if (arg && arg[0] != '-')
         break; // We found our setting variable name index
@@ -376,12 +375,11 @@ protected:
     FileSpec file_spec(m_options.m_filename);
     FileSystem::Instance().Resolve(file_spec);
     std::string path(file_spec.GetPath());
-    uint32_t options = File::OpenOptions::eOpenOptionWrite |
-                       File::OpenOptions::eOpenOptionCanCreate;
+    auto options = File::eOpenOptionWrite | File::eOpenOptionCanCreate;
     if (m_options.m_append)
-      options |= File::OpenOptions::eOpenOptionAppend;
+      options |= File::eOpenOptionAppend;
     else
-      options |= File::OpenOptions::eOpenOptionTruncate;
+      options |= File::eOpenOptionTruncate;
 
     StreamFile out_file(path.c_str(), options,
                         lldb::eFilePermissionsFileDefault);

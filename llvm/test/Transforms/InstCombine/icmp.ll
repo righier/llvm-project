@@ -508,6 +508,21 @@ define i1 @test24(i64 %i) {
   ret i1 %cmp
 }
 
+; Note: offs can be negative, LLVM used to make an incorrect assumption that
+; unsigned overflow does not happen during offset computation
+define i1 @test24_neg_offs(i32* %p, i64 %offs) {
+; CHECK-LABEL: @test24_neg_offs(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i64 [[OFFS:%.*]], -2
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %p1 = getelementptr inbounds i32, i32* %p, i64 %offs
+  %conv1 = ptrtoint i32* %p to i64
+  %conv2 = ptrtoint i32* %p1 to i64
+  %delta = sub i64 %conv1, %conv2
+  %cmp = icmp eq i64 %delta, 8
+  ret i1 %cmp
+}
+
 @X_as1 = addrspace(1) global [1000 x i32] zeroinitializer
 
 define i1 @test24_as1(i64 %i) {
@@ -677,6 +692,36 @@ define i1 @test37_extra_uses(i32 %x, i32 %y, i32 %z) {
   call void @foo(i32 %rhs)
   %c = icmp sgt i32 %lhs, %rhs
   ret i1 %c
+}
+
+; TODO: Min/max pattern should not prevent the fold.
+
+define i32 @neg_max_s32(i32 %x, i32 %y) {
+; CHECK-LABEL: @neg_max_s32(
+; CHECK-NEXT:    [[C:%.*]] = icmp slt i32 [[Y:%.*]], [[X:%.*]]
+; CHECK-NEXT:    [[S_V:%.*]] = select i1 [[C]], i32 [[Y]], i32 [[X]]
+; CHECK-NEXT:    ret i32 [[S_V]]
+;
+  %nx = sub nsw i32 0, %x
+  %ny = sub nsw i32 0, %y
+  %c = icmp slt i32 %nx, %ny
+  %s = select i1 %c, i32 %ny, i32 %nx
+  %r = sub nsw i32 0, %s
+  ret i32 %r
+}
+
+define <4 x i32> @neg_max_v4s32(<4 x i32> %x, <4 x i32> %y) {
+; CHECK-LABEL: @neg_max_v4s32(
+; CHECK-NEXT:    [[C:%.*]] = icmp sgt <4 x i32> [[Y:%.*]], [[X:%.*]]
+; CHECK-NEXT:    [[S_V:%.*]] = select <4 x i1> [[C]], <4 x i32> [[X]], <4 x i32> [[Y]]
+; CHECK-NEXT:    ret <4 x i32> [[S_V]]
+;
+  %nx = sub nsw <4 x i32> zeroinitializer, %x
+  %ny = sub nsw <4 x i32> zeroinitializer, %y
+  %c = icmp sgt <4 x i32> %nx, %ny
+  %s = select <4 x i1> %c, <4 x i32> %nx, <4 x i32> %ny
+  %r = sub <4 x i32> zeroinitializer, %s
+  ret <4 x i32> %r
 }
 
 ; X - Y > X - Z -> Z > Y if there is no overflow.
@@ -1092,7 +1137,7 @@ define i1 @test59_as1(i8 addrspace(1)* %foo) {
 
 define i1 @test60(i8* %foo, i64 %i, i64 %j) {
 ; CHECK-LABEL: @test60(
-; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nuw i64 [[I:%.*]], 2
+; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nsw i64 [[I:%.*]], 2
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i64 [[GEP1_IDX]], [[J:%.*]]
 ; CHECK-NEXT:    ret i1 [[TMP1]]
 ;
@@ -1108,7 +1153,7 @@ define i1 @test60_as1(i8 addrspace(1)* %foo, i64 %i, i64 %j) {
 ; CHECK-LABEL: @test60_as1(
 ; CHECK-NEXT:    [[TMP1:%.*]] = trunc i64 [[I:%.*]] to i16
 ; CHECK-NEXT:    [[TMP2:%.*]] = trunc i64 [[J:%.*]] to i16
-; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nuw i16 [[TMP1]], 2
+; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nsw i16 [[TMP1]], 2
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp slt i16 [[GEP1_IDX]], [[TMP2]]
 ; CHECK-NEXT:    ret i1 [[TMP3]]
 ;
@@ -1124,7 +1169,7 @@ define i1 @test60_as1(i8 addrspace(1)* %foo, i64 %i, i64 %j) {
 ; bitcast. This uses the same sized addrspace.
 define i1 @test60_addrspacecast(i8* %foo, i64 %i, i64 %j) {
 ; CHECK-LABEL: @test60_addrspacecast(
-; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nuw i64 [[I:%.*]], 2
+; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nsw i64 [[I:%.*]], 2
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i64 [[GEP1_IDX]], [[J:%.*]]
 ; CHECK-NEXT:    ret i1 [[TMP1]]
 ;
@@ -1138,7 +1183,7 @@ define i1 @test60_addrspacecast(i8* %foo, i64 %i, i64 %j) {
 
 define i1 @test60_addrspacecast_smaller(i8* %foo, i16 %i, i64 %j) {
 ; CHECK-LABEL: @test60_addrspacecast_smaller(
-; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nuw i16 [[I:%.*]], 2
+; CHECK-NEXT:    [[GEP1_IDX:%.*]] = shl nsw i16 [[I:%.*]], 2
 ; CHECK-NEXT:    [[TMP1:%.*]] = trunc i64 [[J:%.*]] to i16
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i16 [[GEP1_IDX]], [[TMP1]]
 ; CHECK-NEXT:    ret i1 [[TMP2]]

@@ -47,6 +47,7 @@ enum ActionType {
   GenClangCommentNodes,
   GenClangDeclNodes,
   GenClangStmtNodes,
+  GenClangTypeNodes,
   GenClangOpcodes,
   GenClangSACheckers,
   GenClangCommentHTMLTags,
@@ -59,6 +60,11 @@ enum ActionType {
   GenArmFP16,
   GenArmNeonSema,
   GenArmNeonTest,
+  GenArmMveHeader,
+  GenArmMveBuiltinDef,
+  GenArmMveBuiltinSema,
+  GenArmMveBuiltinCG,
+  GenArmMveBuiltinAliases,
   GenAttrDocs,
   GenDiagDocs,
   GenOptDocs,
@@ -130,6 +136,8 @@ cl::opt<ActionType> Action(
                    "Generate Clang AST declaration nodes"),
         clEnumValN(GenClangStmtNodes, "gen-clang-stmt-nodes",
                    "Generate Clang AST statement nodes"),
+        clEnumValN(GenClangTypeNodes, "gen-clang-type-nodes",
+                   "Generate Clang AST type nodes"),
         clEnumValN(GenClangOpcodes, "gen-clang-opcodes",
                    "Generate Clang constexpr interpreter opcodes"),
         clEnumValN(GenClangSACheckers, "gen-clang-sa-checkers",
@@ -159,6 +167,16 @@ cl::opt<ActionType> Action(
                    "Generate ARM NEON sema support for clang"),
         clEnumValN(GenArmNeonTest, "gen-arm-neon-test",
                    "Generate ARM NEON tests for clang"),
+        clEnumValN(GenArmMveHeader, "gen-arm-mve-header",
+                   "Generate arm_mve.h for clang"),
+        clEnumValN(GenArmMveBuiltinDef, "gen-arm-mve-builtin-def",
+                   "Generate ARM MVE builtin definitions for clang"),
+        clEnumValN(GenArmMveBuiltinSema, "gen-arm-mve-builtin-sema",
+                   "Generate ARM MVE builtin sema checks for clang"),
+        clEnumValN(GenArmMveBuiltinCG, "gen-arm-mve-builtin-codegen",
+                   "Generate ARM MVE builtin code-generator for clang"),
+        clEnumValN(GenArmMveBuiltinAliases, "gen-arm-mve-builtin-aliases",
+                   "Generate list of valid ARM MVE builtin aliases for clang"),
         clEnumValN(GenAttrDocs, "gen-attr-docs",
                    "Generate attribute documentation"),
         clEnumValN(GenDiagDocs, "gen-diag-docs",
@@ -254,6 +272,9 @@ bool ClangTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
   case GenClangStmtNodes:
     EmitClangASTNodes(Records, OS, "Stmt", "");
     break;
+  case GenClangTypeNodes:
+    EmitClangTypeNodes(Records, OS);
+    break;
   case GenClangOpcodes:
     EmitClangOpcodes(Records, OS);
     break;
@@ -289,6 +310,21 @@ bool ClangTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
     break;
   case GenArmNeonTest:
     EmitNeonTest(Records, OS);
+    break;
+  case GenArmMveHeader:
+    EmitMveHeader(Records, OS);
+    break;
+  case GenArmMveBuiltinDef:
+    EmitMveBuiltinDef(Records, OS);
+    break;
+  case GenArmMveBuiltinSema:
+    EmitMveBuiltinSema(Records, OS);
+    break;
+  case GenArmMveBuiltinCG:
+    EmitMveBuiltinCG(Records, OS);
+    break;
+  case GenArmMveBuiltinAliases:
+    EmitMveBuiltinAliases(Records, OS);
     break;
   case GenAttrDocs:
     EmitClangAttrDocs(Records, OS);

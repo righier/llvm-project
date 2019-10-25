@@ -85,7 +85,8 @@ public:
 
   bool enableInterleavedAccessVectorization() { return true; }
 
-  unsigned getNumberOfRegisters(bool Vector) {
+  unsigned getNumberOfRegisters(unsigned ClassID) const {
+    bool Vector = (ClassID == 1);
     if (Vector) {
       if (ST->hasNEON())
         return 32;
@@ -133,7 +134,7 @@ public:
   TTI::MemCmpExpansionOptions enableMemCmpExpansion(bool OptSize,
                                                     bool IsZeroCmp) const;
 
-  int getMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
+  int getMemoryOpCost(unsigned Opcode, Type *Src, MaybeAlign Alignment,
                       unsigned AddressSpace, const Instruction *I = nullptr);
 
   int getCostOfKeepingLiveOverCall(ArrayRef<Type *> Tys);
@@ -155,14 +156,6 @@ public:
   bool
   shouldConsiderAddressTypePromotion(const Instruction &I,
                                      bool &AllowPromotionWithoutCommonHeader);
-
-  unsigned getCacheLineSize();
-
-  unsigned getPrefetchDistance();
-
-  unsigned getMinPrefetchStride();
-
-  unsigned getMaxPrefetchIterationsAhead();
 
   bool shouldExpandReduction(const IntrinsicInst *II) const {
     return false;

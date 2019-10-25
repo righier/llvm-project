@@ -89,6 +89,177 @@ void CombinerHelper::applyCombineCopy(MachineInstr &MI) {
   replaceRegWith(MRI, DstReg, SrcReg);
 }
 
+bool CombinerHelper::tryCombineConcatVectors(MachineInstr &MI) {
+  bool IsUndef = false;
+  SmallVector<Register, 4> Ops;
+  if (matchCombineConcatVectors(MI, IsUndef, Ops)) {
+    applyCombineConcatVectors(MI, IsUndef, Ops);
+    return true;
+  }
+  return false;
+}
+
+bool CombinerHelper::matchCombineConcatVectors(MachineInstr &MI, bool &IsUndef,
+                                               SmallVectorImpl<Register> &Ops) {
+  assert(MI.getOpcode() == TargetOpcode::G_CONCAT_VECTORS &&
+         "Invalid instruction");
+  IsUndef = true;
+  MachineInstr *Undef = nullptr;
+
+  // Walk over all the operands of concat vectors and check if they are
+  // build_vector themselves or undef.
+  // Then collect their operands in Ops.
+  for (const MachineOperand &MO : MI.operands()) {
+    // Skip the instruction definition.
+    if (MO.isDef())
+      continue;
+    Register Reg = MO.getReg();
+    MachineInstr *Def = MRI.getVRegDef(Reg);
+    assert(Def && "Operand not defined");
+    switch (Def->getOpcode()) {
+    case TargetOpcode::G_BUILD_VECTOR:
+      IsUndef = false;
+      // Remember the operands of the build_vector to fold
+      // them into the yet-to-build flattened concat vectors.
+      for (const MachineOperand &BuildVecMO : Def->operands()) {
+        // Skip the definition.
+        if (BuildVecMO.isDef())
+          continue;
+        Ops.push_back(BuildVecMO.getReg());
+      }
+      break;
+    case TargetOpcode::G_IMPLICIT_DEF: {
+      LLT OpType = MRI.getType(Reg);
+      // Keep one undef value for all the undef operands.
+      if (!Undef) {
+        Builder.setInsertPt(*MI.getParent(), MI);
+        Undef = Builder.buildUndef(OpType.getScalarType());
+      }
+      assert(MRI.getType(Undef->getOperand(0).getReg()) ==
+                 OpType.getScalarType() &&
+             "All undefs should have the same type");
+      // Break the undef vector in as many scalar elements as needed
+      // for the flattening.
+      for (unsigned EltIdx = 0, EltEnd = OpType.getNumElements();
+           EltIdx != EltEnd; ++EltIdx)
+        Ops.push_back(Undef->getOperand(0).getReg());
+      break;
+    }
+    default:
+      return false;
+    }
+  }
+  return true;
+}
+void CombinerHelper::applyCombineConcatVectors(
+    MachineInstr &MI, bool IsUndef, const ArrayRef<Register> Ops) {
+  // We determined that the concat_vectors can be flatten.
+  // Generate the flattened build_vector.
+  Register DstReg = MI.getOperand(0).getReg();
+  Builder.setInsertPt(*MI.getParent(), MI);
+  Register NewDstReg = MRI.cloneVirtualRegister(DstReg);
+
+  // Note: IsUndef is sort of redundant. We could have determine it by
+  // checking that at all Ops are undef.  Alternatively, we could have
+  // generate a build_vector of undefs and rely on another combine to
+  // clean that up.  For now, given we already gather this information
+  // in tryCombineConcatVectors, just save compile time and issue the
+  // right thing.
+  if (IsUndef)
+    Builder.buildUndef(NewDstReg);
+  else
+    Builder.buildBuildVector(NewDstReg, Ops);
+  MI.eraseFromParent();
+  replaceRegWith(MRI, DstReg, NewDstReg);
+}
+
+bool CombinerHelper::tryCombineShuffleVector(MachineInstr &MI) {
+  SmallVector<Register, 4> Ops;
+  if (matchCombineShuffleVector(MI, Ops)) {
+    applyCombineShuffleVector(MI, Ops);
+    return true;
+  }
+  return false;
+}
+
+bool CombinerHelper::matchCombineShuffleVector(MachineInstr &MI,
+                                               SmallVectorImpl<Register> &Ops) {
+  assert(MI.getOpcode() == TargetOpcode::G_SHUFFLE_VECTOR &&
+         "Invalid instruction kind");
+  LLT DstType = MRI.getType(MI.getOperand(0).getReg());
+  Register Src1 = MI.getOperand(1).getReg();
+  LLT SrcType = MRI.getType(Src1);
+  unsigned DstNumElts = DstType.getNumElements();
+  unsigned SrcNumElts = SrcType.getNumElements();
+
+  // If the resulting vector is smaller than the size of the source
+  // vectors being concatenated, we won't be able to replace the
+  // shuffle vector into a concat_vectors.
+  //
+  // Note: We may still be able to produce a concat_vectors fed by
+  //       extract_vector_elt and so on. It is less clear that would
+  //       be better though, so don't bother for now.
+  if (DstNumElts < 2 * SrcNumElts)
+    return false;
+
+  // Check that the shuffle mask can be broken evenly between the
+  // different sources.
+  if (DstNumElts % SrcNumElts != 0)
+    return false;
+
+  // Mask length is a multiple of the source vector length.
+  // Check if the shuffle is some kind of concatenation of the input
+  // vectors.
+  unsigned NumConcat = DstNumElts / SrcNumElts;
+  SmallVector<int, 8> ConcatSrcs(NumConcat, -1);
+  SmallVector<int, 8> Mask;
+  ShuffleVectorInst::getShuffleMask(MI.getOperand(3).getShuffleMask(), Mask);
+  for (unsigned i = 0; i != DstNumElts; ++i) {
+    int Idx = Mask[i];
+    // Undef value.
+    if (Idx < 0)
+      continue;
+    // Ensure the indices in each SrcType sized piece are sequential and that
+    // the same source is used for the whole piece.
+    if ((Idx % SrcNumElts != (i % SrcNumElts)) ||
+        (ConcatSrcs[i / SrcNumElts] >= 0 &&
+         ConcatSrcs[i / SrcNumElts] != (int)(Idx / SrcNumElts)))
+      return false;
+    // Remember which source this index came from.
+    ConcatSrcs[i / SrcNumElts] = Idx / SrcNumElts;
+  }
+
+  // The shuffle is concatenating multiple vectors together.
+  // Collect the different operands for that.
+  Register UndefReg;
+  Register Src2 = MI.getOperand(2).getReg();
+  for (auto Src : ConcatSrcs) {
+    if (Src < 0) {
+      if (!UndefReg) {
+        Builder.setInsertPt(*MI.getParent(), MI);
+        UndefReg = Builder.buildUndef(SrcType).getReg(0);
+      }
+      Ops.push_back(UndefReg);
+    } else if (Src == 0)
+      Ops.push_back(Src1);
+    else
+      Ops.push_back(Src2);
+  }
+  return true;
+}
+
+void CombinerHelper::applyCombineShuffleVector(MachineInstr &MI,
+                                               const ArrayRef<Register> Ops) {
+  Register DstReg = MI.getOperand(0).getReg();
+  Builder.setInsertPt(*MI.getParent(), MI);
+  Register NewDstReg = MRI.cloneVirtualRegister(DstReg);
+
+  Builder.buildConcatVectors(NewDstReg, Ops);
+
+  MI.eraseFromParent();
+  replaceRegWith(MRI, DstReg, NewDstReg);
+}
+
 namespace {
 
 /// Select a preference between two uses. CurrentUse is the current preference
@@ -561,8 +732,10 @@ bool CombinerHelper::tryCombineIndexedLoadStore(MachineInstr &MI) {
   return true;
 }
 
-bool CombinerHelper::matchCombineBr(MachineInstr &MI) {
-  assert(MI.getOpcode() == TargetOpcode::G_BR && "Expected a G_BR");
+bool CombinerHelper::matchElideBrByInvertingCond(MachineInstr &MI) {
+  if (MI.getOpcode() != TargetOpcode::G_BR)
+    return false;
+
   // Try to match the following:
   // bb1:
   //   %c(s32) = G_ICMP pred, %a, %b
@@ -599,9 +772,14 @@ bool CombinerHelper::matchCombineBr(MachineInstr &MI) {
   return true;
 }
 
-bool CombinerHelper::tryCombineBr(MachineInstr &MI) {
-  if (!matchCombineBr(MI))
+bool CombinerHelper::tryElideBrByInvertingCond(MachineInstr &MI) {
+  if (!matchElideBrByInvertingCond(MI))
     return false;
+  applyElideBrByInvertingCond(MI);
+  return true;
+}
+
+void CombinerHelper::applyElideBrByInvertingCond(MachineInstr &MI) {
   MachineBasicBlock *BrTarget = MI.getOperand(0).getMBB();
   MachineBasicBlock::iterator BrIt(MI);
   MachineInstr *BrCond = &*std::prev(BrIt);
@@ -620,7 +798,6 @@ bool CombinerHelper::tryCombineBr(MachineInstr &MI) {
   BrCond->getOperand(1).setMBB(BrTarget);
   Observer.changedInstr(*BrCond);
   MI.eraseFromParent();
-  return true;
 }
 
 static bool shouldLowerMemFuncForSize(const MachineFunction &MF) {
@@ -779,11 +956,11 @@ bool CombinerHelper::optimizeMemset(MachineInstr &MI, Register Dst, Register Val
     Type *IRTy = getTypeForLLT(MemOps[0], C);
     unsigned NewAlign = (unsigned)DL.getABITypeAlignment(IRTy);
     if (NewAlign > Align) {
+      Align = NewAlign;
       unsigned FI = FIDef->getOperand(1).getIndex();
       // Give the stack frame object a larger alignment if needed.
-      if (MFI.getObjectAlignment(FI) < NewAlign)
-        MFI.setObjectAlignment(FI, NewAlign);
-      Align = NewAlign;
+      if (MFI.getObjectAlignment(FI) < Align)
+        MFI.setObjectAlignment(FI, Align);
     }
   }
 
@@ -866,7 +1043,7 @@ bool CombinerHelper::optimizeMemcpy(MachineInstr &MI, Register Dst,
   bool DstAlignCanChange = false;
   MachineFrameInfo &MFI = MF.getFrameInfo();
   bool OptSize = shouldLowerMemFuncForSize(MF);
-  unsigned Align = MinAlign(DstAlign, SrcAlign);
+  unsigned Alignment = MinAlign(DstAlign, SrcAlign);
 
   MachineInstr *FIDef = getOpcodeDef(TargetOpcode::G_FRAME_INDEX, Dst, MRI);
   if (FIDef && !MFI.isFixedObjectIndex(FIDef->getOperand(1).getIndex()))
@@ -885,7 +1062,8 @@ bool CombinerHelper::optimizeMemcpy(MachineInstr &MI, Register Dst,
   MachinePointerInfo SrcPtrInfo = SrcMMO.getPointerInfo();
 
   if (!findGISelOptimalMemOpLowering(
-          MemOps, Limit, KnownLen, (DstAlignCanChange ? 0 : Align), SrcAlign,
+          MemOps, Limit, KnownLen, (DstAlignCanChange ? 0 : Alignment),
+          SrcAlign,
           /*IsMemset=*/false,
           /*ZeroMemset=*/false, /*MemcpyStrSrc=*/false,
           /*AllowOverlap=*/!IsVolatile, DstPtrInfo.getAddrSpace(),
@@ -901,16 +1079,16 @@ bool CombinerHelper::optimizeMemcpy(MachineInstr &MI, Register Dst,
     // realignment.
     const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
     if (!TRI->needsStackRealignment(MF))
-      while (NewAlign > Align &&
-             DL.exceedsNaturalStackAlignment(llvm::Align(NewAlign)))
-          NewAlign /= 2;
+      while (NewAlign > Alignment &&
+             DL.exceedsNaturalStackAlignment(Align(NewAlign)))
+        NewAlign /= 2;
 
-    if (NewAlign > Align) {
+    if (NewAlign > Alignment) {
+      Alignment = NewAlign;
       unsigned FI = FIDef->getOperand(1).getIndex();
       // Give the stack frame object a larger alignment if needed.
-      if (MFI.getObjectAlignment(FI) < NewAlign)
-        MFI.setObjectAlignment(FI, NewAlign);
-      Align = NewAlign;
+      if (MFI.getObjectAlignment(FI) < Alignment)
+        MFI.setObjectAlignment(FI, Alignment);
     }
   }
 
@@ -973,7 +1151,7 @@ bool CombinerHelper::optimizeMemmove(MachineInstr &MI, Register Dst,
   bool DstAlignCanChange = false;
   MachineFrameInfo &MFI = MF.getFrameInfo();
   bool OptSize = shouldLowerMemFuncForSize(MF);
-  unsigned Align = MinAlign(DstAlign, SrcAlign);
+  unsigned Alignment = MinAlign(DstAlign, SrcAlign);
 
   MachineInstr *FIDef = getOpcodeDef(TargetOpcode::G_FRAME_INDEX, Dst, MRI);
   if (FIDef && !MFI.isFixedObjectIndex(FIDef->getOperand(1).getIndex()))
@@ -991,7 +1169,8 @@ bool CombinerHelper::optimizeMemmove(MachineInstr &MI, Register Dst,
   // to a bug in it's findOptimalMemOpLowering implementation. For now do the
   // same thing here.
   if (!findGISelOptimalMemOpLowering(
-          MemOps, Limit, KnownLen, (DstAlignCanChange ? 0 : Align), SrcAlign,
+          MemOps, Limit, KnownLen, (DstAlignCanChange ? 0 : Alignment),
+          SrcAlign,
           /*IsMemset=*/false,
           /*ZeroMemset=*/false, /*MemcpyStrSrc=*/false,
           /*AllowOverlap=*/false, DstPtrInfo.getAddrSpace(),
@@ -1007,16 +1186,16 @@ bool CombinerHelper::optimizeMemmove(MachineInstr &MI, Register Dst,
     // realignment.
     const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
     if (!TRI->needsStackRealignment(MF))
-      while (NewAlign > Align &&
-             DL.exceedsNaturalStackAlignment(llvm::Align(NewAlign)))
-          NewAlign /= 2;
+      while (NewAlign > Alignment &&
+             DL.exceedsNaturalStackAlignment(Align(NewAlign)))
+        NewAlign /= 2;
 
-    if (NewAlign > Align) {
+    if (NewAlign > Alignment) {
+      Alignment = NewAlign;
       unsigned FI = FIDef->getOperand(1).getIndex();
       // Give the stack frame object a larger alignment if needed.
-      if (MFI.getObjectAlignment(FI) < NewAlign)
-        MFI.setObjectAlignment(FI, NewAlign);
-      Align = NewAlign;
+      if (MFI.getObjectAlignment(FI) < Alignment)
+        MFI.setObjectAlignment(FI, Alignment);
     }
   }
 

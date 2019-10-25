@@ -96,10 +96,13 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/ADT/MapVector.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/PassManager.h"
 
@@ -212,6 +215,16 @@ struct IRPosition {
                                             unsigned ArgNo) {
     return IRPosition::callsite_argument(cast<CallBase>(*ICS.getInstruction()),
                                          ArgNo);
+  }
+
+  /// Create a position describing the argument of \p ACS at position \p ArgNo.
+  static const IRPosition callsite_argument(AbstractCallSite ACS,
+                                            unsigned ArgNo) {
+    int CSArgNo = ACS.getCallArgOperandNo(ArgNo);
+    if (CSArgNo >= 0)
+      return IRPosition::callsite_argument(
+          cast<CallBase>(*ACS.getInstruction()), CSArgNo);
+    return IRPosition();
   }
 
   /// Create a position with function scope matching the "context" of \p IRP.
@@ -396,8 +409,6 @@ struct IRPosition {
 
     assert(KindOrArgNo < 0 &&
            "Expected (call site) arguments to never reach this point!");
-    assert(!isa<Argument>(getAnchorValue()) &&
-           "Expected arguments to have an associated argument position!");
     return Kind(KindOrArgNo);
   }
 
@@ -406,7 +417,11 @@ struct IRPosition {
 
   /// Return true if any kind in \p AKs existing in the IR at a position that
   /// will affect this one. See also getAttrs(...).
-  bool hasAttr(ArrayRef<Attribute::AttrKind> AKs) const;
+  /// \param IgnoreSubsumingPositions Flag to determine if subsuming positions,
+  ///                                 e.g., the function position if this is an
+  ///                                 argument position, should be ignored.
+  bool hasAttr(ArrayRef<Attribute::AttrKind> AKs,
+               bool IgnoreSubsumingPositions = false) const;
 
   /// Return the attributes of any kind in \p AKs existing in the IR at a
   /// position that will affect this one. While each position can only have a
@@ -430,6 +445,28 @@ struct IRPosition {
     if (AttrList.hasAttribute(getAttrIdx(), AK))
       return AttrList.getAttribute(getAttrIdx(), AK);
     return Attribute();
+  }
+
+  /// Remove the attribute of kind \p AKs existing in the IR at this position.
+  void removeAttrs(ArrayRef<Attribute::AttrKind> AKs) {
+    if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
+      return;
+
+    AttributeList AttrList;
+    CallSite CS = CallSite(&getAnchorValue());
+    if (CS)
+      AttrList = CS.getAttributes();
+    else
+      AttrList = getAssociatedFunction()->getAttributes();
+
+    LLVMContext &Ctx = getAnchorValue().getContext();
+    for (Attribute::AttrKind AK : AKs)
+      AttrList = AttrList.removeAttribute(Ctx, getAttrIdx(), AK);
+
+    if (CS)
+      CS.setAttributes(AttrList);
+    else
+      getAssociatedFunction()->setAttributes(AttrList);
   }
 
   bool isAnyCallSitePosition() const {
@@ -524,15 +561,25 @@ public:
 struct AnalysisGetter {
   template <typename Analysis>
   typename Analysis::Result *getAnalysis(const Function &F) {
-    if (!FAM)
+    if (!MAM || !F.getParent())
       return nullptr;
-    return &FAM->getResult<Analysis>(const_cast<Function &>(F));
+    auto &FAM = MAM->getResult<FunctionAnalysisManagerModuleProxy>(
+                       const_cast<Module &>(*F.getParent()))
+                    .getManager();
+    return &FAM.getResult<Analysis>(const_cast<Function &>(F));
   }
-  AnalysisGetter(FunctionAnalysisManager &FAM) : FAM(&FAM) {}
+
+  template <typename Analysis>
+  typename Analysis::Result *getAnalysis(const Module &M) {
+    if (!MAM)
+      return nullptr;
+    return &MAM->getResult<Analysis>(const_cast<Module &>(M));
+  }
+  AnalysisGetter(ModuleAnalysisManager &MAM) : MAM(&MAM) {}
   AnalysisGetter() {}
 
 private:
-  FunctionAnalysisManager *FAM = nullptr;
+  ModuleAnalysisManager *MAM = nullptr;
 };
 
 /// Data structure to hold cached (LLVM-IR) information.
@@ -548,7 +595,20 @@ private:
 /// reusable, it is advised to inherit from the InformationCache and cast the
 /// instance down in the abstract attributes.
 struct InformationCache {
-  InformationCache(const DataLayout &DL, AnalysisGetter &AG) : DL(DL), AG(AG) {}
+  InformationCache(const Module &M, AnalysisGetter &AG)
+      : DL(M.getDataLayout()), Explorer(/* ExploreInterBlock */ true), AG(AG) {
+
+    CallGraph *CG = AG.getAnalysis<CallGraphAnalysis>(M);
+    if (!CG)
+      return;
+
+    DenseMap<const Function *, unsigned> SccSize;
+    for (scc_iterator<CallGraph *> I = scc_begin(CG); !I.isAtEnd(); ++I) {
+      for (CallGraphNode *Node : *I)
+        SccSize[Node->getFunction()] = I->size();
+    }
+    SccSizeOpt = std::move(SccSize);
+  }
 
   /// A map type from opcodes to instructions with this opcode.
   using OpcodeInstMapTy = DenseMap<unsigned, SmallVector<Instruction *, 32>>;
@@ -567,6 +627,11 @@ struct InformationCache {
     return FuncRWInstsMap[&F];
   }
 
+  /// Return MustBeExecutedContextExplorer
+  MustBeExecutedContextExplorer &getMustBeExecutedContextExplorer() {
+    return Explorer;
+  }
+
   /// Return TargetLibraryInfo for function \p F.
   TargetLibraryInfo *getTargetLibraryInfoForFunction(const Function &F) {
     return AG.getAnalysis<TargetLibraryAnalysis>(F);
@@ -575,6 +640,13 @@ struct InformationCache {
   /// Return AliasAnalysis Result for function \p F.
   AAResults *getAAResultsForFunction(const Function &F) {
     return AG.getAnalysis<AAManager>(F);
+  }
+
+  /// Return SCC size on call graph for function \p F.
+  unsigned getSccSize(const Function &F) {
+    if (!SccSizeOpt.hasValue())
+      return 0;
+    return (SccSizeOpt.getValue())[&F];
   }
 
   /// Return datalayout used in the module.
@@ -594,13 +666,17 @@ private:
   /// A map from functions to their instructions that may read or write memory.
   FuncRWInstsMapTy FuncRWInstsMap;
 
-  /// A map from functions to their TLI.
-
   /// The datalayout used in the module.
   const DataLayout &DL;
 
+  /// MustBeExecutedContextExplorer
+  MustBeExecutedContextExplorer Explorer;
+
   /// Getters for analysis.
   AnalysisGetter &AG;
+
+  /// Cache result for scc size in the call graph
+  Optional<DenseMap<const Function *, unsigned>> SccSizeOpt;
 
   /// Give the Attributor access to the members so
   /// Attributor::identifyDefaultAbstractAttributes(...) can initialize them.
@@ -724,7 +800,6 @@ struct Attributor {
   /// abstract attribute objects for them.
   ///
   /// \param F The function that is checked for attribute opportunities.
-  /// \param TLIGetter helper function to get TargetLibraryInfo Analysis result.
   ///
   /// Note that abstract attribute instances are generally created even if the
   /// IR already contains the information they would deduce. The most important
@@ -744,8 +819,8 @@ struct Attributor {
   /// This will trigger the identification and initialization of attributes for
   /// \p F.
   void markLiveInternalFunction(const Function &F) {
-    assert(F.hasInternalLinkage() &&
-           "Only internal linkage is assumed dead initially.");
+    assert(F.hasLocalLinkage() &&
+           "Only local linkage is assumed dead initially.");
 
     identifyDefaultAbstractAttributes(const_cast<Function &>(F));
   }
@@ -769,7 +844,7 @@ struct Attributor {
   /// This method will evaluate \p Pred on call sites and return
   /// true if \p Pred holds in every call sites. However, this is only possible
   /// all call sites are known, hence the function has internal linkage.
-  bool checkForAllCallSites(const function_ref<bool(CallSite)> &Pred,
+  bool checkForAllCallSites(const function_ref<bool(AbstractCallSite)> &Pred,
                             const AbstractAttribute &QueryingAA,
                             bool RequireAllCallSites);
 
@@ -824,13 +899,21 @@ struct Attributor {
   const DataLayout &getDataLayout() const { return InfoCache.DL; }
 
 private:
+  /// Check \p Pred on all call sites of \p Fn.
+  ///
+  /// This method will evaluate \p Pred on call sites and return
+  /// true if \p Pred holds in every call sites. However, this is only possible
+  /// all call sites are known, hence the function has internal linkage.
+  bool checkForAllCallSites(const function_ref<bool(AbstractCallSite)> &Pred,
+                            const Function &Fn, bool RequireAllCallSites,
+                            const AbstractAttribute *QueryingAA);
 
   /// The private version of getAAFor that allows to omit a querying abstract
   /// attribute. See also the public getAAFor method.
   template <typename AAType>
   const AAType &getOrCreateAAFor(const IRPosition &IRP,
-                         const AbstractAttribute *QueryingAA = nullptr,
-                         bool TrackDependence = false) {
+                                 const AbstractAttribute *QueryingAA = nullptr,
+                                 bool TrackDependence = false) {
     if (const AAType *AAPtr =
             lookupAAFor<AAType>(IRP, QueryingAA, TrackDependence))
       return *AAPtr;
@@ -839,15 +922,23 @@ private:
     // Use the static create method.
     auto &AA = AAType::createForPosition(IRP, *this);
     registerAA(AA);
-    AA.initialize(*this);
+
+    // For now we ignore naked and optnone functions.
+    bool Invalidate = Whitelist && !Whitelist->count(&AAType::ID);
+    if (const Function *Fn = IRP.getAnchorScope())
+      Invalidate |= Fn->hasFnAttribute(Attribute::Naked) ||
+                    Fn->hasFnAttribute(Attribute::OptimizeNone);
 
     // Bootstrap the new attribute with an initial update to propagate
     // information, e.g., function -> call site. If it is not on a given
     // whitelist we will not perform updates at all.
-    if (Whitelist && !Whitelist->count(&AAType::ID))
+    if (Invalidate) {
       AA.getState().indicatePessimisticFixpoint();
-    else
-      AA.update(*this);
+      return AA;
+    }
+
+    AA.initialize(*this);
+    AA.update(*this);
 
     if (TrackDependence && AA.getState().isValidState())
       QueryMap[&AA].insert(const_cast<AbstractAttribute *>(QueryingAA));
@@ -1034,6 +1125,12 @@ struct IntegerState : public AbstractState {
   IntegerState &removeAssumedBits(base_t BitsEncoding) {
     // Make sure we never loose any "known bits".
     Assumed = (Assumed & ~BitsEncoding) | Known;
+    return *this;
+  }
+
+  /// Remove the bits in \p BitsEncoding from the "known bits".
+  IntegerState &removeKnownBits(base_t BitsEncoding) {
+    Known = (Known & ~BitsEncoding);
     return *this;
   }
 
@@ -1342,7 +1439,8 @@ struct AAReturnedValues
       const function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)>
           &Pred) const = 0;
 
-  using iterator = MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::iterator;
+  using iterator =
+      MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::iterator;
   using const_iterator =
       MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::const_iterator;
   virtual llvm::iterator_range<iterator> returned_values() = 0;
@@ -1648,6 +1746,11 @@ struct AADereferenceable
     return NonNullAA && NonNullAA->isAssumedNonNull();
   }
 
+  /// Return true if we know that the underlying value is nonnull.
+  bool isKnownNonNull() const {
+    return NonNullAA && NonNullAA->isKnownNonNull();
+  }
+
   /// Return true if we assume that underlying value is
   /// dereferenceable(_or_null) globally.
   bool isAssumedGlobal() const { return GlobalState.getAssumed(); }
@@ -1787,6 +1890,54 @@ struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute>,
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAHeapToStack &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+/// An abstract interface for all memory related attributes.
+struct AAMemoryBehavior
+    : public IRAttribute<Attribute::ReadNone,
+                         StateWrapper<IntegerState, AbstractAttribute>> {
+  AAMemoryBehavior(const IRPosition &IRP) : IRAttribute(IRP) {}
+
+  /// State encoding bits. A set bit in the state means the property holds.
+  /// BEST_STATE is the best possible state, 0 the worst possible state.
+  enum {
+    NO_READS = 1 << 0,
+    NO_WRITES = 1 << 1,
+    NO_ACCESSES = NO_READS | NO_WRITES,
+
+    BEST_STATE = NO_ACCESSES,
+  };
+
+  /// Return true if we know that the underlying value is not read or accessed
+  /// in its respective scope.
+  bool isKnownReadNone() const { return isKnown(NO_ACCESSES); }
+
+  /// Return true if we assume that the underlying value is not read or accessed
+  /// in its respective scope.
+  bool isAssumedReadNone() const { return isAssumed(NO_ACCESSES); }
+
+  /// Return true if we know that the underlying value is not accessed
+  /// (=written) in its respective scope.
+  bool isKnownReadOnly() const { return isKnown(NO_WRITES); }
+
+  /// Return true if we assume that the underlying value is not accessed
+  /// (=written) in its respective scope.
+  bool isAssumedReadOnly() const { return isAssumed(NO_WRITES); }
+
+  /// Return true if we know that the underlying value is not read in its
+  /// respective scope.
+  bool isKnownWriteOnly() const { return isKnown(NO_READS); }
+
+  /// Return true if we assume that the underlying value is not read in its
+  /// respective scope.
+  bool isAssumedWriteOnly() const { return isAssumed(NO_READS); }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAMemoryBehavior &createForPosition(const IRPosition &IRP,
+                                             Attributor &A);
 
   /// Unique ID (due to the unique address)
   static const char ID;

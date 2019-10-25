@@ -270,7 +270,7 @@ multiclass FLAT_Atomic_Pseudo<
   SDPatternOperator atomic = null_frag,
   ValueType data_vt = vt,
   RegisterClass data_rc = vdst_rc,
-  bit isFP = getIsFP<data_vt>.ret> {
+  bit isFP = isFloatType<data_vt>.ret> {
   def "" : FLAT_AtomicNoRet_Pseudo <opName,
     (outs),
     (ins VReg_64:$vaddr, data_rc:$vdata, flat_offset:$offset, SLC:$slc),
@@ -300,7 +300,7 @@ multiclass FLAT_Global_Atomic_Pseudo_NO_RTN<
   SDPatternOperator atomic = null_frag,
   ValueType data_vt = vt,
   RegisterClass data_rc = vdst_rc,
-  bit isFP = getIsFP<data_vt>.ret> {
+  bit isFP = isFloatType<data_vt>.ret> {
 
   def "" : FLAT_AtomicNoRet_Pseudo <opName,
     (outs),
@@ -333,7 +333,7 @@ multiclass FLAT_Global_Atomic_Pseudo_RTN<
   SDPatternOperator atomic = null_frag,
   ValueType data_vt = vt,
   RegisterClass data_rc = vdst_rc,
-  bit isFP = getIsFP<data_vt>.ret> {
+  bit isFP = isFloatType<data_vt>.ret> {
 
   def _RTN : FLAT_AtomicRet_Pseudo <opName,
     (outs vdst_rc:$vdst),
@@ -1184,7 +1184,7 @@ class FLAT_Real_gfx10<bits<7> op, FLAT_Pseudo ps> :
   let AssemblerPredicate = isGFX10Plus;
   let DecoderNamespace = "GFX10";
 
-  let Inst{11-0}  = {offset{12}, offset{10-0}};
+  let Inst{11-0}  = offset{11-0};
   let Inst{12}    = !if(ps.has_dlc, dlc, ps.dlcValue);
   let Inst{54-48} = !if(ps.has_saddr, !if(ps.enabled_saddr, saddr, 0x7d), 0x7d);
   let Inst{55}    = 0;

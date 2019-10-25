@@ -106,11 +106,11 @@ void CallLowering::setArgFlags(CallLowering::ArgInfo &Arg, unsigned OpIdx,
       FrameAlign = FuncInfo.getParamAlignment(OpIdx - 2);
     else
       FrameAlign = getTLI()->getByValTypeAlignment(ElementTy, DL);
-    Flags.setByValAlign(FrameAlign);
+    Flags.setByValAlign(Align(FrameAlign));
   }
   if (Attrs.hasAttribute(OpIdx, Attribute::Nest))
     Flags.setNest();
-  Flags.setOrigAlign(DL.getABITypeAlignment(Arg.Ty));
+  Flags.setOrigAlign(Align(DL.getABITypeAlignment(Arg.Ty)));
 }
 
 template void
@@ -198,14 +198,12 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
       unsigned NumParts = TLI->getNumRegistersForCallingConv(
           F.getContext(), F.getCallingConv(), CurVT);
       if (NumParts > 1) {
-        if (CurVT.isVector())
-          return false;
         // For now only handle exact splits.
         if (NewVT.getSizeInBits() * NumParts != CurVT.getSizeInBits())
           return false;
       }
 
-      // For incoming arguments (return values), we could have values in
+      // For incoming arguments (physregs to vregs), we could have values in
       // physregs (or memlocs) which we want to extract and copy to vregs.
       // During this, we might have to deal with the LLT being split across
       // multiple regs, so we have to record this information for later.
@@ -221,7 +219,7 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
             return false;
         } else {
           // We're handling an incoming arg which is split over multiple regs.
-          // E.g. returning an s128 on AArch64.
+          // E.g. passing an s128 on AArch64.
           ISD::ArgFlagsTy OrigFlags = Args[i].Flags[0];
           Args[i].OrigRegs.push_back(Args[i].Regs[0]);
           Args[i].Regs.clear();
@@ -237,7 +235,7 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
             if (Part == 0) {
               Flags.setSplit();
             } else {
-              Flags.setOrigAlign(1);
+              Flags.setOrigAlign(Align::None());
               if (Part == NumParts - 1)
                 Flags.setSplitEnd();
             }
@@ -270,7 +268,7 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
           if (PartIdx == 0) {
             Flags.setSplit();
           } else {
-            Flags.setOrigAlign(1);
+            Flags.setOrigAlign(Align::None());
             if (PartIdx == NumParts - 1)
               Flags.setSplitEnd();
           }
@@ -379,10 +377,12 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
 }
 
 bool CallLowering::analyzeArgInfo(CCState &CCState,
-                                     SmallVectorImpl<ArgInfo> &Args,
-                                     CCAssignFn &Fn) const {
+                                  SmallVectorImpl<ArgInfo> &Args,
+                                  CCAssignFn &AssignFnFixed,
+                                  CCAssignFn &AssignFnVarArg) const {
   for (unsigned i = 0, e = Args.size(); i < e; ++i) {
     MVT VT = MVT::getVT(Args[i].Ty);
+    CCAssignFn &Fn = Args[i].IsFixed ? AssignFnFixed : AssignFnVarArg;
     if (Fn(i, VT, VT, CCValAssign::Full, Args[i].Flags[0], CCState)) {
       // Bail out on anything we can't handle.
       LLVM_DEBUG(dbgs() << "Cannot analyze " << EVT(VT).getEVTString()
@@ -396,8 +396,10 @@ bool CallLowering::analyzeArgInfo(CCState &CCState,
 bool CallLowering::resultsCompatible(CallLoweringInfo &Info,
                                      MachineFunction &MF,
                                      SmallVectorImpl<ArgInfo> &InArgs,
-                                     CCAssignFn &CalleeAssignFn,
-                                     CCAssignFn &CallerAssignFn) const {
+                                     CCAssignFn &CalleeAssignFnFixed,
+                                     CCAssignFn &CalleeAssignFnVarArg,
+                                     CCAssignFn &CallerAssignFnFixed,
+                                     CCAssignFn &CallerAssignFnVarArg) const {
   const Function &F = MF.getFunction();
   CallingConv::ID CalleeCC = Info.CallConv;
   CallingConv::ID CallerCC = F.getCallingConv();
@@ -407,12 +409,14 @@ bool CallLowering::resultsCompatible(CallLoweringInfo &Info,
 
   SmallVector<CCValAssign, 16> ArgLocs1;
   CCState CCInfo1(CalleeCC, false, MF, ArgLocs1, F.getContext());
-  if (!analyzeArgInfo(CCInfo1, InArgs, CalleeAssignFn))
+  if (!analyzeArgInfo(CCInfo1, InArgs, CalleeAssignFnFixed,
+                      CalleeAssignFnVarArg))
     return false;
 
   SmallVector<CCValAssign, 16> ArgLocs2;
   CCState CCInfo2(CallerCC, false, MF, ArgLocs2, F.getContext());
-  if (!analyzeArgInfo(CCInfo2, InArgs, CallerAssignFn))
+  if (!analyzeArgInfo(CCInfo2, InArgs, CallerAssignFnFixed,
+                      CalleeAssignFnVarArg))
     return false;
 
   // We need the argument locations to match up exactly. If there's more in

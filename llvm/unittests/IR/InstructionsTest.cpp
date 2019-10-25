@@ -1034,13 +1034,16 @@ TEST(InstructionsTest, SkipDebug) {
   EXPECT_EQ(nullptr, Term->getNextNonDebugInstruction());
 }
 
-TEST(InstructionsTest, PhiIsNotFPMathOperator) {
+TEST(InstructionsTest, PhiMightNotBeFPMathOperator) {
   LLVMContext Context;
   IRBuilder<> Builder(Context);
   MDBuilder MDHelper(Context);
-  Instruction *I = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  Instruction *I = Builder.CreatePHI(Builder.getInt32Ty(), 0);
   EXPECT_FALSE(isa<FPMathOperator>(I));
   I->deleteValue();
+  Instruction *FP = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  EXPECT_TRUE(isa<FPMathOperator>(FP));
+  FP->deleteValue();
 }
 
 TEST(InstructionsTest, FNegInstruction) {
@@ -1110,6 +1113,22 @@ if.end:
       << CBI;
   EXPECT_EQ(IndirectBA->getBasicBlock(), &IfThen);
   EXPECT_EQ(ArgBA->getBasicBlock(), &IfThen);
+}
+
+TEST(InstructionsTest, UnaryOperator) {
+  LLVMContext Context;
+  IRBuilder<> Builder(Context);
+  Instruction *I = Builder.CreatePHI(Builder.getDoubleTy(), 0);
+  Value *F = Builder.CreateFNeg(I);
+
+  EXPECT_TRUE(isa<Value>(F));
+  EXPECT_TRUE(isa<Instruction>(F));
+  EXPECT_TRUE(isa<UnaryInstruction>(F));
+  EXPECT_TRUE(isa<UnaryOperator>(F));
+  EXPECT_FALSE(isa<BinaryOperator>(F));
+
+  F->deleteValue();
+  I->deleteValue();
 }
 
 } // end anonymous namespace

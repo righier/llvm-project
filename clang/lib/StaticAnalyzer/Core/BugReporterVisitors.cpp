@@ -1418,14 +1418,19 @@ FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     if (Optional<CallEnter> CE = Succ->getLocationAs<CallEnter>()) {
       if (const auto *VR = dyn_cast<VarRegion>(R)) {
 
-        const auto *Param = cast<ParmVarDecl>(VR->getDecl());
+        if (const auto *Param = dyn_cast<ParmVarDecl>(VR->getDecl())) {
+          ProgramStateManager &StateMgr = BRC.getStateManager();
+          CallEventManager &CallMgr = StateMgr.getCallEventManager();
 
-        ProgramStateManager &StateMgr = BRC.getStateManager();
-        CallEventManager &CallMgr = StateMgr.getCallEventManager();
-
-        CallEventRef<> Call = CallMgr.getCaller(CE->getCalleeContext(),
-                                                Succ->getState());
-        InitE = Call->getArgExpr(Param->getFunctionScopeIndex());
+          CallEventRef<> Call = CallMgr.getCaller(CE->getCalleeContext(),
+                                                  Succ->getState());
+          InitE = Call->getArgExpr(Param->getFunctionScopeIndex());
+        } else {
+          // Handle Objective-C 'self'.
+          assert(isa<ImplicitParamDecl>(VR->getDecl()));
+          InitE = cast<ObjCMessageExpr>(CE->getCalleeContext()->getCallSite())
+                      ->getInstanceReceiver()->IgnoreParenCasts();
+        }
         IsParam = true;
       }
     }
@@ -1438,6 +1443,7 @@ FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
 
   if (!StoreSite)
     return nullptr;
+
   Satisfied = true;
 
   // If we have an expression that provided the value, try to track where it
@@ -1802,7 +1808,7 @@ TrackControlDependencyCondBRVisitor::VisitNode(const ExplodedNode *N,
   if (ControlDeps.isControlDependent(OriginB, NB)) {
     // We don't really want to explain for range loops. Evidence suggests that
     // the only thing that leads to is the addition of calls to operator!=.
-    if (isa<CXXForRangeStmt>(NB->getTerminator()))
+    if (llvm::isa_and_nonnull<CXXForRangeStmt>(NB->getTerminatorStmt()))
       return nullptr;
 
     if (const Expr *Condition = NB->getLastCondition()) {
@@ -2028,8 +2034,6 @@ bool bugreporter::trackExpressionValue(const ExplodedNode *InputNode,
 
   // Is it a symbolic value?
   if (auto L = V.getAs<loc::MemRegionVal>()) {
-    report.addVisitor(std::make_unique<UndefOrNullArgVisitor>(L->getRegion()));
-
     // FIXME: this is a hack for fixing a later crash when attempting to
     // dereference a void* pointer.
     // We should not try to dereference pointers at all when we don't care
@@ -2050,10 +2054,14 @@ bool bugreporter::trackExpressionValue(const ExplodedNode *InputNode,
     else if (CanDereference)
       RVal = LVState->getSVal(L->getRegion());
 
-    if (CanDereference)
+    if (CanDereference) {
+      report.addVisitor(
+          std::make_unique<UndefOrNullArgVisitor>(L->getRegion()));
+
       if (auto KV = RVal.getAs<KnownSVal>())
         report.addVisitor(std::make_unique<FindLastStoreBRVisitor>(
             *KV, L->getRegion(), EnableNullFPSuppression, TKind, SFC));
+    }
 
     const MemRegion *RegionRVal = RVal.getAsRegion();
     if (RegionRVal && isa<SymbolicRegion>(RegionRVal)) {

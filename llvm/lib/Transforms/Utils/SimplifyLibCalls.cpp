@@ -35,6 +35,7 @@
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/KnownBits.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/Transforms/Utils/SizeOpts.h"
 
@@ -46,7 +47,6 @@ static cl::opt<bool>
                          cl::init(false),
                          cl::desc("Enable unsafe double to float "
                                   "shrinking for math lib calls"));
-
 
 //===----------------------------------------------------------------------===//
 // Helper Functions
@@ -177,7 +177,8 @@ static bool canTransformToMemCmp(CallInst *CI, Value *Str, uint64_t Len,
   if (!isOnlyUsedInComparisonWithZero(CI))
     return false;
 
-  if (!isDereferenceableAndAlignedPointer(Str, 1, APInt(64, Len), DL))
+  if (!isDereferenceableAndAlignedPointer(Str, Align::None(), APInt(64, Len),
+                                          DL))
     return false;
 
   if (CI->getFunction()->hasFnAttribute(Attribute::SanitizeMemory))
@@ -526,6 +527,19 @@ Value *LibCallSimplifier::optimizeStrNCmp(CallInst *CI, IRBuilder<> &B) {
           Str1P, Str2P,
           ConstantInt::get(DL.getIntPtrType(CI->getContext()), Len1), B, DL,
           TLI);
+  }
+
+  return nullptr;
+}
+
+Value *LibCallSimplifier::optimizeStrNDup(CallInst *CI, IRBuilder<> &B) {
+  Value *Src = CI->getArgOperand(0);
+  ConstantInt *Size = dyn_cast<ConstantInt>(CI->getArgOperand(1));
+  uint64_t SrcLen = GetStringLength(Src);
+  if (SrcLen && Size) {
+    annotateDereferenceableBytes(CI, 0, SrcLen);
+    if (SrcLen <= Size->getZExtValue() + 1)
+      return emitStrDup(Src, B, TLI);
   }
 
   return nullptr;
@@ -1258,21 +1272,18 @@ static Value *optimizeDoubleFP(CallInst *CI, IRBuilder<> &B,
   if (!V[0] || (isBinary && !V[1]))
     return nullptr;
 
-  StringRef CalleeNm = CalleeFn->getName();
-  AttributeList CalleeAt = CalleeFn->getAttributes();
-  bool CalleeIn = CalleeFn->isIntrinsic();
-
   // If call isn't an intrinsic, check that it isn't within a function with the
   // same name as the float version of this call, otherwise the result is an
   // infinite loop.  For example, from MinGW-w64:
   //
   // float expf(float val) { return (float) exp((double) val); }
-  if (!CalleeIn) {
-    const Function *Fn = CI->getFunction();
-    StringRef FnName = Fn->getName();
-    if (FnName.back() == 'f' &&
-        FnName.size() == (CalleeNm.size() + 1) &&
-        FnName.startswith(CalleeNm))
+  StringRef CalleeName = CalleeFn->getName();
+  bool IsIntrinsic = CalleeFn->isIntrinsic();
+  if (!IsIntrinsic) {
+    StringRef CallerName = CI->getFunction()->getName();
+    if (!CallerName.empty() && CallerName.back() == 'f' &&
+        CallerName.size() == (CalleeName.size() + 1) &&
+        CallerName.startswith(CalleeName))
       return nullptr;
   }
 
@@ -1282,16 +1293,16 @@ static Value *optimizeDoubleFP(CallInst *CI, IRBuilder<> &B,
 
   // g((double) float) -> (double) gf(float)
   Value *R;
-  if (CalleeIn) {
+  if (IsIntrinsic) {
     Module *M = CI->getModule();
     Intrinsic::ID IID = CalleeFn->getIntrinsicID();
     Function *Fn = Intrinsic::getDeclaration(M, IID, B.getFloatTy());
     R = isBinary ? B.CreateCall(Fn, V) : B.CreateCall(Fn, V[0]);
+  } else {
+    AttributeList CalleeAttrs = CalleeFn->getAttributes();
+    R = isBinary ? emitBinaryFloatFnCall(V[0], V[1], CalleeName, B, CalleeAttrs)
+                 : emitUnaryFloatFnCall(V[0], CalleeName, B, CalleeAttrs);
   }
-  else
-    R = isBinary ? emitBinaryFloatFnCall(V[0], V[1], CalleeNm, B, CalleeAt)
-                 : emitUnaryFloatFnCall(V[0], CalleeNm, B, CalleeAt);
-
   return B.CreateFPExt(R, B.getDoubleTy());
 }
 
@@ -1447,9 +1458,7 @@ Value *LibCallSimplifier::replacePowWithExp(CallInst *Pow, IRBuilder<> &B) {
       StringRef ExpName;
       Intrinsic::ID ID;
       Value *ExpFn;
-      LibFunc LibFnFloat;
-      LibFunc LibFnDouble;
-      LibFunc LibFnLongDouble;
+      LibFunc LibFnFloat, LibFnDouble, LibFnLongDouble;
 
       switch (LibFn) {
       default:
@@ -1799,48 +1808,155 @@ Value *LibCallSimplifier::optimizeFMinFMax(CallInst *CI, IRBuilder<> &B) {
   return B.CreateCall(F, { CI->getArgOperand(0), CI->getArgOperand(1) });
 }
 
-Value *LibCallSimplifier::optimizeLog(CallInst *CI, IRBuilder<> &B) {
-  Function *Callee = CI->getCalledFunction();
+Value *LibCallSimplifier::optimizeLog(CallInst *Log, IRBuilder<> &B) {
+  Function *LogFn = Log->getCalledFunction();
+  AttributeList Attrs = LogFn->getAttributes();
+  StringRef LogNm = LogFn->getName();
+  Intrinsic::ID LogID = LogFn->getIntrinsicID();
+  Module *Mod = Log->getModule();
+  Type *Ty = Log->getType();
   Value *Ret = nullptr;
-  StringRef Name = Callee->getName();
-  if (UnsafeFPShrink && hasFloatVersion(Name))
-    Ret = optimizeUnaryDoubleFP(CI, B, true);
 
-  if (!CI->isFast())
-    return Ret;
-  Value *Op1 = CI->getArgOperand(0);
-  auto *OpC = dyn_cast<CallInst>(Op1);
+  if (UnsafeFPShrink && hasFloatVersion(LogNm))
+    Ret = optimizeUnaryDoubleFP(Log, B, true);
 
   // The earlier call must also be 'fast' in order to do these transforms.
-  if (!OpC || !OpC->isFast())
+  CallInst *Arg = dyn_cast<CallInst>(Log->getArgOperand(0));
+  if (!Log->isFast() || !Arg || !Arg->isFast() || !Arg->hasOneUse())
     return Ret;
 
-  // log(pow(x,y)) -> y*log(x)
-  // This is only applicable to log, log2, log10.
-  if (Name != "log" && Name != "log2" && Name != "log10")
+  LibFunc LogLb, ExpLb, Exp2Lb, Exp10Lb, PowLb;
+
+  // This is only applicable to log(), log2(), log10().
+  if (TLI->getLibFunc(LogNm, LogLb))
+    switch (LogLb) {
+    case LibFunc_logf:
+      LogID = Intrinsic::log;
+      ExpLb = LibFunc_expf;
+      Exp2Lb = LibFunc_exp2f;
+      Exp10Lb = LibFunc_exp10f;
+      PowLb = LibFunc_powf;
+      break;
+    case LibFunc_log:
+      LogID = Intrinsic::log;
+      ExpLb = LibFunc_exp;
+      Exp2Lb = LibFunc_exp2;
+      Exp10Lb = LibFunc_exp10;
+      PowLb = LibFunc_pow;
+      break;
+    case LibFunc_logl:
+      LogID = Intrinsic::log;
+      ExpLb = LibFunc_expl;
+      Exp2Lb = LibFunc_exp2l;
+      Exp10Lb = LibFunc_exp10l;
+      PowLb = LibFunc_powl;
+      break;
+    case LibFunc_log2f:
+      LogID = Intrinsic::log2;
+      ExpLb = LibFunc_expf;
+      Exp2Lb = LibFunc_exp2f;
+      Exp10Lb = LibFunc_exp10f;
+      PowLb = LibFunc_powf;
+      break;
+    case LibFunc_log2:
+      LogID = Intrinsic::log2;
+      ExpLb = LibFunc_exp;
+      Exp2Lb = LibFunc_exp2;
+      Exp10Lb = LibFunc_exp10;
+      PowLb = LibFunc_pow;
+      break;
+    case LibFunc_log2l:
+      LogID = Intrinsic::log2;
+      ExpLb = LibFunc_expl;
+      Exp2Lb = LibFunc_exp2l;
+      Exp10Lb = LibFunc_exp10l;
+      PowLb = LibFunc_powl;
+      break;
+    case LibFunc_log10f:
+      LogID = Intrinsic::log10;
+      ExpLb = LibFunc_expf;
+      Exp2Lb = LibFunc_exp2f;
+      Exp10Lb = LibFunc_exp10f;
+      PowLb = LibFunc_powf;
+      break;
+    case LibFunc_log10:
+      LogID = Intrinsic::log10;
+      ExpLb = LibFunc_exp;
+      Exp2Lb = LibFunc_exp2;
+      Exp10Lb = LibFunc_exp10;
+      PowLb = LibFunc_pow;
+      break;
+    case LibFunc_log10l:
+      LogID = Intrinsic::log10;
+      ExpLb = LibFunc_expl;
+      Exp2Lb = LibFunc_exp2l;
+      Exp10Lb = LibFunc_exp10l;
+      PowLb = LibFunc_powl;
+      break;
+    default:
+      return Ret;
+    }
+  else if (LogID == Intrinsic::log || LogID == Intrinsic::log2 ||
+           LogID == Intrinsic::log10) {
+    if (Ty->getScalarType()->isFloatTy()) {
+      ExpLb = LibFunc_expf;
+      Exp2Lb = LibFunc_exp2f;
+      Exp10Lb = LibFunc_exp10f;
+      PowLb = LibFunc_powf;
+    } else if (Ty->getScalarType()->isDoubleTy()) {
+      ExpLb = LibFunc_exp;
+      Exp2Lb = LibFunc_exp2;
+      Exp10Lb = LibFunc_exp10;
+      PowLb = LibFunc_pow;
+    } else
+      return Ret;
+  } else
     return Ret;
 
   IRBuilder<>::FastMathFlagGuard Guard(B);
-  FastMathFlags FMF;
-  FMF.setFast();
-  B.setFastMathFlags(FMF);
+  B.setFastMathFlags(FastMathFlags::getFast());
 
-  LibFunc Func;
-  Function *F = OpC->getCalledFunction();
-  if (F && ((TLI->getLibFunc(F->getName(), Func) && TLI->has(Func) &&
-      Func == LibFunc_pow) || F->getIntrinsicID() == Intrinsic::pow))
-    return B.CreateFMul(OpC->getArgOperand(1),
-      emitUnaryFloatFnCall(OpC->getOperand(0), Callee->getName(), B,
-                           Callee->getAttributes()), "mul");
+  Intrinsic::ID ArgID = Arg->getIntrinsicID();
+  LibFunc ArgLb = NotLibFunc;
+  TLI->getLibFunc(Arg, ArgLb);
 
-  // log(exp2(y)) -> y*log(2)
-  if (F && Name == "log" && TLI->getLibFunc(F->getName(), Func) &&
-      TLI->has(Func) && Func == LibFunc_exp2)
-    return B.CreateFMul(
-        OpC->getArgOperand(0),
-        emitUnaryFloatFnCall(ConstantFP::get(CI->getType(), 2.0),
-                             Callee->getName(), B, Callee->getAttributes()),
-        "logmul");
+  // log(pow(x,y)) -> y*log(x)
+  if (ArgLb == PowLb || ArgID == Intrinsic::pow) {
+    Value *LogX =
+        Log->doesNotAccessMemory()
+            ? B.CreateCall(Intrinsic::getDeclaration(Mod, LogID, Ty),
+                           Arg->getOperand(0), "log")
+            : emitUnaryFloatFnCall(Arg->getOperand(0), LogNm, B, Attrs);
+    Value *MulY = B.CreateFMul(Arg->getArgOperand(1), LogX, "mul");
+    // Since pow() may have side effects, e.g. errno,
+    // dead code elimination may not be trusted to remove it.
+    substituteInParent(Arg, MulY);
+    return MulY;
+  }
+
+  // log(exp{,2,10}(y)) -> y*log({e,2,10})
+  // TODO: There is no exp10() intrinsic yet.
+  if (ArgLb == ExpLb || ArgLb == Exp2Lb || ArgLb == Exp10Lb ||
+           ArgID == Intrinsic::exp || ArgID == Intrinsic::exp2) {
+    Constant *Eul;
+    if (ArgLb == ExpLb || ArgID == Intrinsic::exp)
+      // FIXME: Add more precise value of e for long double.
+      Eul = ConstantFP::get(Log->getType(), numbers::e);
+    else if (ArgLb == Exp2Lb || ArgID == Intrinsic::exp2)
+      Eul = ConstantFP::get(Log->getType(), 2.0);
+    else
+      Eul = ConstantFP::get(Log->getType(), 10.0);
+    Value *LogE = Log->doesNotAccessMemory()
+                      ? B.CreateCall(Intrinsic::getDeclaration(Mod, LogID, Ty),
+                                     Eul, "log")
+                      : emitUnaryFloatFnCall(Eul, LogNm, B, Attrs);
+    Value *MulY = B.CreateFMul(Arg->getArgOperand(0), LogE, "mul");
+    // Since exp() may have side effects, e.g. errno,
+    // dead code elimination may not be trusted to remove it.
+    substituteInParent(Arg, MulY);
+    return MulY;
+  }
+
   return Ret;
 }
 
@@ -2674,6 +2790,12 @@ Value *LibCallSimplifier::optimizePuts(CallInst *CI, IRBuilder<> &B) {
   return nullptr;
 }
 
+Value *LibCallSimplifier::optimizeBCopy(CallInst *CI, IRBuilder<> &B) {
+  // bcopy(src, dst, n) -> llvm.memmove(dst, src, n)
+  return B.CreateMemMove(CI->getArgOperand(1), 1, CI->getArgOperand(0), 1,
+                         CI->getArgOperand(2));
+}
+
 bool LibCallSimplifier::hasFloatVersion(StringRef FuncName) {
   LibFunc Func;
   SmallString<20> FloatFuncName = FuncName;
@@ -2716,6 +2838,8 @@ Value *LibCallSimplifier::optimizeStringMemoryLibCall(CallInst *CI,
       return optimizeStrLen(CI, Builder);
     case LibFunc_strpbrk:
       return optimizeStrPBrk(CI, Builder);
+    case LibFunc_strndup:
+      return optimizeStrNDup(CI, Builder);
     case LibFunc_strtol:
     case LibFunc_strtod:
     case LibFunc_strtof:
@@ -2750,6 +2874,8 @@ Value *LibCallSimplifier::optimizeStringMemoryLibCall(CallInst *CI,
       return optimizeRealloc(CI, Builder);
     case LibFunc_wcslen:
       return optimizeWcslen(CI, Builder);
+    case LibFunc_bcopy:
+      return optimizeBCopy(CI, Builder);
     default:
       break;
     }
@@ -2789,11 +2915,21 @@ Value *LibCallSimplifier::optimizeFloatingPointLibCall(CallInst *CI,
   case LibFunc_sqrt:
   case LibFunc_sqrtl:
     return optimizeSqrt(CI, Builder);
+  case LibFunc_logf:
   case LibFunc_log:
+  case LibFunc_logl:
+  case LibFunc_log10f:
   case LibFunc_log10:
+  case LibFunc_log10l:
+  case LibFunc_log1pf:
   case LibFunc_log1p:
+  case LibFunc_log1pl:
+  case LibFunc_log2f:
   case LibFunc_log2:
+  case LibFunc_log2l:
+  case LibFunc_logbf:
   case LibFunc_logb:
+  case LibFunc_logbl:
     return optimizeLog(CI, Builder);
   case LibFunc_tan:
   case LibFunc_tanf:
@@ -2884,6 +3020,8 @@ Value *LibCallSimplifier::optimizeCall(CallInst *CI) {
     case Intrinsic::exp2:
       return optimizeExp2(CI, Builder);
     case Intrinsic::log:
+    case Intrinsic::log2:
+    case Intrinsic::log10:
       return optimizeLog(CI, Builder);
     case Intrinsic::sqrt:
       return optimizeSqrt(CI, Builder);

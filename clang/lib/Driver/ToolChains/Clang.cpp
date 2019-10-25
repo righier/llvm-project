@@ -302,95 +302,6 @@ static void ParseMPreferVectorWidth(const Driver &D, const ArgList &Args,
   }
 }
 
-static void getWebAssemblyTargetFeatures(const ArgList &Args,
-                                         std::vector<StringRef> &Features) {
-  handleTargetFeaturesGroup(Args, Features, options::OPT_m_wasm_Features_Group);
-}
-
-static void getTargetFeatures(const ToolChain &TC, const llvm::Triple &Triple,
-                              const ArgList &Args, ArgStringList &CmdArgs,
-                              bool ForAS) {
-  const Driver &D = TC.getDriver();
-  std::vector<StringRef> Features;
-  switch (Triple.getArch()) {
-  default:
-    break;
-  case llvm::Triple::mips:
-  case llvm::Triple::mipsel:
-  case llvm::Triple::mips64:
-  case llvm::Triple::mips64el:
-    mips::getMIPSTargetFeatures(D, Triple, Args, Features);
-    break;
-
-  case llvm::Triple::arm:
-  case llvm::Triple::armeb:
-  case llvm::Triple::thumb:
-  case llvm::Triple::thumbeb:
-    arm::getARMTargetFeatures(TC, Triple, Args, CmdArgs, Features, ForAS);
-    break;
-
-  case llvm::Triple::ppc:
-  case llvm::Triple::ppc64:
-  case llvm::Triple::ppc64le:
-    ppc::getPPCTargetFeatures(D, Triple, Args, Features);
-    break;
-  case llvm::Triple::riscv32:
-  case llvm::Triple::riscv64:
-    riscv::getRISCVTargetFeatures(D, Triple, Args, Features);
-    break;
-  case llvm::Triple::systemz:
-    systemz::getSystemZTargetFeatures(Args, Features);
-    break;
-  case llvm::Triple::aarch64:
-  case llvm::Triple::aarch64_be:
-    aarch64::getAArch64TargetFeatures(D, Triple, Args, Features);
-    break;
-  case llvm::Triple::x86:
-  case llvm::Triple::x86_64:
-    x86::getX86TargetFeatures(D, Triple, Args, Features);
-    break;
-  case llvm::Triple::hexagon:
-    hexagon::getHexagonTargetFeatures(D, Args, Features);
-    break;
-  case llvm::Triple::wasm32:
-  case llvm::Triple::wasm64:
-    getWebAssemblyTargetFeatures(Args, Features);
-    break;
-  case llvm::Triple::sparc:
-  case llvm::Triple::sparcel:
-  case llvm::Triple::sparcv9:
-    sparc::getSparcTargetFeatures(D, Args, Features);
-    break;
-  case llvm::Triple::r600:
-  case llvm::Triple::amdgcn:
-    amdgpu::getAMDGPUTargetFeatures(D, Args, Features);
-    break;
-  case llvm::Triple::msp430:
-    msp430::getMSP430TargetFeatures(D, Args, Features);
-  }
-
-  // Find the last of each feature.
-  llvm::StringMap<unsigned> LastOpt;
-  for (unsigned I = 0, N = Features.size(); I < N; ++I) {
-    StringRef Name = Features[I];
-    assert(Name[0] == '-' || Name[0] == '+');
-    LastOpt[Name.drop_front(1)] = I;
-  }
-
-  for (unsigned I = 0, N = Features.size(); I < N; ++I) {
-    // If this feature was overridden, ignore it.
-    StringRef Name = Features[I];
-    llvm::StringMap<unsigned>::iterator LastI = LastOpt.find(Name.drop_front(1));
-    assert(LastI != LastOpt.end());
-    unsigned Last = LastI->second;
-    if (Last != I)
-      continue;
-
-    CmdArgs.push_back("-target-feature");
-    CmdArgs.push_back(Name.data());
-  }
-}
-
 static bool
 shouldUseExceptionTablesForObjCExceptions(const ObjCRuntime &runtime,
                                           const llvm::Triple &Triple) {
@@ -608,16 +519,15 @@ getFramePointerKind(const ArgList &Args, const llvm::Triple &Triple) {
 }
 
 /// Add a CC1 option to specify the debug compilation directory.
-static void addDebugCompDirArg(const ArgList &Args, ArgStringList &CmdArgs) {
+static void addDebugCompDirArg(const ArgList &Args, ArgStringList &CmdArgs,
+                               const llvm::vfs::FileSystem &VFS) {
   if (Arg *A = Args.getLastArg(options::OPT_fdebug_compilation_dir)) {
     CmdArgs.push_back("-fdebug-compilation-dir");
     CmdArgs.push_back(A->getValue());
-  } else {
-    SmallString<128> cwd;
-    if (!llvm::sys::fs::current_path(cwd)) {
-      CmdArgs.push_back("-fdebug-compilation-dir");
-      CmdArgs.push_back(Args.MakeArgString(cwd));
-    }
+  } else if (llvm::ErrorOr<std::string> CWD =
+                 VFS.getCurrentWorkingDirectory()) {
+    CmdArgs.push_back("-fdebug-compilation-dir");
+    CmdArgs.push_back(Args.MakeArgString(*CWD));
   }
 }
 
@@ -832,12 +742,14 @@ static void addPGOAndCoverageFlags(const ToolChain &TC, Compilation &C,
     }
   }
 
-  if (Args.hasArg(options::OPT_ftest_coverage) ||
-      Args.hasArg(options::OPT_coverage))
+  bool EmitCovNotes = Args.hasArg(options::OPT_ftest_coverage) ||
+                      Args.hasArg(options::OPT_coverage);
+  bool EmitCovData = Args.hasFlag(options::OPT_fprofile_arcs,
+                                  options::OPT_fno_profile_arcs, false) ||
+                     Args.hasArg(options::OPT_coverage);
+  if (EmitCovNotes)
     CmdArgs.push_back("-femit-coverage-notes");
-  if (Args.hasFlag(options::OPT_fprofile_arcs, options::OPT_fno_profile_arcs,
-                   false) ||
-      Args.hasArg(options::OPT_coverage))
+  if (EmitCovData)
     CmdArgs.push_back("-femit-coverage-data");
 
   if (Args.hasFlag(options::OPT_fcoverage_mapping,
@@ -873,40 +785,43 @@ static void addPGOAndCoverageFlags(const ToolChain &TC, Compilation &C,
     CmdArgs.push_back(Args.MakeArgString(Twine("-fprofile-filter-files=" + v)));
   }
 
-  if (C.getArgs().hasArg(options::OPT_c) ||
-      C.getArgs().hasArg(options::OPT_S)) {
-    if (Output.isFilename()) {
-      CmdArgs.push_back("-coverage-notes-file");
-      SmallString<128> OutputFilename;
-      if (Arg *FinalOutput = C.getArgs().getLastArg(options::OPT_o))
-        OutputFilename = FinalOutput->getValue();
-      else
-        OutputFilename = llvm::sys::path::filename(Output.getBaseInput());
-      SmallString<128> CoverageFilename = OutputFilename;
-      if (llvm::sys::path::is_relative(CoverageFilename)) {
-        SmallString<128> Pwd;
-        if (!llvm::sys::fs::current_path(Pwd)) {
-          llvm::sys::path::append(Pwd, CoverageFilename);
-          CoverageFilename.swap(Pwd);
-        }
-      }
-      llvm::sys::path::replace_extension(CoverageFilename, "gcno");
-      CmdArgs.push_back(Args.MakeArgString(CoverageFilename));
+  // Leave -fprofile-dir= an unused argument unless .gcda emission is
+  // enabled. To be polite, with '-fprofile-arcs -fno-profile-arcs' consider
+  // the flag used. There is no -fno-profile-dir, so the user has no
+  // targeted way to suppress the warning.
+  Arg *FProfileDir = nullptr;
+  if (Args.hasArg(options::OPT_fprofile_arcs) ||
+      Args.hasArg(options::OPT_coverage))
+    FProfileDir = Args.getLastArg(options::OPT_fprofile_dir);
 
-      // Leave -fprofile-dir= an unused argument unless .gcda emission is
-      // enabled. To be polite, with '-fprofile-arcs -fno-profile-arcs' consider
-      // the flag used. There is no -fno-profile-dir, so the user has no
-      // targeted way to suppress the warning.
-      if (Args.hasArg(options::OPT_fprofile_arcs) ||
-          Args.hasArg(options::OPT_coverage)) {
-        CmdArgs.push_back("-coverage-data-file");
-        if (Arg *FProfileDir = Args.getLastArg(options::OPT_fprofile_dir)) {
-          CoverageFilename = FProfileDir->getValue();
-          llvm::sys::path::append(CoverageFilename, OutputFilename);
-        }
-        llvm::sys::path::replace_extension(CoverageFilename, "gcda");
-        CmdArgs.push_back(Args.MakeArgString(CoverageFilename));
+  // Put the .gcno and .gcda files (if needed) next to the object file or
+  // bitcode file in the case of LTO.
+  // FIXME: There should be a simpler way to find the object file for this
+  // input, and this code probably does the wrong thing for commands that
+  // compile and link all at once.
+  if ((Args.hasArg(options::OPT_c) || Args.hasArg(options::OPT_S)) &&
+      (EmitCovNotes || EmitCovData) && Output.isFilename()) {
+    SmallString<128> OutputFilename;
+    if (Arg *FinalOutput = C.getArgs().getLastArg(options::OPT_o))
+      OutputFilename = FinalOutput->getValue();
+    else
+      OutputFilename = llvm::sys::path::filename(Output.getBaseInput());
+    SmallString<128> CoverageFilename = OutputFilename;
+    if (llvm::sys::path::is_relative(CoverageFilename))
+      (void)D.getVFS().makeAbsolute(CoverageFilename);
+    llvm::sys::path::replace_extension(CoverageFilename, "gcno");
+
+    CmdArgs.push_back("-coverage-notes-file");
+    CmdArgs.push_back(Args.MakeArgString(CoverageFilename));
+
+    if (EmitCovData) {
+      if (FProfileDir) {
+        CoverageFilename = FProfileDir->getValue();
+        llvm::sys::path::append(CoverageFilename, OutputFilename);
       }
+      llvm::sys::path::replace_extension(CoverageFilename, "gcda");
+      CmdArgs.push_back("-coverage-data-file");
+      CmdArgs.push_back(Args.MakeArgString(CoverageFilename));
     }
   }
 }
@@ -1662,7 +1577,7 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
   CmdArgs.push_back("-target-abi");
   CmdArgs.push_back(ABIName.data());
 
-  mips::FloatABI ABI = mips::getMipsFloatABI(D, Args);
+  mips::FloatABI ABI = mips::getMipsFloatABI(D, Args, Triple);
   if (ABI == mips::FloatABI::Soft) {
     // Floating point operations and argument passing are soft.
     CmdArgs.push_back("-msoft-float");
@@ -1673,13 +1588,6 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
     assert(ABI == mips::FloatABI::Hard && "Invalid float abi!");
     CmdArgs.push_back("-mfloat-abi");
     CmdArgs.push_back("hard");
-  }
-
-  if (Arg *A = Args.getLastArg(options::OPT_mxgot, options::OPT_mno_xgot)) {
-    if (A->getOption().matches(options::OPT_mxgot)) {
-      CmdArgs.push_back("-mllvm");
-      CmdArgs.push_back("-mxgot");
-    }
   }
 
   if (Arg *A = Args.getLastArg(options::OPT_mldc1_sdc1,
@@ -2023,13 +1931,14 @@ void Clang::DumpCompilationDatabase(Compilation &C, StringRef Filename,
     CompilationDatabase = std::move(File);
   }
   auto &CDB = *CompilationDatabase;
-  SmallString<128> Buf;
-  if (!llvm::sys::fs::current_path(Buf))
-    Buf = ".";
-  CDB << "{ \"directory\": \"" << escape(Buf) << "\"";
+  auto CWD = D.getVFS().getCurrentWorkingDirectory();
+  if (!CWD)
+    CWD = ".";
+  CDB << "{ \"directory\": \"" << escape(*CWD) << "\"";
   CDB << ", \"file\": \"" << escape(Input.getFilename()) << "\"";
   CDB << ", \"output\": \"" << escape(Output.getFilename()) << "\"";
   CDB << ", \"arguments\": [\"" << escape(D.ClangExecutable) << "\"";
+  SmallString<128> Buf;
   Buf = "-x";
   Buf += types::getTypeName(Input.getType());
   CDB << ", \"" << escape(Buf) << "\"";
@@ -2226,7 +2135,7 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
         CmdArgs.push_back("-msave-temp-labels");
       } else if (Value == "--fatal-warnings") {
         CmdArgs.push_back("-massembler-fatal-warnings");
-      } else if (Value == "--no-warn") {
+      } else if (Value == "--no-warn" || Value == "-W") {
         CmdArgs.push_back("-massembler-no-warn");
       } else if (Value == "--noexecstack") {
         UseNoExecStack = true;
@@ -2863,6 +2772,10 @@ static void RenderModulesOptions(Compilation &C, const Driver &D,
           std::string("-fprebuilt-module-path=") + A->getValue()));
       A->claim();
     }
+    if (Args.hasFlag(options::OPT_fmodules_validate_input_files_content,
+                     options::OPT_fno_modules_validate_input_files_content,
+                     false))
+      CmdArgs.push_back("-fvalidate-ast-input-files-content");
   }
 
   // -fmodule-name specifies the module that is currently being built (or
@@ -3680,32 +3593,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     } else if (JA.getType() == types::TY_LLVM_BC ||
                JA.getType() == types::TY_LTO_BC) {
       CmdArgs.push_back("-emit-llvm-bc");
-    } else if (JA.getType() == types::TY_IFS) {
+    } else if (JA.getType() == types::TY_IFS ||
+               JA.getType() == types::TY_IFS_CPP) {
       StringRef ArgStr =
-          Args.hasArg(options::OPT_iterface_stub_version_EQ)
-              ? Args.getLastArgValue(options::OPT_iterface_stub_version_EQ)
-              : "";
-      StringRef StubFormat =
-          llvm::StringSwitch<StringRef>(ArgStr)
-              .Case("experimental-ifs-v1", "experimental-ifs-v1")
-              .Default("");
-
-      if (StubFormat.empty()) {
-        std::string ErrorMessage =
-            "Invalid interface stub format: " + ArgStr.str() +
-            ((ArgStr == "experimental-yaml-elf-v1" ||
-              ArgStr == "experimental-tapi-elf-v1")
-                 ? " is deprecated."
-                 : ".");
-        D.Diag(diag::err_drv_invalid_value)
-            << "Must specify a valid interface stub format type, ie: "
-               "-interface-stub-version=experimental-ifs-v1"
-            << ErrorMessage;
-      }
-
+          Args.hasArg(options::OPT_interface_stub_version_EQ)
+              ? Args.getLastArgValue(options::OPT_interface_stub_version_EQ)
+              : "experimental-ifs-v1";
       CmdArgs.push_back("-emit-interface-stubs");
       CmdArgs.push_back(
-          Args.MakeArgString(Twine("-interface-stub-version=") + StubFormat));
+          Args.MakeArgString(Twine("-interface-stub-version=") + ArgStr.str()));
     } else if (JA.getType() == types::TY_PP_Asm) {
       CmdArgs.push_back("-S");
     } else if (JA.getType() == types::TY_AST) {
@@ -3735,13 +3631,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
     if (D.isUsingLTO() && !isDeviceOffloadAction) {
       Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
-
-      // The Darwin and PS4 linkers currently use the legacy LTO API, which
-      // does not support LTO unit features (CFI, whole program vtable opt)
-      // under ThinLTO.
-      if (!(RawTriple.isOSDarwin() || RawTriple.isPS4()) ||
-          D.getLTOMode() == LTOK_Full)
-        CmdArgs.push_back("-flto-unit");
+      CmdArgs.push_back("-flto-unit");
     }
   }
 
@@ -3750,6 +3640,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::err_drv_arg_requires_bitcode_input) << A->getAsString(Args);
     Args.AddLastArg(CmdArgs, options::OPT_fthinlto_index_EQ);
   }
+
+  if (Args.getLastArg(options::OPT_fthin_link_bitcode_EQ))
+    Args.AddLastArg(CmdArgs, options::OPT_fthin_link_bitcode_EQ);
 
   if (Args.getLastArg(options::OPT_save_temps_EQ))
     Args.AddLastArg(CmdArgs, options::OPT_save_temps_EQ);
@@ -3905,6 +3798,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (isa<AnalyzeJobAction>(JA))
     RenderAnalyzerOptions(Args, CmdArgs, Triple, Input);
+
+  if (isa<AnalyzeJobAction>(JA) ||
+      (isa<PreprocessJobAction>(JA) && Args.hasArg(options::OPT__analyze)))
+    CmdArgs.push_back("-setup-static-analyzer");
 
   // Enable compatilibily mode to avoid analyzer-config related errors.
   // Since we can't access frontend flags through hasArg, let's manually iterate
@@ -4472,7 +4369,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-autolink");
 
   // Add in -fdebug-compilation-dir if necessary.
-  addDebugCompDirArg(Args, CmdArgs);
+  addDebugCompDirArg(Args, CmdArgs, D.getVFS());
 
   addDebugPrefixMapArg(D, Args, CmdArgs);
 
@@ -4781,6 +4678,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Forward -cl options to -cc1
   RenderOpenCLOptions(Args, CmdArgs);
 
+  if (Args.hasFlag(options::OPT_fhip_new_launch_api,
+                   options::OPT_fno_hip_new_launch_api, false))
+    CmdArgs.push_back("-fhip-new-launch-api");
+
   if (Arg *A = Args.getLastArg(options::OPT_fcf_protection_EQ)) {
     CmdArgs.push_back(
         Args.MakeArgString(Twine("-fcf-protection=") + A->getValue()));
@@ -4885,12 +4786,35 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fuse-line-directives");
 
   // -fms-compatibility=0 is default.
-  if (Args.hasFlag(options::OPT_fms_compatibility,
-                   options::OPT_fno_ms_compatibility,
-                   (IsWindowsMSVC &&
-                    Args.hasFlag(options::OPT_fms_extensions,
-                                 options::OPT_fno_ms_extensions, true))))
+  bool IsMSVCCompat = Args.hasFlag(
+      options::OPT_fms_compatibility, options::OPT_fno_ms_compatibility,
+      (IsWindowsMSVC && Args.hasFlag(options::OPT_fms_extensions,
+                                     options::OPT_fno_ms_extensions, true)));
+  if (IsMSVCCompat)
     CmdArgs.push_back("-fms-compatibility");
+
+  // Handle -fgcc-version, if present.
+  VersionTuple GNUCVer;
+  if (Arg *A = Args.getLastArg(options::OPT_fgnuc_version_EQ)) {
+    // Check that the version has 1 to 3 components and the minor and patch
+    // versions fit in two decimal digits.
+    StringRef Val = A->getValue();
+    Val = Val.empty() ? "0" : Val; // Treat "" as 0 or disable.
+    bool Invalid = GNUCVer.tryParse(Val);
+    unsigned Minor = GNUCVer.getMinor().getValueOr(0);
+    unsigned Patch = GNUCVer.getSubminor().getValueOr(0);
+    if (Invalid || GNUCVer.getBuild() || Minor >= 100 || Patch >= 100) {
+      D.Diag(diag::err_drv_invalid_value)
+          << A->getAsString(Args) << A->getValue();
+    }
+  } else if (!IsMSVCCompat) {
+    // Imitate GCC 4.2.1 by default if -fms-compatibility is not in effect.
+    GNUCVer = VersionTuple(4, 2, 1);
+  }
+  if (!GNUCVer.empty()) {
+    CmdArgs.push_back(
+        Args.MakeArgString("-fgnuc-version=" + GNUCVer.getAsString()));
+  }
 
   VersionTuple MSVT = TC.computeMSVCVersion(&D, Args);
   if (!MSVT.empty())
@@ -4970,6 +4894,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   bool HaveModules =
       Std && (Std->containsValue("c++2a") || Std->containsValue("c++latest"));
   RenderModulesOptions(C, D, Args, Input, Output, CmdArgs, HaveModules);
+
+  if (Args.hasFlag(options::OPT_fpch_validate_input_files_content,
+                   options::OPT_fno_pch_validate_input_files_content, false))
+    CmdArgs.push_back("-fvalidate-ast-input-files-content");
 
   Args.AddLastArg(CmdArgs, options::OPT_fexperimental_new_pass_manager,
                   options::OPT_fno_experimental_new_pass_manager);
@@ -5406,6 +5334,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-fcuda-short-ptr");
   }
 
+  if (IsHIP)
+    CmdArgs.push_back("-fcuda-allow-variadic-functions");
+
   // OpenMP offloading device jobs take the argument -fopenmp-host-ir-file-path
   // to specify the result of the compile phase on the host, so the meaningful
   // device declarations can be identified. Also, -fopenmp-is-device is passed
@@ -5438,9 +5369,30 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString(TargetInfo.str()));
   }
 
-  bool WholeProgramVTables =
-      Args.hasFlag(options::OPT_fwhole_program_vtables,
-                   options::OPT_fno_whole_program_vtables, false);
+  bool VirtualFunctionElimination =
+      Args.hasFlag(options::OPT_fvirtual_function_elimination,
+                   options::OPT_fno_virtual_function_elimination, false);
+  if (VirtualFunctionElimination) {
+    // VFE requires full LTO (currently, this might be relaxed to allow ThinLTO
+    // in the future).
+    if (D.getLTOMode() != LTOK_Full)
+      D.Diag(diag::err_drv_argument_only_allowed_with)
+          << "-fvirtual-function-elimination"
+          << "-flto=full";
+
+    CmdArgs.push_back("-fvirtual-function-elimination");
+  }
+
+  // VFE requires whole-program-vtables, and enables it by default.
+  bool WholeProgramVTables = Args.hasFlag(
+      options::OPT_fwhole_program_vtables,
+      options::OPT_fno_whole_program_vtables, VirtualFunctionElimination);
+  if (VirtualFunctionElimination && !WholeProgramVTables) {
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+        << "-fno-whole-program-vtables"
+        << "-fvirtual-function-elimination";
+  }
+
   if (WholeProgramVTables) {
     if (!D.isUsingLTO())
       D.Diag(diag::err_drv_argument_only_allowed_with)
@@ -5449,14 +5401,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fwhole-program-vtables");
   }
 
-  bool RequiresSplitLTOUnit = WholeProgramVTables || Sanitize.needsLTO();
+  bool DefaultsSplitLTOUnit =
+      (WholeProgramVTables || Sanitize.needsLTO()) &&
+      (D.getLTOMode() == LTOK_Full || TC.canSplitThinLTOUnit());
   bool SplitLTOUnit =
       Args.hasFlag(options::OPT_fsplit_lto_unit,
-                   options::OPT_fno_split_lto_unit, RequiresSplitLTOUnit);
-  if (RequiresSplitLTOUnit && !SplitLTOUnit)
-    D.Diag(diag::err_drv_argument_not_allowed_with)
-        << "-fno-split-lto-unit"
-        << (WholeProgramVTables ? "-fwhole-program-vtables" : "-fsanitize=cfi");
+                   options::OPT_fno_split_lto_unit, DefaultsSplitLTOUnit);
+  if (Sanitize.needsLTO() && !SplitLTOUnit)
+    D.Diag(diag::err_drv_argument_not_allowed_with) << "-fno-split-lto-unit"
+                                                    << "-fsanitize=cfi";
   if (SplitLTOUnit)
     CmdArgs.push_back("-fsplit-lto-unit");
 
@@ -6203,7 +6156,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
     DebugInfoKind = (WantDebug ? codegenoptions::LimitedDebugInfo
                                : codegenoptions::NoDebugInfo);
     // Add the -fdebug-compilation-dir flag if needed.
-    addDebugCompDirArg(Args, CmdArgs);
+    addDebugCompDirArg(Args, CmdArgs, C.getDriver().getVFS());
 
     addDebugPrefixMapArg(getToolChain().getDriver(), Args, CmdArgs);
 
@@ -6473,4 +6426,34 @@ void OffloadBundler::ConstructJobMultipleOutputs(
       JA, *this,
       TCArgs.MakeArgString(getToolChain().GetProgramPath(getShortName())),
       CmdArgs, None));
+}
+
+void OffloadWrapper::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+  ArgStringList CmdArgs;
+
+  const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
+
+  // Add the "effective" target triple.
+  CmdArgs.push_back("-target");
+  CmdArgs.push_back(Args.MakeArgString(Triple.getTriple()));
+
+  // Add the output file name.
+  assert(Output.isFilename() && "Invalid output.");
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(Output.getFilename());
+
+  // Add inputs.
+  for (const InputInfo &I : Inputs) {
+    assert(I.isFilename() && "Invalid input.");
+    CmdArgs.push_back(I.getFilename());
+  }
+
+  C.addCommand(std::make_unique<Command>(
+      JA, *this,
+      Args.MakeArgString(getToolChain().GetProgramPath(getShortName())),
+      CmdArgs, Inputs));
 }

@@ -473,7 +473,10 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
   }
 
   // If the return type spans multiple lines, wrap before the function name.
-  if ((Current.is(TT_FunctionDeclarationName) ||
+  if (((Current.is(TT_FunctionDeclarationName) &&
+        // Don't break before a C# function when no break after return type
+        (!Style.isCSharp() ||
+         Style.AlwaysBreakAfterReturnType != FormatStyle::RTBS_None)) ||
        (Current.is(tok::kw_operator) && !Previous.is(tok::coloncolon))) &&
       !Previous.is(tok::kw_template) && State.Stack.back().BreakBeforeParameter)
     return true;
@@ -930,6 +933,11 @@ unsigned ContinuationIndenter::getNewLineColumn(const LineState &State) {
       Current.isOneOf(Keywords.kw_implements, Keywords.kw_extends))
     return std::max(State.Stack.back().LastSpace,
                     State.Stack.back().Indent + Style.ContinuationIndentWidth);
+
+  if (Style.BreakBeforeBraces == FormatStyle::BS_Whitesmiths &&
+      State.Line->First->is(tok::kw_enum))
+    return (Style.IndentWidth * State.Line->First->IndentLevel) +
+           Style.IndentWidth;
 
   if (NextNonComment->is(tok::l_brace) && NextNonComment->BlockKind == BK_Block)
     return Current.NestingLevel == 0 ? State.FirstIndent

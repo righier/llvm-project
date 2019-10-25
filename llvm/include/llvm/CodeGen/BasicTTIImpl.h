@@ -190,6 +190,7 @@ private:
 protected:
   explicit BasicTTIImplBase(const TargetMachine *TM, const DataLayout &DL)
       : BaseT(DL) {}
+  virtual ~BasicTTIImplBase() = default;
 
   using TargetTransformInfoImplBase::DL;
 
@@ -514,12 +515,43 @@ public:
     return BaseT::getInstructionLatency(I);
   }
 
+  virtual Optional<unsigned>
+  getCacheSize(TargetTransformInfo::CacheLevel Level) const {
+    return Optional<unsigned>(
+      getST()->getCacheSize(static_cast<unsigned>(Level)));
+  }
+
+  virtual Optional<unsigned>
+  getCacheAssociativity(TargetTransformInfo::CacheLevel Level) const {
+    Optional<unsigned> TargetResult =
+        getST()->getCacheAssociativity(static_cast<unsigned>(Level));
+
+    if (TargetResult)
+      return TargetResult;
+
+    return BaseT::getCacheAssociativity(Level);
+  }
+
+  virtual unsigned getCacheLineSize() const {
+    return getST()->getCacheLineSize();
+  }
+
+  virtual unsigned getPrefetchDistance() const {
+    return getST()->getPrefetchDistance();
+  }
+
+  virtual unsigned getMinPrefetchStride() const {
+    return getST()->getMinPrefetchStride();
+  }
+
+  virtual unsigned getMaxPrefetchIterationsAhead() const {
+    return getST()->getMaxPrefetchIterationsAhead();
+  }
+
   /// @}
 
   /// \name Vector TTI Implementations
   /// @{
-
-  unsigned getNumberOfRegisters(bool Vector) { return Vector ? 0 : 1; }
 
   unsigned getRegisterBitWidth(bool Vector) const { return 32; }
 
@@ -837,8 +869,9 @@ public:
     return LT.first;
   }
 
-  unsigned getMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
-                       unsigned AddressSpace, const Instruction *I = nullptr) {
+  unsigned getMemoryOpCost(unsigned Opcode, Type *Src, MaybeAlign Alignment,
+                           unsigned AddressSpace,
+                           const Instruction *I = nullptr) {
     assert(!Src->isVoidTy() && "Invalid type");
     std::pair<unsigned, MVT> LT = getTLI()->getTypeLegalizationCost(DL, Src);
 
@@ -889,8 +922,8 @@ public:
       Cost = static_cast<T *>(this)->getMaskedMemoryOpCost(
           Opcode, VecTy, Alignment, AddressSpace);
     else
-      Cost = static_cast<T *>(this)->getMemoryOpCost(Opcode, VecTy, Alignment,
-                                                     AddressSpace);
+      Cost = static_cast<T *>(this)->getMemoryOpCost(
+          Opcode, VecTy, MaybeAlign(Alignment), AddressSpace);
 
     // Legalize the vector type, and get the legalized and unlegalized type
     // sizes.
@@ -1117,9 +1150,7 @@ public:
                                                     OpPropsBW);
       // For non-rotates (X != Y) we must add shift-by-zero handling costs.
       if (X != Y) {
-        Type *CondTy = Type::getInt1Ty(RetTy->getContext());
-        if (RetVF > 1)
-          CondTy = VectorType::get(CondTy, RetVF);
+        Type *CondTy = RetTy->getWithNewBitWidth(1);
         Cost += ConcreteTTI->getCmpSelInstrCost(BinaryOperator::ICmp, RetTy,
                                                 CondTy, nullptr);
         Cost += ConcreteTTI->getCmpSelInstrCost(BinaryOperator::Select, RetTy,
@@ -1137,7 +1168,6 @@ public:
   unsigned getIntrinsicInstrCost(
       Intrinsic::ID IID, Type *RetTy, ArrayRef<Type *> Tys, FastMathFlags FMF,
       unsigned ScalarizationCostPassed = std::numeric_limits<unsigned>::max()) {
-    unsigned RetVF = (RetTy->isVectorTy() ? RetTy->getVectorNumElements() : 1);
     auto *ConcreteTTI = static_cast<T *>(this);
 
     SmallVector<unsigned, 2> ISDs;
@@ -1294,9 +1324,7 @@ public:
           /*IsUnsigned=*/false);
     case Intrinsic::sadd_sat:
     case Intrinsic::ssub_sat: {
-      Type *CondTy = Type::getInt1Ty(RetTy->getContext());
-      if (RetVF > 1)
-        CondTy = VectorType::get(CondTy, RetVF);
+      Type *CondTy = RetTy->getWithNewBitWidth(1);
 
       Type *OpTy = StructType::create({RetTy, CondTy});
       Intrinsic::ID OverflowOp = IID == Intrinsic::sadd_sat
@@ -1316,9 +1344,7 @@ public:
     }
     case Intrinsic::uadd_sat:
     case Intrinsic::usub_sat: {
-      Type *CondTy = Type::getInt1Ty(RetTy->getContext());
-      if (RetVF > 1)
-        CondTy = VectorType::get(CondTy, RetVF);
+      Type *CondTy = RetTy->getWithNewBitWidth(1);
 
       Type *OpTy = StructType::create({RetTy, CondTy});
       Intrinsic::ID OverflowOp = IID == Intrinsic::uadd_sat
@@ -1335,9 +1361,7 @@ public:
     case Intrinsic::smul_fix:
     case Intrinsic::umul_fix: {
       unsigned ExtSize = RetTy->getScalarSizeInBits() * 2;
-      Type *ExtTy = Type::getIntNTy(RetTy->getContext(), ExtSize);
-      if (RetVF > 1)
-        ExtTy = VectorType::get(ExtTy, RetVF);
+      Type *ExtTy = RetTy->getWithNewBitWidth(ExtSize);
 
       unsigned ExtOp =
           IID == Intrinsic::smul_fix ? Instruction::SExt : Instruction::ZExt;
@@ -1401,9 +1425,7 @@ public:
       Type *MulTy = RetTy->getContainedType(0);
       Type *OverflowTy = RetTy->getContainedType(1);
       unsigned ExtSize = MulTy->getScalarSizeInBits() * 2;
-      Type *ExtTy = Type::getIntNTy(RetTy->getContext(), ExtSize);
-      if (MulTy->isVectorTy())
-        ExtTy = VectorType::get(ExtTy, MulTy->getVectorNumElements() );
+      Type *ExtTy = MulTy->getWithNewBitWidth(ExtSize);
 
       unsigned ExtOp =
           IID == Intrinsic::smul_fix ? Instruction::SExt : Instruction::ZExt;

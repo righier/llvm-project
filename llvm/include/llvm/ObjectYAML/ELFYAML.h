@@ -25,6 +25,8 @@
 namespace llvm {
 namespace ELFYAML {
 
+StringRef dropUniqueSuffix(StringRef S);
+
 // These types are invariant across 32/64-bit ELF, so for simplicity just
 // directly give them their exact sizes. We don't need to worry about
 // endianness because these are just the types in the YAMLIO structures,
@@ -117,6 +119,17 @@ struct DynamicEntry {
   llvm::yaml::Hex64 Val;
 };
 
+struct StackSizeEntry {
+  llvm::yaml::Hex64 Address;
+  llvm::yaml::Hex64 Size;
+};
+
+struct NoteEntry {
+  StringRef Name;
+  yaml::BinaryRef Desc;
+  llvm::yaml::Hex32 Type;
+};
+
 struct Section {
   enum class SectionKind {
     Dynamic,
@@ -124,11 +137,15 @@ struct Section {
     RawContent,
     Relocation,
     NoBits,
+    Note,
+    Hash,
     Verdef,
     Verneed,
+    StackSizes,
     SymtabShndxSection,
     Symver,
-    MipsABIFlags
+    MipsABIFlags,
+    Addrsig
   };
   SectionKind Kind;
   StringRef Name;
@@ -161,6 +178,22 @@ struct Section {
   // This can be used to override the sh_size field. It does not affect the
   // content written.
   Optional<llvm::yaml::Hex64> ShSize;
+};
+
+struct StackSizesSection : Section {
+  Optional<yaml::BinaryRef> Content;
+  Optional<llvm::yaml::Hex64> Size;
+  Optional<std::vector<StackSizeEntry>> Entries;
+
+  StackSizesSection() : Section(SectionKind::StackSizes) {}
+
+  static bool classof(const Section *S) {
+    return S->Kind == SectionKind::StackSizes;
+  }
+
+  static bool nameMatches(StringRef Name) {
+    return Name == ".stack_sizes";
+  }
 };
 
 struct DynamicSection : Section {
@@ -196,6 +229,26 @@ struct NoBitsSection : Section {
   }
 };
 
+struct NoteSection : Section {
+  Optional<yaml::BinaryRef> Content;
+  Optional<llvm::yaml::Hex64> Size;
+  Optional<std::vector<ELFYAML::NoteEntry>> Notes;
+
+  NoteSection() : Section(SectionKind::Note) {}
+  static bool classof(const Section *S) { return S->Kind == SectionKind::Note; }
+};
+
+struct HashSection : Section {
+  Optional<yaml::BinaryRef> Content;
+  Optional<llvm::yaml::Hex64> Size;
+  Optional<std::vector<uint32_t>> Bucket;
+  Optional<std::vector<uint32_t>> Chain;
+
+  HashSection() : Section(SectionKind::Hash) {}
+
+  static bool classof(const Section *S) { return S->Kind == SectionKind::Hash; }
+};
+
 struct VernauxEntry {
   uint32_t Hash;
   uint16_t Flags;
@@ -217,6 +270,26 @@ struct VerneedSection : Section {
 
   static bool classof(const Section *S) {
     return S->Kind == SectionKind::Verneed;
+  }
+};
+
+struct AddrsigSymbol {
+  AddrsigSymbol(StringRef N) : Name(N), Index(None) {}
+  AddrsigSymbol(llvm::yaml::Hex32 Ndx) : Name(None), Index(Ndx) {}
+  AddrsigSymbol() : Name(None), Index(None) {}
+
+  Optional<StringRef> Name;
+  Optional<llvm::yaml::Hex32> Index;
+};
+
+struct AddrsigSection : Section {
+  Optional<yaml::BinaryRef> Content;
+  Optional<llvm::yaml::Hex64> Size;
+  Optional<std::vector<AddrsigSymbol>> Symbols;
+
+  AddrsigSection() : Section(SectionKind::Addrsig) {}
+  static bool classof(const Section *S) {
+    return S->Kind == SectionKind::Addrsig;
   }
 };
 
@@ -319,14 +392,17 @@ struct Object {
   // cleaner and nicer if we read them from the YAML as a separate
   // top-level key, which automatically ensures that invariants like there
   // being a single SHT_SYMTAB section are upheld.
-  std::vector<Symbol> Symbols;
+  Optional<std::vector<Symbol>> Symbols;
   std::vector<Symbol> DynamicSymbols;
 };
 
 } // end namespace ELFYAML
 } // end namespace llvm
 
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::AddrsigSymbol)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::StackSizeEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::DynamicEntry)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::NoteEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::ProgramHeader)
 LLVM_YAML_IS_SEQUENCE_VECTOR(std::unique_ptr<llvm::ELFYAML::Section>)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::Symbol)
@@ -461,8 +537,16 @@ struct MappingTraits<ELFYAML::Symbol> {
   static StringRef validate(IO &IO, ELFYAML::Symbol &Symbol);
 };
 
+template <> struct MappingTraits<ELFYAML::StackSizeEntry> {
+  static void mapping(IO &IO, ELFYAML::StackSizeEntry &Rel);
+};
+
 template <> struct MappingTraits<ELFYAML::DynamicEntry> {
   static void mapping(IO &IO, ELFYAML::DynamicEntry &Rel);
+};
+
+template <> struct MappingTraits<ELFYAML::NoteEntry> {
+  static void mapping(IO &IO, ELFYAML::NoteEntry &N);
 };
 
 template <> struct MappingTraits<ELFYAML::VerdefEntry> {
@@ -475,6 +559,10 @@ template <> struct MappingTraits<ELFYAML::VerneedEntry> {
 
 template <> struct MappingTraits<ELFYAML::VernauxEntry> {
   static void mapping(IO &IO, ELFYAML::VernauxEntry &E);
+};
+
+template <> struct MappingTraits<ELFYAML::AddrsigSymbol> {
+  static void mapping(IO &IO, ELFYAML::AddrsigSymbol &Sym);
 };
 
 template <> struct MappingTraits<ELFYAML::Relocation> {

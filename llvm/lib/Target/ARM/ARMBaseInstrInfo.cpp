@@ -2079,6 +2079,38 @@ isProfitableToIfCvt(MachineBasicBlock &TBB,
   return PredCost <= UnpredCost;
 }
 
+unsigned
+ARMBaseInstrInfo::extraSizeToPredicateInstructions(const MachineFunction &MF,
+                                                   unsigned NumInsts) const {
+  // Thumb2 needs a 2-byte IT instruction to predicate up to 4 instructions.
+  // ARM has a condition code field in every predicable instruction, using it
+  // doesn't change code size.
+  return Subtarget.isThumb2() ? divideCeil(NumInsts, 4) * 2 : 0;
+}
+
+unsigned
+ARMBaseInstrInfo::predictBranchSizeForIfCvt(MachineInstr &MI) const {
+  // If this branch is likely to be folded into the comparison to form a
+  // CB(N)Z, then removing it won't reduce code size at all, because that will
+  // just replace the CB(N)Z with a CMP.
+  if (MI.getOpcode() == ARM::t2Bcc &&
+      findCMPToFoldIntoCBZ(&MI, &getRegisterInfo()))
+    return 0;
+
+  unsigned Size = getInstSizeInBytes(MI);
+
+  // For Thumb2, all branches are 32-bit instructions during the if conversion
+  // pass, but may be replaced with 16-bit instructions during size reduction.
+  // Since the branches considered by if conversion tend to be forward branches
+  // over small basic blocks, they are very likely to be in range for the
+  // narrow instructions, so we assume the final code size will be half what it
+  // currently is.
+  if (Subtarget.isThumb2())
+    Size /= 2;
+
+  return Size;
+}
+
 bool
 ARMBaseInstrInfo::isProfitableToUnpredicate(MachineBasicBlock &TMBB,
                                             MachineBasicBlock &FMBB) const {
@@ -4337,10 +4369,10 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
   }
 
   const MCInstrDesc &UseMCID = get(UseNode->getMachineOpcode());
-  const MachineSDNode *DefMN = dyn_cast<MachineSDNode>(DefNode);
+  auto *DefMN = cast<MachineSDNode>(DefNode);
   unsigned DefAlign = !DefMN->memoperands_empty()
     ? (*DefMN->memoperands_begin())->getAlignment() : 0;
-  const MachineSDNode *UseMN = dyn_cast<MachineSDNode>(UseNode);
+  auto *UseMN = cast<MachineSDNode>(UseNode);
   unsigned UseAlign = !UseMN->memoperands_empty()
     ? (*UseMN->memoperands_begin())->getAlignment() : 0;
   int Latency = getOperandLatency(ItinData, DefMCID, DefIdx, DefAlign,
