@@ -239,7 +239,8 @@ protected:
                                                 llvm::Function *&OutlinedFn,
                                                 llvm::Constant *&OutlinedFnID,
                                                 bool IsOffloadEntry,
-                                                const RegionCodeGenTy &CodeGen);
+                                                const RegionCodeGenTy &CodeGen,
+                                                const FunctionDecl *ParentFn);
 
   /// Emits code for OpenMP 'if' clause using specified \a CodeGen
   /// function. Here is the logic:
@@ -689,7 +690,8 @@ private:
   /// found along the way.
   /// \param S Starting statement.
   /// \param ParentName Name of the function declaration that is being scanned.
-  void scanForTargetRegionsFunctions(const Stmt *S, StringRef ParentName);
+  void scanForTargetRegionsFunctions(const Stmt *S, StringRef ParentName,
+                                     const FunctionDecl *ParentFn);
 
   /// Build type kmp_routine_entry_t (if not built yet).
   void emitKmpRoutineEntryT(QualType KmpInt32Ty);
@@ -848,7 +850,8 @@ public:
   /// \param CodeGen Code generation sequence for the \a D directive.
   virtual llvm::Function *emitParallelOutlinedFunction(
       const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen);
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn);
 
   /// Emits outlined function for the specified OpenMP teams directive
   /// \a D. This outlined function has type void(*)(kmp_int32 *ThreadID,
@@ -860,7 +863,8 @@ public:
   /// \param CodeGen Code generation sequence for the \a D directive.
   virtual llvm::Function *emitTeamsOutlinedFunction(
       const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen);
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn);
 
   /// Emits outlined function for the OpenMP task directive \a D. This
   /// outlined function has type void(*)(kmp_int32 ThreadID, struct task_t*
@@ -881,7 +885,7 @@ public:
       const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
       const VarDecl *PartIDVar, const VarDecl *TaskTVar,
       OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
-      bool Tied, unsigned &NumberOfParts);
+      bool Tied, unsigned &NumberOfParts, const FunctionDecl *ParentFn);
 
   /// Cleans up references to the objects in finished function.
   ///
@@ -1432,7 +1436,8 @@ public:
                                           llvm::Function *&OutlinedFn,
                                           llvm::Constant *&OutlinedFnID,
                                           bool IsOffloadEntry,
-                                          const RegionCodeGenTy &CodeGen);
+                                          const RegionCodeGenTy &CodeGen,
+                                          const FunctionDecl *ParentFn);
 
   /// Emit the target offloading code associated with \a D. The emitted
   /// code attempts offloading the execution to the device, an the event of
@@ -1679,11 +1684,10 @@ public:
   /// \param InnermostKind Kind of innermost directive (for simple directives it
   /// is a directive itself, for combined - its innermost directive).
   /// \param CodeGen Code generation sequence for the \a D directive.
-  llvm::Function *
-  emitParallelOutlinedFunction(const OMPExecutableDirective &D,
-                               const VarDecl *ThreadIDVar,
-                               OpenMPDirectiveKind InnermostKind,
-                               const RegionCodeGenTy &CodeGen) override;
+  llvm::Function *emitParallelOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn) override;
 
   /// Emits outlined function for the specified OpenMP teams directive
   /// \a D. This outlined function has type void(*)(kmp_int32 *ThreadID,
@@ -1693,11 +1697,10 @@ public:
   /// \param InnermostKind Kind of innermost directive (for simple directives it
   /// is a directive itself, for combined - its innermost directive).
   /// \param CodeGen Code generation sequence for the \a D directive.
-  llvm::Function *
-  emitTeamsOutlinedFunction(const OMPExecutableDirective &D,
-                            const VarDecl *ThreadIDVar,
-                            OpenMPDirectiveKind InnermostKind,
-                            const RegionCodeGenTy &CodeGen) override;
+  llvm::Function *emitTeamsOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn) override;
 
   /// Emits outlined function for the OpenMP task directive \a D. This
   /// outlined function has type void(*)(kmp_int32 ThreadID, struct task_t*
@@ -1718,7 +1721,8 @@ public:
       const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
       const VarDecl *PartIDVar, const VarDecl *TaskTVar,
       OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
-      bool Tied, unsigned &NumberOfParts) override;
+      bool Tied, unsigned &NumberOfParts,
+      const FunctionDecl *ParentFn) override;
 
   /// Emits code for parallel or serial call of the \a OutlinedFn with
   /// variables captured in a record which address is stored in \a
@@ -2122,7 +2126,8 @@ public:
                                   llvm::Function *&OutlinedFn,
                                   llvm::Constant *&OutlinedFnID,
                                   bool IsOffloadEntry,
-                                  const RegionCodeGenTy &CodeGen) override;
+                                  const RegionCodeGenTy &CodeGen,
+                                  const FunctionDecl *ParentFn) override;
 
   /// Emit the target offloading code associated with \a D. The emitted
   /// code attempts offloading the execution to the device, an the event of

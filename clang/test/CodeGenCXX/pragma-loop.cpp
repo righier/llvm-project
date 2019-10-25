@@ -235,5 +235,8 @@ void width_1(int *List, int Length) {
 // CHECK: ![[WIDTH_10]] = !{!"llvm.loop.vectorize.width", i32 10}
 
 // CHECK:      ![[LOOP_15]] = distinct !{![[LOOP_15]], ![[WIDTH_1]], ![[VECTORIZE_ENABLE]]}
+// !7, !19
 
 // CHECK-NEXT: ![[LOOP_16]] = distinct !{![[LOOP_16]], ![[VECTORIZE_ENABLE]], ![[WIDTH_1]]}
+ // !19, !7
+

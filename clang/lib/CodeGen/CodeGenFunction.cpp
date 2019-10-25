@@ -12,9 +12,9 @@
 
 #include "CodeGenFunction.h"
 #include "CGBlocks.h"
-#include "CGCleanup.h"
 #include "CGCUDARuntime.h"
 #include "CGCXXABI.h"
+#include "CGCleanup.h"
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
 #include "CodeGenModule.h"
@@ -26,6 +26,7 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
+#include "clang/AST/StmtOpenMP.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/TargetInfo.h"
@@ -37,6 +38,7 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -57,13 +59,15 @@ static bool shouldEmitLifetimeMarkers(const CodeGenOptions &CGOpts,
   return CGOpts.OptimizationLevel != 0;
 }
 
-CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
+CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext,
+                                 const FunctionDecl *ParentFn)
     : CodeGenTypeCache(cgm), CGM(cgm), Target(cgm.getTarget()),
       Builder(cgm, cgm.getModule().getContext(), llvm::ConstantFolder(),
               CGBuilderInserterTy(this)),
       SanOpts(CGM.getLangOpts().Sanitize), DebugInfo(CGM.getModuleDebugInfo()),
-      PGO(cgm), ShouldEmitLifetimeMarkers(shouldEmitLifetimeMarkers(
-                    CGM.getCodeGenOpts(), CGM.getLangOpts())) {
+      ParentFn(ParentFn), PGO(cgm),
+      ShouldEmitLifetimeMarkers(
+          shouldEmitLifetimeMarkers(CGM.getCodeGenOpts(), CGM.getLangOpts())) {
   if (!suppressNewContext)
     CGM.getCXXABI().getMangleContext().startNewFunction();
 
@@ -1181,6 +1185,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
 
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
+  if (Body)
+    HandleCodeTransformations(Body);
 
   // Generate the body of the function.
   PGO.assignRegionCounters(GD, CurFn);

@@ -110,7 +110,8 @@ private:
   void emitNonSPMDKernel(const OMPExecutableDirective &D, StringRef ParentName,
                          llvm::Function *&OutlinedFn,
                          llvm::Constant *&OutlinedFnID, bool IsOffloadEntry,
-                         const RegionCodeGenTy &CodeGen);
+                         const RegionCodeGenTy &CodeGen,
+                         const FunctionDecl *ParentFn);
 
   /// Emit outlined function specialized for the Single Program
   /// Multiple Data programming model for applicable target directives on the
@@ -126,7 +127,8 @@ private:
   void emitSPMDKernel(const OMPExecutableDirective &D, StringRef ParentName,
                       llvm::Function *&OutlinedFn,
                       llvm::Constant *&OutlinedFnID, bool IsOffloadEntry,
-                      const RegionCodeGenTy &CodeGen);
+                      const RegionCodeGenTy &CodeGen,
+                      const FunctionDecl *ParentFn);
 
   /// Emit outlined function for 'target' directive on the NVPTX
   /// device.
@@ -142,7 +144,8 @@ private:
                                   llvm::Function *&OutlinedFn,
                                   llvm::Constant *&OutlinedFnID,
                                   bool IsOffloadEntry,
-                                  const RegionCodeGenTy &CodeGen) override;
+                                  const RegionCodeGenTy &CodeGen,
+                                  const FunctionDecl *ParentFn) override;
 
   /// Emits code for parallel or serial call of the \a OutlinedFn with
   /// variables captured in a record which address is stored in \a
@@ -240,11 +243,10 @@ public:
   /// \param InnermostKind Kind of innermost directive (for simple directives it
   /// is a directive itself, for combined - its innermost directive).
   /// \param CodeGen Code generation sequence for the \a D directive.
-  llvm::Function *
-  emitParallelOutlinedFunction(const OMPExecutableDirective &D,
-                               const VarDecl *ThreadIDVar,
-                               OpenMPDirectiveKind InnermostKind,
-                               const RegionCodeGenTy &CodeGen) override;
+  llvm::Function *emitParallelOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn) override;
 
   /// Emits inlined function for the specified OpenMP teams
   //  directive.
@@ -255,11 +257,10 @@ public:
   /// \param InnermostKind Kind of innermost directive (for simple directives it
   /// is a directive itself, for combined - its innermost directive).
   /// \param CodeGen Code generation sequence for the \a D directive.
-  llvm::Function *
-  emitTeamsOutlinedFunction(const OMPExecutableDirective &D,
-                            const VarDecl *ThreadIDVar,
-                            OpenMPDirectiveKind InnermostKind,
-                            const RegionCodeGenTy &CodeGen) override;
+  llvm::Function *emitTeamsOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+      const FunctionDecl *ParentFn) override;
 
   /// Emits code for teams call of the \a OutlinedFn with
   /// variables captured in a record which address is stored in \a

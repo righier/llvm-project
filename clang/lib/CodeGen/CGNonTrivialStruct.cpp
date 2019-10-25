@@ -464,6 +464,7 @@ template <class Derived> struct GenFuncBase {
         II, Ctx.getFunctionType(Ctx.VoidTy, llvm::None, {}), nullptr,
         SC_PrivateExtern, false, false);
     CodeGenFunction NewCGF(CGM);
+    NewCGF.LoopStack.initAsOutlined(NewCGF.LoopStack);
     setCGF(&NewCGF);
     CGF->StartFunction(FD, Ctx.VoidTy, F, FI, Args);
 

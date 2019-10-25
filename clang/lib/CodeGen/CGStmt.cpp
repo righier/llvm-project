@@ -347,7 +347,7 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
         cast<OMPTargetTeamsDistributeSimdDirective>(*S));
     break;
   case Stmt::TransformExecutableDirectiveClass:
-    llvm_unreachable("not implemented");
+    EmitTransformExecutableDirective(cast<TransformExecutableDirective>(*S));
     break;
   }
 }
@@ -712,10 +712,7 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");
   EmitBlock(LoopHeader.getBlock());
 
-  const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), WhileAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(LoopHeader.getBlock(), &S);
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
@@ -814,10 +811,7 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
 
   EmitBlock(LoopCond.getBlock());
 
-  const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopBody, CGM.getContext(), DoAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(LoopBody, &S);
 
   // C99 6.8.5.2: "The evaluation of the controlling expression takes place
   // after each execution of the loop body."
@@ -872,10 +866,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   llvm::BasicBlock *CondBlock = Continue.getBlock();
   EmitBlock(CondBlock);
 
-  const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), ForAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(CondBlock, &S);
 
   // If the for loop doesn't have an increment we can just use the
   // condition as the continue block.  Otherwise we'll need to create
@@ -973,10 +964,7 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   llvm::BasicBlock *CondBlock = createBasicBlock("for.cond");
   EmitBlock(CondBlock);
 
-  const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), ForAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(CondBlock, &S);
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -2422,6 +2410,7 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
   // Generate the function.
   StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args, CD->getLocation(),
                 CD->getBody()->getBeginLoc());
+  HandleCodeTransformations(&S);
   // Set the context parameter in CapturedStmtInfo.
   Address DeclPtr = GetAddrOfLocalVar(CD->getContextParam());
   CapturedStmtInfo->setContextValue(Builder.CreateLoad(DeclPtr));
