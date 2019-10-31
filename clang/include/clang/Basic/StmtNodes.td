@@ -210,7 +210,7 @@ def MSDependentExistsStmt : StmtNode<Stmt>;
 def AsTypeExpr : StmtNode<Expr>;
 
 // Transform Directives.
-def TransformExecutableDirective : Stmt;
+def TransformExecutableDirective : StmtNode<Stmt>;
 
 // OpenMP Directives.
 def OMPExecutableDirective : StmtNode<Stmt, 1>;
