@@ -30,6 +30,7 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
@@ -633,6 +634,19 @@ void StmtPrinter::VisitSEHFinallyStmt(SEHFinallyStmt *Node) {
 void StmtPrinter::VisitSEHLeaveStmt(SEHLeaveStmt *Node) {
   Indent() << "__leave;";
   if (Policy.IncludeNewlines) OS << NL;
+}
+
+void StmtPrinter::VisitTransformExecutableDirective(
+    TransformExecutableDirective *Node) {
+  Indent() << "#pragma clang transform "
+           << Transform ::getTransformDirectiveKeyword(
+                  Node->getTransformKind());
+  for (TransformClause *Clause : Node->clauses()) {
+    OS << ' ';
+    Clause->print(OS, Policy);
+  }
+  OS << NL;
+  PrintStmt(Node->getAssociated());
 }
 
 //===----------------------------------------------------------------------===//

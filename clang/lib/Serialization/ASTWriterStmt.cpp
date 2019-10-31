@@ -1953,6 +1953,37 @@ void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
 }
 
 //===----------------------------------------------------------------------===//
+// Transformation Directives.
+//===----------------------------------------------------------------------===//
+
+void ASTStmtWriter::VisitTransformExecutableDirective(
+    TransformExecutableDirective *D) {
+  VisitStmt(D);
+  Record.push_back(D->getNumClauses());
+
+  Record.AddSourceRange(D->getLoc());
+  Record.push_back(D->clauses().size());
+  for (auto C : D->clauses()) {
+    Record.push_back(C->getKind());
+    Record.AddSourceRange(C->getLoc());
+    switch (C->getKind()) {
+    case TransformClause::UnknownKind:
+      llvm_unreachable("Cannot write unknown clause");
+    case TransformClause::FullKind:
+      break;
+    case TransformClause::FactorKind:
+      Record.AddStmt(static_cast<FactorClause *>(C)->getFactor());
+      break;
+    case TransformClause::WidthKind:
+      Record.AddStmt(static_cast<WidthClause *>(C)->getWidth());
+      break;
+    }
+  }
+  Record.AddStmt(D->getAssociated());
+  Code = serialization::STMT_TRANSFORM_EXECUTABLE_DIRECTIVE;
+}
+
+//===----------------------------------------------------------------------===//
 // OpenMP Directives.
 //===----------------------------------------------------------------------===//
 void ASTStmtWriter::VisitOMPExecutableDirective(OMPExecutableDirective *E) {

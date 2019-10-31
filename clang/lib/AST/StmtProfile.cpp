@@ -771,6 +771,11 @@ void OMPClauseProfiler::VisitOMPIsDevicePtrClause(
 }
 }
 
+void StmtProfiler::VisitTransformExecutableDirective(
+    const TransformExecutableDirective *S) {
+  VisitStmt(S);
+}
+
 void
 StmtProfiler::VisitOMPExecutableDirective(const OMPExecutableDirective *S) {
   VisitStmt(S);

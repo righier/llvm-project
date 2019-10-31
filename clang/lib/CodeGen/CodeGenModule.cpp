@@ -4418,7 +4418,10 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
 
   maybeSetTrivialComdat(*D, *Fn);
 
-  CodeGenFunction(*this).GenerateCode(D, Fn, FI);
+  {
+    CodeGenFunction CGF(*this, false, D);
+    CGF.GenerateCode(D, Fn, FI);
+  }
 
   setNonAliasAttributes(GD, Fn);
   SetLLVMFunctionAttributesForDefinition(D, Fn);

@@ -21,26 +21,33 @@ namespace clang {
 namespace ast_type_traits {
 
 const ASTNodeKind::KindInfo ASTNodeKind::AllKindInfo[] = {
-  { NKI_None, "<None>" },
-  { NKI_None, "TemplateArgument" },
-  { NKI_None, "TemplateName" },
-  { NKI_None, "NestedNameSpecifierLoc" },
-  { NKI_None, "QualType" },
-  { NKI_None, "TypeLoc" },
-  { NKI_None, "CXXCtorInitializer" },
-  { NKI_None, "NestedNameSpecifier" },
-  { NKI_None, "Decl" },
+    {NKI_None, "<None>"},
+    {NKI_None, "TemplateArgument"},
+    {NKI_None, "TemplateName"},
+    {NKI_None, "NestedNameSpecifierLoc"},
+    {NKI_None, "QualType"},
+    {NKI_None, "TypeLoc"},
+    {NKI_None, "CXXCtorInitializer"},
+    {NKI_None, "NestedNameSpecifier"},
+    {NKI_None, "Decl"},
 #define DECL(DERIVED, BASE) { NKI_##BASE, #DERIVED "Decl" },
 #include "clang/AST/DeclNodes.inc"
-  { NKI_None, "Stmt" },
+    {NKI_None, "Stmt"},
 #define STMT(DERIVED, BASE) { NKI_##BASE, #DERIVED },
 #include "clang/AST/StmtNodes.inc"
-  { NKI_None, "Type" },
+    {NKI_None, "Type"},
 #define TYPE(DERIVED, BASE) { NKI_##BASE, #DERIVED "Type" },
 #include "clang/AST/TypeNodes.inc"
-  { NKI_None, "OMPClause" },
+    {NKI_None, "OMPClause"},
 #define OPENMP_CLAUSE(TextualSpelling, Class) {NKI_OMPClause, #Class},
 #include "clang/Basic/OpenMPKinds.def"
+    {NKI_TransformClause, "TransformClause"},
+#define TRANSFORM_CLAUSE(Keyword, Name) {NKI_##Name##Clause, #Name "Clause"},
+#include "clang/AST/TransformKinds.def"
+    {NKI_Transform, "Transform"},
+#define TRANSFORM_DIRECTIVE(Keyworld, Name)                                    \
+  {NKI_##Name##Transform, #Name "Transform"},
+#include "clang/AST/TransformKinds.def"
 };
 
 bool ASTNodeKind::isBaseOf(ASTNodeKind Other, unsigned *Distance) const {
@@ -122,6 +129,30 @@ ASTNodeKind ASTNodeKind::getFromNode(const OMPClause &C) {
     llvm_unreachable("unexpected OpenMP clause kind");
   }
   llvm_unreachable("invalid stmt kind");
+}
+
+ASTNodeKind ASTNodeKind::getFromNode(const Transform &T) {
+  switch (T.getKind()) {
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  case Transform::Kind::Name##Kind:                                            \
+    return ASTNodeKind(NKI_##Transform);
+#include "clang/AST/TransformKinds.def"
+  case Transform::Kind::UnknownKind:
+    llvm_unreachable("unexpected transform kind");
+  }
+  llvm_unreachable("invalid transform kind");
+}
+
+ASTNodeKind ASTNodeKind::getFromNode(const TransformClause &C) {
+  switch (C.getKind()) {
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind ::Name##Kind:                                     \
+    return ASTNodeKind(NKI_##Name##Clause);
+#include "clang/AST/TransformKinds.def"
+  case TransformClause::Kind::UnknownKind:
+    llvm_unreachable("unexpected transform kind");
+  }
+  llvm_unreachable("invalid transform kind");
 }
 
 void DynTypedNode::print(llvm::raw_ostream &OS,

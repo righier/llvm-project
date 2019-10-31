@@ -28,6 +28,7 @@
 #include "clang/AST/NSAPI.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/StmtCXX.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/TypeOrdering.h"
 #include "clang/Basic/ExpressionTraits.h"
@@ -11630,6 +11631,28 @@ public:
     ConstructorDestructor,
     BuiltinFunction
   };
+
+  using TransformResult = ActionResult<Transform *>;
+  static TransformResult TransformError() { return TransformResult(true); }
+  static TransformResult TransformError(const DiagnosticBuilder &) {
+    return TransformResult();
+  }
+  static TransformResult TransformEmpty() { return TransformResult(false); }
+
+  TransformResult ActOnTransform(Transform::Kind Kind,
+                                 llvm::ArrayRef<TransformClause *> Clauses,
+                                 SourceRange Loc);
+  StmtResult
+  ActOnLoopTransformDirective(Transform::Kind Kind, Transform *Trans,
+                              llvm::ArrayRef<TransformClause *> Clauses,
+                              Stmt *AStmt, SourceRange Loc);
+
+  TransformClause *ActOnFullClause(SourceRange Loc);
+  TransformClause *ActOnPartialClause(SourceRange Loc, Expr *Factor);
+  TransformClause *ActOnWidthClause(SourceRange Loc, Expr *Width);
+  TransformClause *ActOnFactorClause(SourceRange Loc, Expr *Factor);
+
+  void HandleLoopTransformations(FunctionDecl *FD);
 };
 
 /// RAII object that enters a new expression evaluation context.

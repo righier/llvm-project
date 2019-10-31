@@ -211,7 +211,8 @@ llvm::Function *CodeGenModule::codegenCXXStructor(GlobalDecl GD) {
 
   setFunctionLinkage(GD, Fn);
 
-  CodeGenFunction(*this).GenerateCode(GD, Fn, FnInfo);
+  CodeGenFunction(*this, false, cast<FunctionDecl>(GD.getDecl()))
+      .GenerateCode(GD, Fn, FnInfo);
   setNonAliasAttributes(GD, Fn);
   SetLLVMFunctionAttributesForDefinition(cast<CXXMethodDecl>(GD.getDecl()), Fn);
   return Fn;

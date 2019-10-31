@@ -209,6 +209,9 @@ def MSDependentExistsStmt : StmtNode<Stmt>;
 // OpenCL Extensions.
 def AsTypeExpr : StmtNode<Expr>;
 
+// Transform Directives.
+def TransformExecutableDirective : Stmt;
+
 // OpenMP Directives.
 def OMPExecutableDirective : StmtNode<Stmt, 1>;
 def OMPLoopDirective : StmtNode<OMPExecutableDirective, 1>;

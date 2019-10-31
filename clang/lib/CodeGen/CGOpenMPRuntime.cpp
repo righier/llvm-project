@@ -1439,10 +1439,11 @@ CGOpenMPRuntime::getUserDefinedReduction(const OMPDeclareReductionDecl *D) {
 static llvm::Function *emitParallelOrTeamsOutlinedFunction(
     CodeGenModule &CGM, const OMPExecutableDirective &D, const CapturedStmt *CS,
     const VarDecl *ThreadIDVar, OpenMPDirectiveKind InnermostKind,
-    const StringRef OutlinedHelperName, const RegionCodeGenTy &CodeGen) {
+    const StringRef OutlinedHelperName, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   assert(ThreadIDVar->getType()->isPointerType() &&
          "thread id variable must be of type kmp_int32 *");
-  CodeGenFunction CGF(CGM, true);
+  CodeGenFunction CGF(CGM, true, ParentFn);
   bool HasCancel = false;
   if (const auto *OPD = dyn_cast<OMPParallelDirective>(&D))
     HasCancel = OPD->hasCancel();
@@ -1468,25 +1469,29 @@ static llvm::Function *emitParallelOrTeamsOutlinedFunction(
 
 llvm::Function *CGOpenMPRuntime::emitParallelOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   const CapturedStmt *CS = D.getCapturedStmt(OMPD_parallel);
   return emitParallelOrTeamsOutlinedFunction(
-      CGM, D, CS, ThreadIDVar, InnermostKind, getOutlinedHelperName(), CodeGen);
+      CGM, D, CS, ThreadIDVar, InnermostKind, getOutlinedHelperName(), CodeGen,
+      ParentFn);
 }
 
 llvm::Function *CGOpenMPRuntime::emitTeamsOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   const CapturedStmt *CS = D.getCapturedStmt(OMPD_teams);
   return emitParallelOrTeamsOutlinedFunction(
-      CGM, D, CS, ThreadIDVar, InnermostKind, getOutlinedHelperName(), CodeGen);
+      CGM, D, CS, ThreadIDVar, InnermostKind, getOutlinedHelperName(), CodeGen,
+      ParentFn);
 }
 
 llvm::Function *CGOpenMPRuntime::emitTaskOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
     const VarDecl *PartIDVar, const VarDecl *TaskTVar,
     OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
-    bool Tied, unsigned &NumberOfParts) {
+    bool Tied, unsigned &NumberOfParts, const FunctionDecl *ParentFn) {
   auto &&UntiedCodeGen = [this, &D, TaskTVar](CodeGenFunction &CGF,
                                               PrePostActionTy &) {
     llvm::Value *ThreadID = getThreadID(CGF, D.getBeginLoc());
@@ -1508,7 +1513,7 @@ llvm::Function *CGOpenMPRuntime::emitTaskOutlinedFunction(
                                                       : OMPD_task;
   const CapturedStmt *CS = D.getCapturedStmt(Region);
   const auto *TD = dyn_cast<OMPTaskDirective>(&D);
-  CodeGenFunction CGF(CGM, true);
+  CodeGenFunction CGF(CGM, true, ParentFn);
   CGOpenMPTaskOutlinedRegionInfo CGInfo(*CS, ThreadIDVar, CodeGen,
                                         InnermostKind,
                                         TD ? TD->hasCancel() : false, Action);
@@ -6461,17 +6466,19 @@ void CGOpenMPRuntime::emitCancelCall(CodeGenFunction &CGF, SourceLocation Loc,
 void CGOpenMPRuntime::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
-    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
+    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   assert(!ParentName.empty() && "Invalid target region parent name!");
   HasEmittedTargetRegion = true;
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
-                                   IsOffloadEntry, CodeGen);
+                                   IsOffloadEntry, CodeGen, ParentFn);
 }
 
 void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
-    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
+    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   // Create a unique name for the entry function using the source location
   // information of the current target region. The name will be something like:
   //
@@ -6495,7 +6502,7 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
 
   const CapturedStmt &CS = *D.getCapturedStmt(OMPD_target);
 
-  CodeGenFunction CGF(CGM, true);
+  CodeGenFunction CGF(CGM, true, ParentFn);
   CGOpenMPTargetRegionInfo CGInfo(CS, CodeGen, EntryFnName);
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGInfo);
 
@@ -9437,8 +9444,8 @@ void CGOpenMPRuntime::emitTargetCall(
   }
 }
 
-void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
-                                                    StringRef ParentName) {
+void CGOpenMPRuntime::scanForTargetRegionsFunctions(
+    const Stmt *S, StringRef ParentName, const FunctionDecl *ParentFn) {
   if (!S)
     return;
 
@@ -9464,47 +9471,51 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
 
     switch (E.getDirectiveKind()) {
     case OMPD_target:
-      CodeGenFunction::EmitOMPTargetDeviceFunction(CGM, ParentName,
-                                                   cast<OMPTargetDirective>(E));
+      CodeGenFunction::EmitOMPTargetDeviceFunction(
+          CGM, ParentName, cast<OMPTargetDirective>(E), ParentFn);
       break;
     case OMPD_target_parallel:
       CodeGenFunction::EmitOMPTargetParallelDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelDirective>(E));
+          CGM, ParentName, cast<OMPTargetParallelDirective>(E), ParentFn);
       break;
     case OMPD_target_teams:
       CodeGenFunction::EmitOMPTargetTeamsDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDirective>(E));
+          CGM, ParentName, cast<OMPTargetTeamsDirective>(E), ParentFn);
       break;
     case OMPD_target_teams_distribute:
       CodeGenFunction::EmitOMPTargetTeamsDistributeDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDistributeDirective>(E));
+          CGM, ParentName, cast<OMPTargetTeamsDistributeDirective>(E),
+          ParentFn);
       break;
     case OMPD_target_teams_distribute_simd:
       CodeGenFunction::EmitOMPTargetTeamsDistributeSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDistributeSimdDirective>(E));
+          CGM, ParentName, cast<OMPTargetTeamsDistributeSimdDirective>(E),
+          ParentFn);
       break;
     case OMPD_target_parallel_for:
       CodeGenFunction::EmitOMPTargetParallelForDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelForDirective>(E));
+          CGM, ParentName, cast<OMPTargetParallelForDirective>(E), ParentFn);
       break;
     case OMPD_target_parallel_for_simd:
       CodeGenFunction::EmitOMPTargetParallelForSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelForSimdDirective>(E));
+          CGM, ParentName, cast<OMPTargetParallelForSimdDirective>(E),
+          ParentFn);
       break;
     case OMPD_target_simd:
       CodeGenFunction::EmitOMPTargetSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetSimdDirective>(E));
+          CGM, ParentName, cast<OMPTargetSimdDirective>(E), ParentFn);
       break;
     case OMPD_target_teams_distribute_parallel_for:
       CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForDeviceFunction(
           CGM, ParentName,
-          cast<OMPTargetTeamsDistributeParallelForDirective>(E));
+          cast<OMPTargetTeamsDistributeParallelForDirective>(E), ParentFn);
       break;
     case OMPD_target_teams_distribute_parallel_for_simd:
       CodeGenFunction::
           EmitOMPTargetTeamsDistributeParallelForSimdDeviceFunction(
               CGM, ParentName,
-              cast<OMPTargetTeamsDistributeParallelForSimdDirective>(E));
+              cast<OMPTargetTeamsDistributeParallelForSimdDirective>(E),
+              ParentFn);
       break;
     case OMPD_parallel:
     case OMPD_for:
@@ -9567,7 +9578,7 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
       return;
 
     scanForTargetRegionsFunctions(
-        E->getInnermostCapturedStmt()->getCapturedStmt(), ParentName);
+        E->getInnermostCapturedStmt()->getCapturedStmt(), ParentName, ParentFn);
     return;
   }
 
@@ -9577,7 +9588,7 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
 
   // Keep looking for target regions recursively.
   for (const Stmt *II : S->children())
-    scanForTargetRegionsFunctions(II, ParentName);
+    scanForTargetRegionsFunctions(II, ParentName, ParentFn);
 }
 
 bool CGOpenMPRuntime::emitTargetFunctions(GlobalDecl GD) {
@@ -9598,7 +9609,7 @@ bool CGOpenMPRuntime::emitTargetFunctions(GlobalDecl GD) {
   StringRef Name = CGM.getMangledName(GD);
   // Try to detect target regions in the function.
   if (const auto *FD = dyn_cast<FunctionDecl>(VD)) {
-    scanForTargetRegionsFunctions(FD->getBody(), Name);
+    scanForTargetRegionsFunctions(FD->getBody(), Name, FD);
     Optional<OMPDeclareTargetDeclAttr::DevTypeTy> DevTy =
         OMPDeclareTargetDeclAttr::getDeviceType(FD);
     // Do not emit device_type(nohost) functions for the host.
@@ -9623,12 +9634,12 @@ bool CGOpenMPRuntime::emitTargetGlobalVariable(GlobalDecl GD) {
     for (const CXXConstructorDecl *Ctor : RD->ctors()) {
       StringRef ParentName =
           CGM.getMangledName(GlobalDecl(Ctor, Ctor_Complete));
-      scanForTargetRegionsFunctions(Ctor->getBody(), ParentName);
+      scanForTargetRegionsFunctions(Ctor->getBody(), ParentName, Ctor);
     }
     if (const CXXDestructorDecl *Dtor = RD->getDestructor()) {
       StringRef ParentName =
           CGM.getMangledName(GlobalDecl(Dtor, Dtor_Complete));
-      scanForTargetRegionsFunctions(Dtor->getBody(), ParentName);
+      scanForTargetRegionsFunctions(Dtor->getBody(), ParentName, Dtor);
     }
   }
 
@@ -11150,13 +11161,15 @@ bool CGOpenMPRuntime::emitDeclareVariant(GlobalDecl GD, bool IsForDefinition) {
 
 llvm::Function *CGOpenMPSIMDRuntime::emitParallelOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   llvm_unreachable("Not supported in SIMD-only mode");
 }
 
 llvm::Function *CGOpenMPSIMDRuntime::emitTeamsOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   llvm_unreachable("Not supported in SIMD-only mode");
 }
 
@@ -11164,7 +11177,7 @@ llvm::Function *CGOpenMPSIMDRuntime::emitTaskOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
     const VarDecl *PartIDVar, const VarDecl *TaskTVar,
     OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
-    bool Tied, unsigned &NumberOfParts) {
+    bool Tied, unsigned &NumberOfParts, const FunctionDecl *ParentFn) {
   llvm_unreachable("Not supported in SIMD-only mode");
 }
 
@@ -11364,7 +11377,8 @@ void CGOpenMPSIMDRuntime::emitCancelCall(CodeGenFunction &CGF,
 void CGOpenMPSIMDRuntime::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
-    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
+    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   llvm_unreachable("Not supported in SIMD-only mode");
 }
 

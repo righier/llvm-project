@@ -95,6 +95,7 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
+class CGTransformedTree;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -1610,7 +1611,8 @@ private:
                                 llvm::Function *Fn);
 
 public:
-  CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext=false);
+  CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext = false,
+                  const FunctionDecl *ParentFn = nullptr);
   ~CodeGenFunction();
 
   CodeGenTypes &getTypes() const { return CGM.getTypes(); }
@@ -2933,6 +2935,9 @@ public:
   llvm::Value *EmitSEHExceptionInfo();
   llvm::Value *EmitSEHAbnormalTermination();
 
+  void HandleCodeTransformations(const Stmt *Body);
+  void EmitTransformExecutableDirective(const TransformExecutableDirective &D);
+
   /// Emit simple code for OpenMP directives in Simd-only mode.
   void EmitSimpleOMPExecutableDirective(const OMPExecutableDirective &D);
 
@@ -3191,43 +3196,50 @@ public:
   /// Emit device code for the target directive.
   static void EmitOMPTargetDeviceFunction(CodeGenModule &CGM,
                                           StringRef ParentName,
-                                          const OMPTargetDirective &S);
+                                          const OMPTargetDirective &S,
+                                          const FunctionDecl *ParentFn);
   static void
   EmitOMPTargetParallelDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
-                                      const OMPTargetParallelDirective &S);
+                                      const OMPTargetParallelDirective &S,
+                                      const FunctionDecl *ParentFn);
   /// Emit device code for the target parallel for directive.
   static void EmitOMPTargetParallelForDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetParallelForDirective &S);
+      const OMPTargetParallelForDirective &S, const FunctionDecl *ParentFn);
   /// Emit device code for the target parallel for simd directive.
   static void EmitOMPTargetParallelForSimdDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetParallelForSimdDirective &S);
+      const OMPTargetParallelForSimdDirective &S, const FunctionDecl *ParentFn);
   /// Emit device code for the target teams directive.
-  static void
-  EmitOMPTargetTeamsDeviceFunction(CodeGenModule &CGM, StringRef ParentName,
-                                   const OMPTargetTeamsDirective &S);
+  static void EmitOMPTargetTeamsDeviceFunction(CodeGenModule &CGM,
+                                               StringRef ParentName,
+                                               const OMPTargetTeamsDirective &S,
+                                               const FunctionDecl *ParentFn);
   /// Emit device code for the target teams distribute directive.
   static void EmitOMPTargetTeamsDistributeDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetTeamsDistributeDirective &S);
+      const OMPTargetTeamsDistributeDirective &S, const FunctionDecl *ParentFn);
   /// Emit device code for the target teams distribute simd directive.
   static void EmitOMPTargetTeamsDistributeSimdDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetTeamsDistributeSimdDirective &S);
+      const OMPTargetTeamsDistributeSimdDirective &S,
+      const FunctionDecl *ParentFn);
   /// Emit device code for the target simd directive.
   static void EmitOMPTargetSimdDeviceFunction(CodeGenModule &CGM,
                                               StringRef ParentName,
-                                              const OMPTargetSimdDirective &S);
+                                              const OMPTargetSimdDirective &S,
+                                              const FunctionDecl *ParentFn);
   /// Emit device code for the target teams distribute parallel for simd
   /// directive.
   static void EmitOMPTargetTeamsDistributeParallelForSimdDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetTeamsDistributeParallelForSimdDirective &S);
+      const OMPTargetTeamsDistributeParallelForSimdDirective &S,
+      const FunctionDecl *ParentFn);
 
   static void EmitOMPTargetTeamsDistributeParallelForDeviceFunction(
       CodeGenModule &CGM, StringRef ParentName,
-      const OMPTargetTeamsDistributeParallelForDirective &S);
+      const OMPTargetTeamsDistributeParallelForDirective &S,
+      const FunctionDecl *ParentFn);
   /// Emit inner loop of the worksharing/simd construct.
   ///
   /// \param S Directive, for which the inner loop must be emitted.
@@ -4369,6 +4381,11 @@ private:
   llvm::Value *EmitX86CpuSupports(uint64_t Mask);
   llvm::Value *EmitX86CpuInit();
   llvm::Value *FormResolverCondition(const MultiVersionResolverOption &RO);
+
+  const FunctionDecl *ParentFn = nullptr;
+
+public:
+  const FunctionDecl *getParentFn() const { return ParentFn; }
 };
 
 inline DominatingLLVMValue::saved_type

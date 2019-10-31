@@ -26,6 +26,7 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/Sema/Designator.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Ownership.h"
@@ -340,6 +341,51 @@ public:
   ///
   /// \returns the transformed statement.
   StmtResult TransformStmt(Stmt *S, StmtDiscardKind SDK = SDK_Discarded);
+
+  Transform *TransformTransform(Transform *T) { return T; }
+
+  TransformClause *TransformTransformClause(TransformClause *S);
+
+  TransformClause *TransformFullClause(FullClause *C) {
+    return RebuildFullClause(C->getLoc());
+  }
+
+  TransformClause *RebuildFullClause(SourceRange Loc) {
+    return getSema().ActOnFullClause(Loc);
+  }
+
+  TransformClause *TransformPartialClause(PartialClause *C) {
+    ExprResult E = getDerived().TransformExpr(C->getFactor());
+    if (E.isInvalid())
+      return nullptr;
+    return getDerived().RebuildPartialClause(C->getLoc(), E.get());
+  }
+
+  TransformClause *RebuildPartialClause(SourceRange Loc, Expr *Factor) {
+    return getSema().ActOnPartialClause(Loc, Factor);
+  }
+
+  TransformClause *TransformWidthClause(WidthClause *C) {
+    ExprResult E = getDerived().TransformExpr(C->getWidth());
+    if (E.isInvalid())
+      return nullptr;
+    return getDerived().RebuildWidthClause(C->getLoc(), E.get());
+  }
+
+  TransformClause *RebuildWidthClause(SourceRange Loc, Expr *Width) {
+    return getSema().ActOnWidthClause(Loc, Width);
+  }
+
+  TransformClause *TransformFactorClause(FactorClause *C) {
+    ExprResult E = getDerived().TransformExpr(C->getFactor());
+    if (E.isInvalid())
+      return nullptr;
+    return getDerived().RebuildFactorClause(C->getLoc(), E.get());
+  }
+
+  TransformClause *RebuildFactorClause(SourceRange Loc, Expr *Factor) {
+    return getSema().ActOnFactorClause(Loc, Factor);
+  }
 
   /// Transform the given statement.
   ///
@@ -1501,6 +1547,17 @@ public:
   StmtResult RebuildObjCAtThrowStmt(SourceLocation AtLoc,
                                           Expr *Operand) {
     return getSema().BuildObjCAtThrowStmt(AtLoc, Operand);
+  }
+
+  StmtResult
+  RebuildTransformExecutableDirective(Transform::Kind Kind, Transform *Trans,
+                                      llvm::ArrayRef<TransformClause *> Clauses,
+                                      Stmt *AStmt, SourceRange Loc) {
+    StmtResult Result =
+        getSema().ActOnLoopTransformDirective(Kind, Trans, Clauses, AStmt, Loc);
+    assert(!Result.isUsable() ||
+           isa<TransformExecutableDirective>(Result.get()));
+    return Result;
   }
 
   /// Build a new OpenMP executable directive.
@@ -7862,6 +7919,43 @@ template<typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformSEHLeaveStmt(SEHLeaveStmt *S) {
   return S;
+}
+
+template <typename Derived>
+TransformClause *
+TreeTransform<Derived>::TransformTransformClause(TransformClause *S) {
+  if (!S)
+    return S;
+
+  switch (S->getKind()) {
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    return getDerived().Transform##Name##Clause(cast<Name##Clause>(S));
+#include "clang/AST/TransformKinds.def"
+  case TransformClause::Kind::UnknownKind:
+    llvm_unreachable("Should not be unknown");
+  }
+
+  return S;
+}
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformTransformExecutableDirective(
+    TransformExecutableDirective *D) {
+  llvm::SmallVector<TransformClause *, 16> TClauses;
+  for (TransformClause *C : D->clauses()) {
+    TransformClause *TClause = getDerived().TransformTransformClause(C);
+    TClauses.push_back(TClause);
+  }
+
+  Stmt *AStmt = D->getAssociated();
+  StmtResult TBody = getDerived().TransformStmt(AStmt);
+  assert(TBody.isUsable());
+
+  Transform *Trans = getDerived().TransformTransform(D->getTransform());
+  StmtResult TDirective = getDerived().RebuildTransformExecutableDirective(
+      D->getTransformKind(), Trans, TClauses, TBody.get(), D->getLoc());
+  return TDirective;
 }
 
 //===----------------------------------------------------------------------===//

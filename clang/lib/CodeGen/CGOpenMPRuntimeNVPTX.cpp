@@ -1144,7 +1144,8 @@ void CGOpenMPRuntimeNVPTX::emitNonSPMDKernel(const OMPExecutableDirective &D,
                                              llvm::Function *&OutlinedFn,
                                              llvm::Constant *&OutlinedFnID,
                                              bool IsOffloadEntry,
-                                             const RegionCodeGenTy &CodeGen) {
+                                             const RegionCodeGenTy &CodeGen,
+                                             const FunctionDecl *ParentFn) {
   ExecutionRuntimeModesRAII ModeRAII(CurrentExecutionMode);
   EntryFunctionState EST;
   WorkerFunctionState WST(CGM, D.getBeginLoc());
@@ -1188,7 +1189,7 @@ void CGOpenMPRuntimeNVPTX::emitNonSPMDKernel(const OMPExecutableDirective &D,
         CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared));
   }
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
-                                   IsOffloadEntry, CodeGen);
+                                   IsOffloadEntry, CodeGen, ParentFn);
   IsInTTDRegion = false;
 
   // Now change the name of the worker function to correspond to this target
@@ -1276,7 +1277,8 @@ void CGOpenMPRuntimeNVPTX::emitSPMDKernel(const OMPExecutableDirective &D,
                                           llvm::Function *&OutlinedFn,
                                           llvm::Constant *&OutlinedFnID,
                                           bool IsOffloadEntry,
-                                          const RegionCodeGenTy &CodeGen) {
+                                          const RegionCodeGenTy &CodeGen,
+                                          const FunctionDecl *ParentFn) {
   ExecutionRuntimeModesRAII ModeRAII(
       CurrentExecutionMode, RequiresFullRuntime,
       CGM.getLangOpts().OpenMPCUDAForceFullRuntime ||
@@ -1318,7 +1320,7 @@ void CGOpenMPRuntimeNVPTX::emitSPMDKernel(const OMPExecutableDirective &D,
         CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared));
   }
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
-                                   IsOffloadEntry, CodeGen);
+                                   IsOffloadEntry, CodeGen, ParentFn);
   IsInTTDRegion = false;
 }
 
@@ -1860,7 +1862,8 @@ void CGOpenMPRuntimeNVPTX::createOffloadEntry(llvm::Constant *ID,
 void CGOpenMPRuntimeNVPTX::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
-    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
+    bool IsOffloadEntry, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   if (!IsOffloadEntry) // Nothing to do.
     return;
 
@@ -1869,10 +1872,10 @@ void CGOpenMPRuntimeNVPTX::emitTargetOutlinedFunction(
   bool Mode = supportsSPMDExecutionMode(CGM.getContext(), D);
   if (Mode)
     emitSPMDKernel(D, ParentName, OutlinedFn, OutlinedFnID, IsOffloadEntry,
-                   CodeGen);
+                   CodeGen, ParentFn);
   else
     emitNonSPMDKernel(D, ParentName, OutlinedFn, OutlinedFnID, IsOffloadEntry,
-                      CodeGen);
+                      CodeGen, ParentFn);
 
   setPropertyExecutionMode(CGM, OutlinedFn->getName(), Mode);
 }
@@ -1954,7 +1957,8 @@ void CGOpenMPRuntimeNVPTX::emitNumTeamsClause(CodeGenFunction &CGF,
 
 llvm::Function *CGOpenMPRuntimeNVPTX::emitParallelOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   // Emit target region as a standalone region.
   class NVPTXPrePostActionTy : public PrePostActionTy {
     bool &IsInParallelRegion;
@@ -1978,7 +1982,7 @@ llvm::Function *CGOpenMPRuntimeNVPTX::emitParallelOutlinedFunction(
   IsInTargetMasterThreadRegion = false;
   auto *OutlinedFun =
       cast<llvm::Function>(CGOpenMPRuntime::emitParallelOutlinedFunction(
-          D, ThreadIDVar, InnermostKind, CodeGen));
+          D, ThreadIDVar, InnermostKind, CodeGen, ParentFn));
   if (CGM.getLangOpts().Optimize) {
     OutlinedFun->removeFnAttr(llvm::Attribute::NoInline);
     OutlinedFun->removeFnAttr(llvm::Attribute::OptimizeNone);
@@ -2036,7 +2040,8 @@ getTeamsReductionVars(ASTContext &Ctx, const OMPExecutableDirective &D,
 
 llvm::Function *CGOpenMPRuntimeNVPTX::emitTeamsOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
-    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {
+    OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen,
+    const FunctionDecl *ParentFn) {
   SourceLocation Loc = D.getBeginLoc();
 
   const RecordDecl *GlobalizedRD = nullptr;
@@ -2099,7 +2104,7 @@ llvm::Function *CGOpenMPRuntimeNVPTX::emitTeamsOutlinedFunction(
   } Action(Loc, GlobalizedRD, MappedDeclsFields);
   CodeGen.setAction(Action);
   llvm::Function *OutlinedFun = CGOpenMPRuntime::emitTeamsOutlinedFunction(
-      D, ThreadIDVar, InnermostKind, CodeGen);
+      D, ThreadIDVar, InnermostKind, CodeGen, ParentFn);
   if (CGM.getLangOpts().Optimize) {
     OutlinedFun->removeFnAttr(llvm::Attribute::NoInline);
     OutlinedFun->removeFnAttr(llvm::Attribute::OptimizeNone);

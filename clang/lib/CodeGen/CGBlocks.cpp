@@ -932,7 +932,7 @@ llvm::Value *CodeGenFunction::EmitBlockLiteral(const CGBlockInfo &blockInfo) {
       8);
   // Using the computed layout, generate the actual block function.
   bool isLambdaConv = blockInfo.getBlockDecl()->isConversionFromLambda();
-  CodeGenFunction BlockCGF{CGM, true};
+  CodeGenFunction BlockCGF{CGM, true, ParentFn};
   BlockCGF.SanOpts = SanOpts;
   auto *InvokeFn = BlockCGF.GenerateBlockFunction(
       CurGD, blockInfo, LocalDeclMap, isLambdaConv, blockInfo.CanBeGlobal);
@@ -1587,6 +1587,7 @@ CodeGenFunction::GenerateBlockFunction(GlobalDecl GD,
   StartFunction(blockDecl, fnType->getReturnType(), fn, fnInfo, args,
                 blockDecl->getLocation(),
                 blockInfo.getBlockExpr()->getBody()->getBeginLoc());
+  HandleCodeTransformations(blockDecl->getBody());
 
   // Okay.  Undo some of what StartFunction did.
 

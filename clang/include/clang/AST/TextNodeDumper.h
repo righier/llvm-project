@@ -172,6 +172,12 @@ public:
 
   void Visit(const OMPClause *C);
 
+  void VisitTransformExecutableDirective(const TransformExecutableDirective *S);
+
+  void Visit(const TransformClause *C);
+
+  void Visit(const Transform *T);
+
   void Visit(const BlockDecl::Capture &C);
 
   void Visit(const GenericSelectionExpr::ConstAssociation &A);

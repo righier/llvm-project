@@ -195,6 +195,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> NoUnrollHintHandler;
   std::unique_ptr<PragmaHandler> UnrollAndJamHintHandler;
   std::unique_ptr<PragmaHandler> NoUnrollAndJamHintHandler;
+  std::unique_ptr<PragmaHandler> TransformHandler;
   std::unique_ptr<PragmaHandler> FPHandler;
   std::unique_ptr<PragmaHandler> STDCFENVHandler;
   std::unique_ptr<PragmaHandler> STDCCXLIMITHandler;
@@ -1641,6 +1642,17 @@ public:
     IsTypeCast
   };
 
+  using TransformClauseResult = ActionResult<TransformClause *>;
+  static TransformClauseResult ClauseError() {
+    return TransformClauseResult(true);
+  }
+  static TransformClauseResult ClauseError(const DiagnosticBuilder &) {
+    return ClauseError();
+  }
+  static TransformClauseResult ClauseEmpty() {
+    return TransformClauseResult(false);
+  }
+
   ExprResult ParseExpression(TypeCastState isTypeCast = NotTypeCast);
   ExprResult ParseConstantExpressionInExprEvalContext(
       TypeCastState isTypeCast = NotTypeCast);
@@ -1976,6 +1988,12 @@ private:
                                  ParsedStmtContext StmtCtx,
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
+
+  Transform::Kind
+  tryParsePragmaTransform(SourceLocation BeginLoc, ParsedStmtContext StmtCtx,
+                          SmallVectorImpl<TransformClause *> &Clauses);
+  StmtResult ParsePragmaTransform(ParsedStmtContext StmtCtx);
+  TransformClauseResult ParseTransformClause(Transform::Kind TransformKind);
 
   /// Describes the behavior that should be taken for an __if_exists
   /// block.

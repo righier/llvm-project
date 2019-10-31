@@ -15,13 +15,13 @@
 
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
-#include "clang/AST/DeclarationName.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenMP.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/DeclarationName.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
@@ -33,6 +33,7 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
@@ -535,6 +536,16 @@ private:
   /// Process clauses with pre-initis.
   bool VisitOMPClauseWithPreInit(OMPClauseWithPreInit *Node);
   bool VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *Node);
+
+  bool TraverseTransformClause(TransformClause *C);
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  bool Visit##Name##Clause(Name##Clause *C);
+#include "clang/AST/TransformKinds.def"
+
+  bool TraverseTransform(Transform *T);
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  bool Visit##Name##Transform(Name##Transform *T);
+#include "clang/AST/TransformKinds.def"
 
   bool dataTraverseNode(Stmt *S, DataRecursionQueue *Queue);
   bool PostVisitStmt(Stmt *S);
@@ -2691,6 +2702,12 @@ DEF_TRAVERSE_STMT(ObjCDictionaryLiteral, {})
 // Traverse OpenCL: AsType, Convert.
 DEF_TRAVERSE_STMT(AsTypeExpr, {})
 
+DEF_TRAVERSE_STMT(TransformExecutableDirective, {
+  TRY_TO(TraverseTransform(S->getTransform()));
+  for (auto *C : S->clauses())
+    TRY_TO(TraverseTransformClause(C));
+})
+
 // OpenMP directives.
 template <typename Derived>
 bool RecursiveASTVisitor<Derived>::TraverseOMPExecutableDirective(
@@ -2861,6 +2878,38 @@ DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeParallelForSimdDirective,
 
 DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::TraverseTransform(Transform *T) {
+  if (!T)
+    return true;
+  switch (T->getKind()) {
+  case Transform::Kind::UnknownKind:
+    llvm_unreachable("Cannot process unknown transformation");
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  case Transform::Kind::Name##Kind:                                            \
+    TRY_TO(Visit##Name##Transform(static_cast<Name##Transform *>(T)));         \
+    break;
+#include "clang/AST/TransformKinds.def"
+  }
+  return true;
+}
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::TraverseTransformClause(TransformClause *C) {
+  if (!C)
+    return true;
+  switch (C->getKind()) {
+  case TransformClause::Kind::UnknownKind:
+    llvm_unreachable("Cannot process unknown clause");
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    TRY_TO(Visit##Name##Clause(static_cast<Name##Clause *>(C)));               \
+    break;
+#include "clang/AST/TransformKinds.def"
+  }
+  return true;
+}
 
 // OpenMP clauses.
 template <typename Derived>
@@ -3358,6 +3407,37 @@ bool RecursiveASTVisitor<Derived>::VisitOMPIsDevicePtrClause(
   TRY_TO(VisitOMPClauseList(C));
   return true;
 }
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::VisitFullClause(FullClause *C) {
+  return true;
+}
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::VisitPartialClause(PartialClause *C) {
+  TRY_TO(TraverseStmt(C->getFactor()));
+  return true;
+}
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::VisitWidthClause(WidthClause *C) {
+  TRY_TO(TraverseStmt(C->getWidth()));
+  return true;
+}
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::VisitFactorClause(FactorClause *C) {
+  TRY_TO(TraverseStmt(C->getFactor()));
+  return true;
+}
+
+#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+  template <typename Derived>                                                  \
+  bool RecursiveASTVisitor<Derived>::Visit##Name##Transform(                   \
+      Name##Transform *T) {                                                    \
+    return true;                                                               \
+  }
+#include "clang/AST/TransformKinds.def"
 
 // FIXME: look at the following tricky-seeming exprs to see if we
 // need to recurse on anything.  These are ones that have methods

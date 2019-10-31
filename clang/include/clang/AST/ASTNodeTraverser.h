@@ -49,6 +49,8 @@ struct {
   void Visit(const OMPClause *C);
   void Visit(const BlockDecl::Capture &C);
   void Visit(const GenericSelectionExpr::ConstAssociation &A);
+  void Visit(const TransformClause *C);
+  void Visit(const Transform *T);
 };
 */
 template <typename Derived, typename NodeDelegateType>
@@ -205,6 +207,22 @@ public:
     });
   }
 
+  void Visit(const TransformClause *C) {
+    getNodeDelegate().AddChild([=] {
+      getNodeDelegate().Visit(C);
+      for (const auto *S : C->children())
+        Visit(S);
+    });
+  }
+
+  void Visit(const Transform *T) {
+    getNodeDelegate().AddChild([=] {
+      getNodeDelegate().Visit(T);
+      for (const auto *S : T->children())
+        Visit(S);
+    });
+  }
+
   void Visit(const ast_type_traits::DynTypedNode &N) {
     // FIXME: Improve this with a switch or a visitor pattern.
     if (const auto *D = N.get<Decl>())
@@ -221,6 +239,10 @@ public:
       Visit(C);
     else if (const auto *T = N.get<TemplateArgument>())
       Visit(*T);
+    else if (const auto *C = N.get<TransformClause>())
+      Visit(C);
+    else if (const auto *T = N.get<Transform>())
+      Visit(T);
   }
 
   void dumpDeclContext(const DeclContext *DC) {
@@ -599,6 +621,12 @@ public:
   }
 
   void VisitOMPExecutableDirective(const OMPExecutableDirective *Node) {
+    for (const auto *C : Node->clauses())
+      Visit(C);
+  }
+
+  void
+  VisitTransformExecutableDirective(const TransformExecutableDirective *Node) {
     for (const auto *C : Node->clauses())
       Visit(C);
   }

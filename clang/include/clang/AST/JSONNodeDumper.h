@@ -198,6 +198,8 @@ public:
   void Visit(const OMPClause *C);
   void Visit(const BlockDecl::Capture &C);
   void Visit(const GenericSelectionExpr::ConstAssociation &A);
+  void Visit(const TransformClause *C);
+  void Visit(const Transform *T);
 
   void VisitTypedefType(const TypedefType *TT);
   void VisitFunctionType(const FunctionType *T);
