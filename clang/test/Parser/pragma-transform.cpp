@@ -69,7 +69,9 @@ int I;
 void func();
 
 class C1 {
-/* expected-error@+1 {{expected member name or ';' after declaration specifiers}} */
+/* expected-error@+3 {{this pragma cannot appear in class declaration}} */
+/* expected-error@+2 {{expected member name or ';' after declaration specifiers}} */
+/* expected-error@+1 {{unknown type name 'unroll'}} */
 #pragma clang transform unroll
 };
 

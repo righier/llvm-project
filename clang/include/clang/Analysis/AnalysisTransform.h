@@ -18,6 +18,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "llvm/ADT/SmallVector.h"
+#include "clang/AST/StmtOpenMP.h"
 
 namespace clang {
 template <typename Derived, typename NodeTy> class TransformedTreeBuilder;
@@ -662,6 +663,7 @@ private:
 
     bool HandleOMPLoopClauses(OMPLoopDirective *Directive, bool HasTaskloop,
                               bool HasFor, bool HasSimd) {
+      assert((!HasTaskloop || !HasFor) && "taskloop and for are mutually exclusive" );
       const Stmt *TopLevel = getAssociatedLoop(Directive);
 
       bool IsMonotonic = true;
@@ -821,6 +823,22 @@ private:
         OMPTargetParallelForSimdDirective *TargetParallelForSimdDirective) {
       return HandleOMPLoopClauses(TargetParallelForSimdDirective, false, true,
                                   true);
+    }
+
+            bool VisitOMPMasterTaskLoopDirective(OMPMasterTaskLoopDirective *MasterTaskloop) {
+      return HandleOMPLoopClauses(MasterTaskloop, true, false,    false);
+    }
+
+    bool VisitOMPMasterTaskLoopSimdDirective(OMPMasterTaskLoopSimdDirective *MasterTaskloopSimd) {
+      return HandleOMPLoopClauses(MasterTaskloopSimd, true, false,    true);
+    }
+
+        bool VisitOMPParallelMasterTaskLoopDirective(OMPParallelMasterTaskLoopDirective *ParallelMasterTaskloop) {
+      return HandleOMPLoopClauses(ParallelMasterTaskloop, true, false,    false);
+    }
+
+    bool VisitOMPParallelMasterTaskLoopSimdDirective(OMPParallelMasterTaskLoopSimdDirective *ParallelMasterTaskloopSimd) {
+      return HandleOMPLoopClauses(ParallelMasterTaskloopSimd, true, false,    true);
     }
   };
 
