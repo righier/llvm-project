@@ -1233,6 +1233,18 @@ def err_pragma_loop_invalid_option : Error<
   "vectorize_width, interleave, interleave_count, unroll, unroll_count, "
   "pipeline, pipeline_initiation_interval, vectorize_predicate, or distribute">;
 
+// Pragma transform support.
+def err_pragma_transform_expected_directive : Error<
+  "expected a transformation name">;
+def err_pragma_transform_unknown_directive : Error<
+  "unknown transformation">;
+def err_pragma_transform_expected_loop : Error<
+  "expected loop after transformation pragma">;
+def err_pragma_transform_expected_clause : Error<
+  "expected a clause name">;
+def err_pragma_transform_unknown_clause : Error<
+  "unknown clause name">;
+
 def err_pragma_fp_invalid_option : Error<
   "%select{invalid|missing}0 option%select{ %1|}0; expected contract">;
 def err_pragma_fp_invalid_argument : Error<

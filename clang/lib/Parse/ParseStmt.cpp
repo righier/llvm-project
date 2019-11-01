@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/PrettyDeclStackTrace.h"
+#include "clang/AST/Transform.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Parse/LoopHint.h"
@@ -399,6 +400,10 @@ Retry:
   case tok::annot_pragma_loop_hint:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+
+  case tok::annot_pragma_transform:
+    ProhibitAttributes(Attrs);
+    return ParsePragmaTransform(StmtCtx);
 
   case tok::annot_pragma_dump:
     HandlePragmaDump();
