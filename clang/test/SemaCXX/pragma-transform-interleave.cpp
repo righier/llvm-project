@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -fsyntax-only -verify %s
 
 void interleave(int *List, int Length, int Value) {
 /* expected-error@+1 {{interleave factor clause can only be used once}} */

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -fsyntax-only -verify %s
 
 void vectorize(int *List, int Length, int Value) {
 /* expected-error@+1 {{vectorize width clause can only be used once}} */

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-unknown-unknown -fopenmp -ast-dump %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-unknown-unknown -fexperimental-transform-pragma -ast-dump %s | FileCheck %s
 
 void unroll_full(int n) {
 #pragma clang transform unroll full
