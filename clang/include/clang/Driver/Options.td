@@ -1661,6 +1661,10 @@ def fno_openmp_optimistic_collapse : Flag<["-"], "fno-openmp-optimistic-collapse
   Flags<[NoArgumentUnused, HelpHidden]>;
 def static_openmp: Flag<["-"], "static-openmp">,
   HelpText<"Use the static host OpenMP runtime while linking.">;
+def fexperimental_transform_pragma : Flag<["-"], "fexperimental-transform-pragma">, Group<f_Group>,
+  Flags<[CC1Option, HelpHidden]>, HelpText<"Parse experimental #pragma clang transform directives.">;
+def fno_experimental_transform_pragma : Flag<["-"], "fno-experimental-transform-pragma">, Group<f_Group>,
+  Flags<[CC1Option, HelpHidden]>;
 def fno_optimize_sibling_calls : Flag<["-"], "fno-optimize-sibling-calls">, Group<f_Group>;
 def foptimize_sibling_calls : Flag<["-"], "foptimize-sibling-calls">, Group<f_Group>;
 def fno_escaping_block_tail_calls : Flag<["-"], "fno-escaping-block-tail-calls">, Group<f_Group>, Flags<[CC1Option]>;
