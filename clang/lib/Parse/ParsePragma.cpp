@@ -382,15 +382,17 @@ void Parser::initializePragmaHandlers() {
       std::make_unique<PragmaUnrollHintHandler>("nounroll_and_jam");
   PP.AddPragmaHandler(NoUnrollAndJamHintHandler.get());
 
-  TransformHandler = std::make_unique<PragmaTransformHandler>();
-  PP.AddPragmaHandler("clang", TransformHandler.get());
-
   FPHandler = std::make_unique<PragmaFPHandler>();
   PP.AddPragmaHandler("clang", FPHandler.get());
 
   AttributePragmaHandler =
       std::make_unique<PragmaAttributeHandler>(AttrFactory);
   PP.AddPragmaHandler("clang", AttributePragmaHandler.get());
+
+  if (getLangOpts().ExperimentalTransformPragma) {
+    TransformHandler = std::make_unique<PragmaTransformHandler>();
+    PP.AddPragmaHandler("clang", TransformHandler.get());
+  }
 }
 
 void Parser::resetPragmaHandlers() {
@@ -491,14 +493,16 @@ void Parser::resetPragmaHandlers() {
   PP.RemovePragmaHandler(NoUnrollAndJamHintHandler.get());
   NoUnrollAndJamHintHandler.reset();
 
-  PP.RemovePragmaHandler("clang", TransformHandler.get());
-  TransformHandler.reset();
-
   PP.RemovePragmaHandler("clang", FPHandler.get());
   FPHandler.reset();
 
   PP.RemovePragmaHandler("clang", AttributePragmaHandler.get());
   AttributePragmaHandler.reset();
+
+  if (getLangOpts().ExperimentalTransformPragma) {
+    PP.RemovePragmaHandler("clang", TransformHandler.get());
+    TransformHandler.reset();
+  }
 }
 
 /// Handle the annotation token produced for #pragma unused(...)

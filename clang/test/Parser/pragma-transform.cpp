@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -verify %s
+// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -verify %s
 
 void pragma_transform(int *List, int Length) {
 // FIXME: This does not emit an error

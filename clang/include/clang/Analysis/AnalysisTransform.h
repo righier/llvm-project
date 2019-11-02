@@ -16,9 +16,9 @@
 #include "clang/AST/OpenMPClause.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/StmtOpenMP.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "llvm/ADT/SmallVector.h"
-#include "clang/AST/StmtOpenMP.h"
 
 namespace clang {
 template <typename Derived, typename NodeTy> class TransformedTreeBuilder;
@@ -663,7 +663,8 @@ private:
 
     bool HandleOMPLoopClauses(OMPLoopDirective *Directive, bool HasTaskloop,
                               bool HasFor, bool HasSimd) {
-      assert((!HasTaskloop || !HasFor) && "taskloop and for are mutually exclusive" );
+      assert((!HasTaskloop || !HasFor) &&
+             "taskloop and for are mutually exclusive");
       const Stmt *TopLevel = getAssociatedLoop(Directive);
 
       bool IsMonotonic = true;
@@ -825,20 +826,25 @@ private:
                                   true);
     }
 
-            bool VisitOMPMasterTaskLoopDirective(OMPMasterTaskLoopDirective *MasterTaskloop) {
-      return HandleOMPLoopClauses(MasterTaskloop, true, false,    false);
+    bool VisitOMPMasterTaskLoopDirective(
+        OMPMasterTaskLoopDirective *MasterTaskloop) {
+      return HandleOMPLoopClauses(MasterTaskloop, true, false, false);
     }
 
-    bool VisitOMPMasterTaskLoopSimdDirective(OMPMasterTaskLoopSimdDirective *MasterTaskloopSimd) {
-      return HandleOMPLoopClauses(MasterTaskloopSimd, true, false,    true);
+    bool VisitOMPMasterTaskLoopSimdDirective(
+        OMPMasterTaskLoopSimdDirective *MasterTaskloopSimd) {
+      return HandleOMPLoopClauses(MasterTaskloopSimd, true, false, true);
     }
 
-        bool VisitOMPParallelMasterTaskLoopDirective(OMPParallelMasterTaskLoopDirective *ParallelMasterTaskloop) {
-      return HandleOMPLoopClauses(ParallelMasterTaskloop, true, false,    false);
+    bool VisitOMPParallelMasterTaskLoopDirective(
+        OMPParallelMasterTaskLoopDirective *ParallelMasterTaskloop) {
+      return HandleOMPLoopClauses(ParallelMasterTaskloop, true, false, false);
     }
 
-    bool VisitOMPParallelMasterTaskLoopSimdDirective(OMPParallelMasterTaskLoopSimdDirective *ParallelMasterTaskloopSimd) {
-      return HandleOMPLoopClauses(ParallelMasterTaskloopSimd, true, false,    true);
+    bool VisitOMPParallelMasterTaskLoopSimdDirective(
+        OMPParallelMasterTaskLoopSimdDirective *ParallelMasterTaskloopSimd) {
+      return HandleOMPLoopClauses(ParallelMasterTaskloopSimd, true, false,
+                                  true);
     }
   };
 

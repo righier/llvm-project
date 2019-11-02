@@ -3227,6 +3227,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.CompleteMemberPointers = Args.hasArg(OPT_fcomplete_member_pointers);
   Opts.BuildingPCHWithObjectFile = Args.hasArg(OPT_building_pch_with_obj);
+
+  // Enable or disable support for #pragma clang transform.
+  Opts.ExperimentalTransformPragma =
+      Args.hasFlag(options::OPT_fexperimental_transform_pragma,
+                   options::OPT_fno_experimental_transform_pragma, false);
 }
 
 static bool isStrictlyPreprocessorAction(frontend::ActionKind Action) {
