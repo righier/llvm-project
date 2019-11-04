@@ -57,7 +57,7 @@ int main() {
 
 
 // TRANS: polly.loop_preheader:
-// TRANS: add nsw i64 %0, -1
+// TRANS: add nsw i64 %{{[0-9a-zA-Z.]+}}, -1
 
 
 // RESULT: (43)
