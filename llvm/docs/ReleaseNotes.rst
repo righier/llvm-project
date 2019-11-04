@@ -55,6 +55,8 @@ Non-comprehensive list of changes in this release
   AliasSetTracker usage with MemorySSA without any performance penalties.
   The fact that MemorySSA is now preserved by and available in a series of loop
   passes, also opens up opportunities for its use in those respective passes.
+* The BasicBlockPass, BBPassManager and all their uses were deleted in
+  `this revision <https://reviews.llvm.org/rG9f0ff0b2634bab6a5be8dace005c9eb24d386dd1>`_.
 
 .. NOTE
    If you would like to document a larger change, then you can add a
@@ -79,9 +81,11 @@ Non-comprehensive list of changes in this release
   Undefined Behaviour Sanitizer ``-fsanitize=pointer-overflow`` check
   will now catch such cases.
 
-* The Loop Idiom Recognition (``-loop-idiom``) pass has learned to recognize
-  ``bcmp`` pattern, and convert it into a call to ``bcmp`` (or ``memcmp``)
-  function.
+
+* Windows Control Flow Guard: the ``-cfguard`` option now emits CFG checks on
+  indirect function calls. The previous behavior is still available with the 
+  ``-cfguard-nochecks`` option. Note that this feature should always be used 
+  with optimizations enabled.
 
 Changes to the LLVM IR
 ----------------------
@@ -130,6 +134,13 @@ Changes to the X86 Target
   Intel CPUs. This tries to limit the use of 512-bit registers which can cause a
   decrease in CPU frequency on these CPUs. This can be re-enabled by passing
   -mprefer-vector-width=512 to clang or passing -mattr=-prefer-256-bit to llc.
+* Deprecated the mpx feature flag for the Intel MPX instructions. There were no
+  intrinsics for this feature. This change only this effects the results
+  returned by getHostCPUFeatures on CPUs that implement the MPX instructions.
+* The feature flag fast-partial-ymm-or-zmm-write which previously disabled
+  vzeroupper insertion has been removed. It has been replaced with a vzeroupper
+  feature flag which has the opposite polarity. So -vzeroupper has the same
+  effect as +fast-partial-ymm-or-zmm-write.
 
 Changes to the AMDGPU Target
 -----------------------------
@@ -138,10 +149,6 @@ Changes to the AVR Target
 -----------------------------
 
  During this release ...
-
-* Deprecated the mpx feature flag for the Intel MPX instructions. There were no
-  intrinsics for this feature. This change only this effects the results
-  returned by getHostCPUFeatures on CPUs that implement the MPX instructions.
 
 Changes to the WebAssembly Target
 ---------------------------------

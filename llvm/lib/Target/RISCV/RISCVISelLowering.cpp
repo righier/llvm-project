@@ -193,6 +193,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::READCYCLECOUNTER, MVT::i64,
                      Subtarget.is64Bit() ? Legal : Custom);
 
+  setOperationAction(ISD::TRAP, MVT::Other, Legal);
+  setOperationAction(ISD::DEBUGTRAP, MVT::Other, Legal);
+
   if (Subtarget.hasStdExtA()) {
     setMaxAtomicSizeInBitsSupported(Subtarget.getXLen());
     setMinCmpXchgSizeInBits(32);
@@ -2890,4 +2893,23 @@ bool RISCVTargetLowering::shouldExtendTypeInLibCall(EVT Type) const {
     return false;
 
   return true;
+}
+
+#define GET_REGISTER_MATCHER
+#include "RISCVGenAsmMatcher.inc"
+
+Register
+RISCVTargetLowering::getRegisterByName(const char *RegName, EVT VT,
+                                       const MachineFunction &MF) const {
+  Register Reg = MatchRegisterAltName(RegName);
+  if (Reg == RISCV::NoRegister)
+    Reg = MatchRegisterName(RegName);
+  if (Reg == RISCV::NoRegister)
+    report_fatal_error(
+        Twine("Invalid register name \"" + StringRef(RegName) + "\"."));
+  BitVector ReservedRegs = Subtarget.getRegisterInfo()->getReservedRegs(MF);
+  if (!ReservedRegs.test(Reg) && !Subtarget.isRegisterReservedByUser(Reg))
+    report_fatal_error(Twine("Trying to obtain non-reserved register \"" +
+                             StringRef(RegName) + "\"."));
+  return Reg;
 }

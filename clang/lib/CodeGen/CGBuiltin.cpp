@@ -6055,6 +6055,16 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
         CGM.getIntrinsic(Intrinsic::bitreverse, Arg->getType()), Arg, "rbit");
   }
 
+  if (BuiltinID == ARM::BI__builtin_arm_cls) {
+    llvm::Value *Arg = EmitScalarExpr(E->getArg(0));
+    return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_cls), Arg, "cls");
+  }
+  if (BuiltinID == ARM::BI__builtin_arm_cls64) {
+    llvm::Value *Arg = EmitScalarExpr(E->getArg(0));
+    return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_cls64), Arg,
+                              "cls");
+  }
+
   if (BuiltinID == ARM::BI__clear_cache) {
     assert(E->getNumArgs() == 2 && "__clear_cache takes 2 arguments");
     const FunctionDecl *FD = E->getDirectCallee();
@@ -7106,6 +7116,17 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
     llvm::Value *Arg = EmitScalarExpr(E->getArg(0));
     return Builder.CreateCall(
         CGM.getIntrinsic(Intrinsic::bitreverse, Arg->getType()), Arg, "rbit");
+  }
+
+  if (BuiltinID == AArch64::BI__builtin_arm_cls) {
+    llvm::Value *Arg = EmitScalarExpr(E->getArg(0));
+    return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::aarch64_cls), Arg,
+                              "cls");
+  }
+  if (BuiltinID == AArch64::BI__builtin_arm_cls64) {
+    llvm::Value *Arg = EmitScalarExpr(E->getArg(0));
+    return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::aarch64_cls64), Arg,
+                              "cls");
   }
 
   if (BuiltinID == AArch64::BI__builtin_arm_jcvt) {
@@ -14296,6 +14317,54 @@ Value *CodeGenFunction::EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
     Function *Callee = CGM.getIntrinsic(Intrinsic::wasm_bitselect,
                                      ConvertType(E->getType()));
     return Builder.CreateCall(Callee, {V1, V2, C});
+  }
+  case WebAssembly::BI__builtin_wasm_min_s_i8x16:
+  case WebAssembly::BI__builtin_wasm_min_u_i8x16:
+  case WebAssembly::BI__builtin_wasm_max_s_i8x16:
+  case WebAssembly::BI__builtin_wasm_max_u_i8x16:
+  case WebAssembly::BI__builtin_wasm_min_s_i16x8:
+  case WebAssembly::BI__builtin_wasm_min_u_i16x8:
+  case WebAssembly::BI__builtin_wasm_max_s_i16x8:
+  case WebAssembly::BI__builtin_wasm_max_u_i16x8:
+  case WebAssembly::BI__builtin_wasm_min_s_i32x4:
+  case WebAssembly::BI__builtin_wasm_min_u_i32x4:
+  case WebAssembly::BI__builtin_wasm_max_s_i32x4:
+  case WebAssembly::BI__builtin_wasm_max_u_i32x4: {
+    unsigned IntNo;
+    switch (BuiltinID) {
+    case WebAssembly::BI__builtin_wasm_min_s_i8x16:
+    case WebAssembly::BI__builtin_wasm_min_s_i16x8:
+    case WebAssembly::BI__builtin_wasm_min_s_i32x4:
+      IntNo = Intrinsic::wasm_min_signed;
+      break;
+    case WebAssembly::BI__builtin_wasm_min_u_i8x16:
+    case WebAssembly::BI__builtin_wasm_min_u_i16x8:
+    case WebAssembly::BI__builtin_wasm_min_u_i32x4:
+      IntNo = Intrinsic::wasm_min_unsigned;
+      break;
+    case WebAssembly::BI__builtin_wasm_max_s_i8x16:
+    case WebAssembly::BI__builtin_wasm_max_s_i16x8:
+    case WebAssembly::BI__builtin_wasm_max_s_i32x4:
+      IntNo = Intrinsic::wasm_max_signed;
+      break;
+    case WebAssembly::BI__builtin_wasm_max_u_i8x16:
+    case WebAssembly::BI__builtin_wasm_max_u_i16x8:
+    case WebAssembly::BI__builtin_wasm_max_u_i32x4:
+      IntNo = Intrinsic::wasm_max_unsigned;
+      break;
+    default:
+      llvm_unreachable("unexpected builtin ID");
+    }
+    Value *LHS = EmitScalarExpr(E->getArg(0));
+    Value *RHS = EmitScalarExpr(E->getArg(1));
+    Function *Callee = CGM.getIntrinsic(IntNo, ConvertType(E->getType()));
+    return Builder.CreateCall(Callee, {LHS, RHS});
+  }
+  case WebAssembly::BI__builtin_wasm_dot_s_i32x4_i16x8: {
+    Value *LHS = EmitScalarExpr(E->getArg(0));
+    Value *RHS = EmitScalarExpr(E->getArg(1));
+    Function *Callee = CGM.getIntrinsic(Intrinsic::wasm_dot);
+    return Builder.CreateCall(Callee, {LHS, RHS});
   }
   case WebAssembly::BI__builtin_wasm_any_true_i8x16:
   case WebAssembly::BI__builtin_wasm_any_true_i16x8:

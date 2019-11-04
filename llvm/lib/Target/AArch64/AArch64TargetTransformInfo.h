@@ -147,6 +147,29 @@ public:
 
   bool getTgtMemIntrinsic(IntrinsicInst *Inst, MemIntrinsicInfo &Info);
 
+  bool isLegalMaskedLoadStore(Type *DataType, MaybeAlign Alignment) {
+    if (!isa<VectorType>(DataType) || !ST->hasSVE())
+      return false;
+
+    Type *Ty = DataType->getVectorElementType();
+    if (Ty->isHalfTy() || Ty->isFloatTy() || Ty->isDoubleTy())
+      return true;
+
+    if (Ty->isIntegerTy(8) || Ty->isIntegerTy(16) ||
+        Ty->isIntegerTy(32) || Ty->isIntegerTy(64))
+      return true;
+
+    return false;
+  }
+
+  bool isLegalMaskedLoad(Type *DataType, MaybeAlign Alignment) {
+    return isLegalMaskedLoadStore(DataType, Alignment);
+  }
+
+  bool isLegalMaskedStore(Type *DataType, MaybeAlign Alignment) {
+    return isLegalMaskedLoadStore(DataType, Alignment);
+  }
+
   int getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy, unsigned Factor,
                                  ArrayRef<unsigned> Indices, unsigned Alignment,
                                  unsigned AddressSpace,

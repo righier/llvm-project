@@ -139,6 +139,7 @@ struct Section {
     NoBits,
     Note,
     Hash,
+    GnuHash,
     Verdef,
     Verneed,
     StackSizes,
@@ -249,6 +250,39 @@ struct HashSection : Section {
   static bool classof(const Section *S) { return S->Kind == SectionKind::Hash; }
 };
 
+struct GnuHashHeader {
+  // The number of hash buckets.
+  // Not used when dumping the object, but can be used to override
+  // the real number of buckets when emiting an object from a YAML document.
+  Optional<llvm::yaml::Hex32> NBuckets;
+
+  // Index of the first symbol in the dynamic symbol table
+  // included in the hash table.
+  llvm::yaml::Hex32 SymNdx;
+
+  // The number of words in the Bloom filter.
+  // Not used when dumping the object, but can be used to override the real
+  // number of words in the Bloom filter when emiting an object from a YAML
+  // document.
+  Optional<llvm::yaml::Hex32> MaskWords;
+
+  // A shift constant used by the Bloom filter.
+  llvm::yaml::Hex32 Shift2;
+};
+
+struct GnuHashSection : Section {
+  Optional<yaml::BinaryRef> Content;
+
+  Optional<GnuHashHeader> Header;
+  Optional<std::vector<llvm::yaml::Hex64>> BloomFilter;
+  Optional<std::vector<llvm::yaml::Hex32>> HashBuckets;
+  Optional<std::vector<llvm::yaml::Hex32>> HashValues;
+
+  GnuHashSection() : Section(SectionKind::GnuHash) {}
+
+  static bool classof(const Section *S) { return S->Kind == SectionKind::GnuHash; }
+};
+
 struct VernauxEntry {
   uint32_t Hash;
   uint16_t Flags;
@@ -326,7 +360,7 @@ struct Group : Section {
   // Members of a group contain a flag and a list of section indices
   // that are part of the group.
   std::vector<SectionOrType> Members;
-  StringRef Signature; /* Info */
+  Optional<StringRef> Signature; /* Info */
 
   Group() : Section(SectionKind::Group) {}
 
@@ -539,6 +573,10 @@ struct MappingTraits<ELFYAML::Symbol> {
 
 template <> struct MappingTraits<ELFYAML::StackSizeEntry> {
   static void mapping(IO &IO, ELFYAML::StackSizeEntry &Rel);
+};
+
+template <> struct MappingTraits<ELFYAML::GnuHashHeader> {
+  static void mapping(IO &IO, ELFYAML::GnuHashHeader &Rel);
 };
 
 template <> struct MappingTraits<ELFYAML::DynamicEntry> {

@@ -668,7 +668,6 @@ void SIFoldOperands::foldOperand(
   } else {
     if (UseMI->isCopy() && OpToFold.isReg() &&
         UseMI->getOperand(0).getReg().isVirtual() &&
-        TRI->isVectorRegister(*MRI, UseMI->getOperand(0).getReg()) &&
         !UseMI->getOperand(1).getSubReg()) {
       LLVM_DEBUG(dbgs() << "Folding " << OpToFold
                         << "\n into " << *UseMI << '\n');
@@ -1209,6 +1208,7 @@ void SIFoldOperands::foldInstOperand(MachineInstr &MI,
     Copy->addImplicitDefUseOperands(*MF);
 
   for (FoldCandidate &Fold : FoldList) {
+    assert(!Fold.isReg() || Fold.OpToFold);
     if (Fold.isReg() && Register::isVirtualRegister(Fold.OpToFold->getReg())) {
       Register Reg = Fold.OpToFold->getReg();
       MachineInstr *DefMI = Fold.OpToFold->getParent();
@@ -1468,15 +1468,16 @@ bool SIFoldOperands::runOnMachineFunction(MachineFunction &MF) {
       tryFoldInst(TII, &MI);
 
       if (!TII->isFoldableCopy(MI)) {
+        // Saw an unknown clobber of m0, so we no longer know what it is.
+        if (CurrentKnownM0Val && MI.modifiesRegister(AMDGPU::M0, TRI))
+          CurrentKnownM0Val = nullptr;
+
         // TODO: Omod might be OK if there is NSZ only on the source
         // instruction, and not the omod multiply.
         if (IsIEEEMode || (!HasNSZ && !MI.getFlag(MachineInstr::FmNsz)) ||
             !tryFoldOMod(MI))
           tryFoldClamp(MI);
 
-        // Saw an unknown clobber of m0, so we no longer know what it is.
-        if (CurrentKnownM0Val && MI.modifiesRegister(AMDGPU::M0, TRI))
-          CurrentKnownM0Val = nullptr;
         continue;
       }
 

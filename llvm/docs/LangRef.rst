@@ -444,6 +444,17 @@ added in the future:
     the GHC or the HiPE convention is used. <CodeGenerator.html#id80>`_ This
     calling convention does not support varargs and requires the prototype of
     all callees to exactly match the prototype of the function definition.
+"``cfguard_checkcc``" - Windows Control Flow Guard (Check mechanism)
+    This calling convention is used for the Control Flow Guard check function,
+    calls to which can be inserted before indirect calls to check that the call
+    target is a valid function address. The check function has no return value,
+    but it will trigger an OS-level error if the address is not a valid target.
+    The set of registers preserved by the check function, and the register
+    containing the target address are architecture-specific.
+
+    - On X86 the target address is passed in ECX.
+    - On ARM the target address is passed in R0.
+    - On AArch64 the target address is passed in X15.
 "``cc <n>``" - Numbered convention
     Any calling convention may be specified by number, allowing
     target-specific calling conventions to be used. Target specific
@@ -1122,6 +1133,10 @@ Currently, only the following parameter attributes are defined:
     attribute for return values.  Addresses used in volatile operations
     are considered to be captured.
 
+``nofree``
+    This indicates that callee does not free the pointer argument. This is not
+    a valid attribute for return values.
+
 .. _nest:
 
 ``nest``
@@ -1441,6 +1456,13 @@ example:
 ``naked``
     This attribute disables prologue / epilogue emission for the
     function. This can have very system-specific consequences.
+``"no-inline-line-tables"``
+    When this attribute is set to true, the inliner discards source locations
+    when inlining code and instead uses the source location of the call site.
+    Breakpoints set on code that was inlined into the current function will
+    not fire during the execution of the inlined call sites. If the debugger
+    stops inside an inlined call site, it will appear to be stopped at the
+    outermost inlined call site.
 ``no-jump-tables``
     When this attribute is set to true, the jump tables and lookup tables that
     can be generated from a switch case lowering are disabled.
@@ -10123,7 +10145,8 @@ The optional ``fast-math-flags`` marker indicates that the phi has one
 or more :ref:`fast-math-flags <fastmath>`. These are optimization hints
 to enable otherwise unsafe floating-point optimizations. Fast-math-flags
 are only valid for phis that return a floating-point scalar or vector
-type.
+type, or an array (nested to any depth) of floating-point scalar or vector
+types.
 
 Semantics:
 """"""""""
@@ -10172,7 +10195,8 @@ class <t_firstclass>` type.
 #. The optional ``fast-math flags`` marker indicates that the select has one or more
    :ref:`fast-math flags <fastmath>`. These are optimization hints to enable
    otherwise unsafe floating-point optimizations. Fast-math flags are only valid
-   for selects that return a floating-point scalar or vector type.
+   for selects that return a floating-point scalar or vector type, or an array
+   (nested to any depth) of floating-point scalar or vector types.
 
 Semantics:
 """"""""""
@@ -10271,7 +10295,8 @@ This instruction requires several arguments:
 #. The optional ``fast-math flags`` marker indicates that the call has one or more
    :ref:`fast-math flags <fastmath>`, which are optimization hints to enable
    otherwise unsafe floating-point optimizations. Fast-math flags are only valid
-   for calls that return a floating-point scalar or vector type.
+   for calls that return a floating-point scalar or vector type, or an array
+   (nested to any depth) of floating-point scalar or vector types.
 
 #. The optional "cconv" marker indicates which :ref:`calling
    convention <callingconv>` the call should use. If none is
@@ -17032,6 +17057,10 @@ if"); and this allows for "check widening" type optimizations.
 
 ``@llvm.experimental.guard`` cannot be invoked.
 
+After ``@llvm.experimental.guard`` was first added, a more general
+formulation was found in ``@llvm.experimental.widenable.condition``.
+Support for ``@llvm.experimental.guard`` is slowly being rephrased in
+terms of this alternate.
 
 '``llvm.experimental.widenable.condition``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

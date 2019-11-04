@@ -448,8 +448,15 @@ llvm::SmallVector<ReferenceLoc, 2> refInDecl(const Decl *D) {
       // FIXME: decide on how to surface destructors when we need them.
       if (llvm::isa<CXXDestructorDecl>(ND))
         return;
-      Refs.push_back(ReferenceLoc{
-          getQualifierLoc(*ND), ND->getLocation(), /*IsDecl=*/true, {ND}});
+      // Filter anonymous decls, name location will point outside the name token
+      // and the clients are not prepared to handle that.
+      if (ND->getDeclName().isIdentifier() &&
+          !ND->getDeclName().getAsIdentifierInfo())
+        return;
+      Refs.push_back(ReferenceLoc{getQualifierLoc(*ND),
+                                  ND->getLocation(),
+                                  /*IsDecl=*/true,
+                                  {ND}});
     }
   };
 
@@ -667,10 +674,14 @@ private:
       return refInDecl(D);
     if (auto *E = N.get<Expr>())
       return refInExpr(E);
-    if (auto *NNSL = N.get<NestedNameSpecifierLoc>())
-      return {ReferenceLoc{NNSL->getPrefix(), NNSL->getLocalBeginLoc(), false,
-                           explicitReferenceTargets(DynTypedNode::create(
-                               *NNSL->getNestedNameSpecifier()))}};
+    if (auto *NNSL = N.get<NestedNameSpecifierLoc>()) {
+      // (!) 'DeclRelation::Alias' ensures we do not loose namespace aliases.
+      return {ReferenceLoc{
+          NNSL->getPrefix(), NNSL->getLocalBeginLoc(), false,
+          explicitReferenceTargets(
+              DynTypedNode::create(*NNSL->getNestedNameSpecifier()),
+              DeclRelation::Alias)}};
+    }
     if (const TypeLoc *TL = N.get<TypeLoc>())
       return refInTypeLoc(*TL);
     if (const CXXCtorInitializer *CCI = N.get<CXXCtorInitializer>()) {

@@ -4423,7 +4423,7 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   auto Permutation = findDataLayoutPermutation(UAccessedByPostfix, PackedSizes);
 
   //	Permutation = castSpace(Permutation,
-  //TmpPackedSpace.map_from_domain_and_range(PackedSpace));
+  // TmpPackedSpace.map_from_domain_and_range(PackedSpace));
   Permutation = Permutation.set_tuple_id(isl::dim::in, TmpPackedId)
                     .set_tuple_id(isl::dim::out, TmpPackedId);
 

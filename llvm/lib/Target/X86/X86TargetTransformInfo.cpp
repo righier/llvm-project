@@ -2665,7 +2665,7 @@ int X86TTIImpl::getArithmeticReductionCost(unsigned Opcode, Type *ValTy,
   };
 
   // Handle bool allof/anyof patterns.
-  if (ValTy->getVectorElementType()->isIntegerTy(1)) {
+  if (!IsPairwise && ValTy->getVectorElementType()->isIntegerTy(1)) {
     if (ST->hasAVX2())
       if (const auto *Entry = CostTableLookup(AVX2BoolReduction, ISD, MTy))
         return LT.first * Entry->Cost;
@@ -3444,10 +3444,9 @@ X86TTIImpl::enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const {
     // version is not as fast for three way compare (see #33329).
     const unsigned PreferredWidth = ST->getPreferVectorWidth();
     if (PreferredWidth >= 512 && ST->hasAVX512()) Options.LoadSizes.push_back(64);
-    if (PreferredWidth >= 256 && ST->hasAVX2()) Options.LoadSizes.push_back(32);
+    if (PreferredWidth >= 256 && ST->hasAVX()) Options.LoadSizes.push_back(32);
     if (PreferredWidth >= 128 && ST->hasSSE2()) Options.LoadSizes.push_back(16);
-    // All GPR and vector loads can be unaligned. SIMD compare requires integer
-    // vectors (SSE2/AVX2).
+    // All GPR and vector loads can be unaligned.
     Options.AllowOverlappingLoads = true;
   }
   if (ST->is64Bit()) {
