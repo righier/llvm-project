@@ -1977,6 +1977,9 @@ void ASTStmtWriter::VisitTransformExecutableDirective(
     case TransformClause::WidthKind:
       Record.AddStmt(static_cast<WidthClause *>(C)->getWidth());
       break;
+    case TransformClause::PartialKind:
+            Record.AddStmt(static_cast<PartialClause *>(C)->getFactor());
+      break;
     }
   }
   Record.AddStmt(D->getAssociated());

@@ -15,8 +15,8 @@
 
 #include "clang/AST/Expr.h"
 #include "clang/AST/Stmt.h"
-#include "clang/AST/Transform.h"
 #include "llvm/Support/raw_ostream.h"
+#include "clang/Basic/Transform.h"
 
 namespace clang {
 
@@ -27,7 +27,7 @@ public:
     UnknownKind,
 #define TRANSFORM_CLAUSE(Keyword, Name) Name##Kind,
 #define TRANSFORM_CLAUSE_LAST(Keyword, Name) Name##Kind, LastKind = Name##Kind
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   };
 
   static bool isValidForTransform(Transform::Kind TransformKind,
@@ -223,9 +223,8 @@ private:
 
 protected:
   explicit TransformExecutableDirective(SourceRange Range, Stmt *Associated,
-                                        Transform *Trans,
-                                        ArrayRef<TransformClause *> Clauses,
-                                        Transform::Kind TransKind)
+                                       ArrayRef<TransformClause *> Clauses,
+                                       Transform::Kind TransKind)
       : Stmt(Stmt::TransformExecutableDirectiveClass), Range(Range),
         Associated(Associated), Trans(Trans), TransKind(TransKind),
         NumClauses(Clauses.size()) {
@@ -246,8 +245,7 @@ public:
   }
 
   static TransformExecutableDirective *
-  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, Transform *Trans,
-         ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
+  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
   static TransformExecutableDirective *createEmpty(ASTContext &Ctx,
                                                    unsigned NumClauses);
 

@@ -27,7 +27,7 @@ public:
 #define TRANSFORM_DIRECTIVE_LAST(Keyword, Name)                                \
   TRANSFORM_DIRECTIVE(Keyword, Name)                                           \
   LastKind = Name##Kind
-#include "clang/AST/TransformKinds.def"
+#include "TransformKinds.def"
   };
 
   static Kind getTransformDirectiveKind(llvm::StringRef Str);
@@ -67,18 +67,6 @@ public:
   ///  * Some warnings that clang historically did not warn about are disabled.
   ///  * Some differences of the emitted loop metadata for compatibility.
   bool isLegacy() const { return IsLegacy; }
-
-  using child_iterator = Stmt::child_iterator;
-  using const_child_iterator = Stmt::const_child_iterator;
-  using child_range = Stmt::child_range;
-  using const_child_range = Stmt::const_child_range;
-
-  child_range children() {
-    return child_range(child_iterator(), child_iterator());
-  }
-  const_child_range children() const {
-    return const_child_range(child_iterator(), child_iterator());
-  }
 
   /// Each transformation defines how many loops it consumes and generates.
   /// Users of this class can store arrays holding the information regarding the

@@ -13,7 +13,7 @@
 #include "clang/Sema/SemaTransform.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtTransform.h"
-#include "clang/AST/Transform.h"
+//#include "clang/AST/Transform.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/DenseMap.h"
@@ -26,6 +26,8 @@ static bool isTemplateDependent(Expr *E) {
          E->isInstantiationDependent() || E->containsUnexpandedParameterPack();
 }
 
+
+#if 0
 Sema::TransformResult
 Sema::ActOnTransform(Transform::Kind Kind,
                      llvm::ArrayRef<TransformClause *> Clauses,
@@ -188,9 +190,10 @@ Sema::ActOnTransform(Transform::Kind Kind,
     llvm_unreachable("unimplemented");
   }
 }
+#endif
 
 StmtResult
-Sema::ActOnLoopTransformDirective(Transform::Kind Kind, Transform *Trans,
+Sema::ActOnLoopTransformDirective(Transform::Kind Kind, 
                                   llvm::ArrayRef<TransformClause *> Clauses,
                                   Stmt *AStmt, SourceRange Loc) {
   const Stmt *Loop = getAssociatedLoop(AStmt);
@@ -198,13 +201,14 @@ Sema::ActOnLoopTransformDirective(Transform::Kind Kind, Transform *Trans,
     return StmtError(
         Diag(Loc.getBegin(), diag::err_sema_transform_expected_loop));
 
+#if 0
   if (!Trans) {
     TransformResult Transform = ActOnTransform(Kind, Clauses, Loc);
     Trans = Transform.isUsable() ? Transform.get() : nullptr;
   }
+#endif
 
-  return TransformExecutableDirective::create(Context, Loc, AStmt, Trans,
-                                              Clauses, Kind);
+  return TransformExecutableDirective::create(Context, Loc, AStmt, Clauses, Kind);
 }
 
 TransformClause *Sema::ActOnFullClause(SourceRange Loc) {

@@ -1550,11 +1550,10 @@ public:
   }
 
   StmtResult
-  RebuildTransformExecutableDirective(Transform::Kind Kind, Transform *Trans,
-                                      llvm::ArrayRef<TransformClause *> Clauses,
+  RebuildTransformExecutableDirective(Transform::Kind Kind,                                       llvm::ArrayRef<TransformClause *> Clauses,
                                       Stmt *AStmt, SourceRange Loc) {
     StmtResult Result =
-        getSema().ActOnLoopTransformDirective(Kind, Trans, Clauses, AStmt, Loc);
+        getSema().ActOnLoopTransformDirective(Kind,  Clauses, AStmt, Loc);
     assert(!Result.isUsable() ||
            isa<TransformExecutableDirective>(Result.get()));
     return Result;
@@ -7931,7 +7930,7 @@ TreeTransform<Derived>::TransformTransformClause(TransformClause *S) {
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   case TransformClause::Kind::Name##Kind:                                      \
     return getDerived().Transform##Name##Clause(cast<Name##Clause>(S));
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   case TransformClause::Kind::UnknownKind:
     llvm_unreachable("Should not be unknown");
   }
@@ -7952,9 +7951,8 @@ StmtResult TreeTransform<Derived>::TransformTransformExecutableDirective(
   StmtResult TBody = getDerived().TransformStmt(AStmt);
   assert(TBody.isUsable());
 
-  Transform *Trans = getDerived().TransformTransform(D->getTransform());
   StmtResult TDirective = getDerived().RebuildTransformExecutableDirective(
-      D->getTransformKind(), Trans, TClauses, TBody.get(), D->getLoc());
+      D->getTransformKind(), TClauses, TBody.get(), D->getLoc());
   return TDirective;
 }
 
