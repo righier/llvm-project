@@ -179,17 +179,17 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
                                       bool RestrictDomain) {
   isl::union_map Result = isl::union_map::empty(USet.get_space());
   for (isl::set Set : USet.get_set_list()) {
-	auto IdentityMap = makeIdentityMap(Set, RestrictDomain);
+    auto IdentityMap = makeIdentityMap(Set, RestrictDomain);
     Result = Result.add_map(IdentityMap);
   }
   return Result;
 }
 
 isl::map polly::makeIdentityMap(const isl::set &Set, bool RestrictDomain) {
-	isl::map IdentityMap = isl::map::identity(Set.get_space().map_from_set());
-	if (RestrictDomain)
-		IdentityMap = IdentityMap.intersect_domain(Set);
-	return IdentityMap;
+  isl::map IdentityMap = isl::map::identity(Set.get_space().map_from_set());
+  if (RestrictDomain)
+    IdentityMap = IdentityMap.intersect_domain(Set);
+  return IdentityMap;
 }
 
 isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
@@ -245,13 +245,16 @@ isl::map polly::castSpace(isl::map Orig, isl::space NewSpace) {
   }
 
   auto WrappedOrig = std::move(Orig).wrap();
-  auto Identitiy = isl::map::identity(WrappedOrig.get_space().map_from_domain_and_range(std::move(NewSpace).wrap()));
+  auto Identitiy =
+      isl::map::identity(WrappedOrig.get_space().map_from_domain_and_range(
+          std::move(NewSpace).wrap()));
   return std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
 }
 
 isl::map castRangeSpace(isl::map Orig, isl::space NewRangeSpace) {
-	auto RangeIdentity = isl::map::identity(Orig.get_space().range().map_from_domain_and_range(NewRangeSpace));
-	return std::move(Orig).apply_range(std::move(RangeIdentity));
+  auto RangeIdentity = isl::map::identity(
+      Orig.get_space().range().map_from_domain_and_range(NewRangeSpace));
+  return std::move(Orig).apply_range(std::move(RangeIdentity));
 }
 
 isl::map polly::reverseDomain(isl::map Map) {
@@ -810,65 +813,69 @@ isl::map polly::rebuildNesting(
   return Result.unwrap();
 }
 
+static SpaceRef *
+makeSpaceRef(const TupleNest &Nest, isl::space Model,
+             llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
+  if (Model.is_map()) {
+    auto Domain = makeSpaceRef(Nest, Model.domain(), ToFree);
+    auto Range = makeSpaceRef(Nest, Model.range(), ToFree);
+    auto Result = new SpaceRef(*Domain, *Range);
+    ToFree.emplace_back(Result);
+    return Result;
+  }
 
-static SpaceRef * makeSpaceRef(const TupleNest &Nest, isl::space Model, llvm::SmallVectorImpl<std::unique_ptr <SpaceRef >>& ToFree) {
-	if (Model.is_map()) {
-		auto Domain = makeSpaceRef(Nest, Model.domain(), ToFree);
-		auto Range = makeSpaceRef(Nest, Model.range(), ToFree);
-		auto Result = new SpaceRef(*Domain,* Range);
-		ToFree.emplace_back(Result);
-		return Result;
-	}
+  if (Model.is_wrapping()) {
+    auto Unwrapped = Model.unwrap();
+    return makeSpaceRef(Nest, Unwrapped, ToFree);
+  }
 
-	if (Model.is_wrapping()) {
-		auto Unwrapped = Model.unwrap();
-		return makeSpaceRef(Nest, Unwrapped, ToFree );
-	}
-
-	auto Result = new SpaceRef( Nest[ Model.get_tuple_name(isl::dim::set) ]);
-	ToFree.emplace_back(Result);
-	return Result;
+  auto Result = new SpaceRef(Nest[Model.get_tuple_name(isl::dim::set)]);
+  ToFree.emplace_back(Result);
+  return Result;
 }
 
-static SpaceRef * makeSpaceRef(const TupleNest &Nest, StringRef  ModelStr, llvm::SmallVectorImpl<std::unique_ptr <SpaceRef >>& ToFree) {
-	auto Ctx = Nest.Ref.get_ctx();
-	auto Model = isl::set(Ctx, ModelStr).get_space();
-	return makeSpaceRef(Nest, ModelStr, ToFree);
+static SpaceRef *
+makeSpaceRef(const TupleNest &Nest, StringRef ModelStr,
+             llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
+  auto Ctx = Nest.Ref.get_ctx();
+  auto Model = isl::set(Ctx, ModelStr).get_space();
+  return makeSpaceRef(Nest, ModelStr, ToFree);
 }
 
-isl::set polly::rebuildSetNesting(const TupleNest &Nest, llvm::StringRef NewModelStr) {
-	auto Ctx = Nest.Ref.get_ctx();
-	auto NewModel = isl::set(Ctx, NewModelStr).get_space();
-	assert(NewModel.is_set());
+isl::set polly::rebuildSetNesting(const TupleNest &Nest,
+                                  llvm::StringRef NewModelStr) {
+  auto Ctx = Nest.Ref.get_ctx();
+  auto NewModel = isl::set(Ctx, NewModelStr).get_space();
+  assert(NewModel.is_set());
 
-	SmallVector<std::unique_ptr <SpaceRef >, 16> ToFree;
-	auto Ref = makeSpaceRef(Nest, NewModel, ToFree);
-	return rebuildNesting({},* Ref);
+  SmallVector<std::unique_ptr<SpaceRef>, 16> ToFree;
+  auto Ref = makeSpaceRef(Nest, NewModel, ToFree);
+  return rebuildNesting({}, *Ref);
 }
 
+isl::map polly::rebuildMapNesting(const TupleNest &Nest,
+                                  llvm::StringRef NewModelStr) {
+  auto Ctx = Nest.Ref.get_ctx();
+  auto NewModel = isl::map(Ctx, NewModelStr).get_space();
+  assert(NewModel.is_map());
 
-isl::map polly::rebuildMapNesting(const TupleNest &Nest, llvm::StringRef NewModelStr) {
-	auto Ctx = Nest.Ref.get_ctx();
-	auto NewModel = isl::map(Ctx, NewModelStr).get_space();
-	assert(NewModel.is_map());
-
-	SmallVector<std::unique_ptr <SpaceRef >, 16> ToFree;
-	auto Ref = makeSpaceRef(Nest, NewModel, ToFree);
-	assert(Ref->Domain);
-	assert(Ref->Range);
-	return rebuildNesting({},*Ref->Domain, *Ref->Range);
+  SmallVector<std::unique_ptr<SpaceRef>, 16> ToFree;
+  auto Ref = makeSpaceRef(Nest, NewModel, ToFree);
+  assert(Ref->Domain);
+  assert(Ref->Range);
+  return rebuildNesting({}, *Ref->Domain, *Ref->Range);
 }
 
-
-isl::set polly::rebuildNesting(isl::set Set, llvm::StringRef ModelStr, llvm::StringRef NewModelStr) {
-	TupleNest Nest(Set, ModelStr);
-	return rebuildSetNesting(Nest, NewModelStr);
+isl::set polly::rebuildNesting(isl::set Set, llvm::StringRef ModelStr,
+                               llvm::StringRef NewModelStr) {
+  TupleNest Nest(Set, ModelStr);
+  return rebuildSetNesting(Nest, NewModelStr);
 }
 
-
-isl::map polly::rebuildNesting(isl::map Map, llvm::StringRef ModelStr, llvm::StringRef NewModelStr) {
-	TupleNest Nest(Map, ModelStr);
-	return rebuildMapNesting(Nest, NewModelStr);
+isl::map polly::rebuildNesting(isl::map Map, llvm::StringRef ModelStr,
+                               llvm::StringRef NewModelStr) {
+  TupleNest Nest(Map, ModelStr);
+  return rebuildMapNesting(Nest, NewModelStr);
 }
 
 isl::basic_map polly::isolateDim(isl::basic_map BMap, int Pos) {
@@ -1317,8 +1324,8 @@ LLVM_DUMP_METHOD void polly::dumpExpanded(__isl_keep isl_union_map *UMap) {
   dumpExpanded(isl::manage_copy(UMap));
 }
 
-void polly:: printSorted(const isl::map &Map, llvm::raw_ostream &OS) {
-	printSortedPolyhedra(Map.wrap(), OS, true, true);
+void polly::printSorted(const isl::map &Map, llvm::raw_ostream &OS) {
+  printSortedPolyhedra(Map.wrap(), OS, true, true);
 }
 
 #endif

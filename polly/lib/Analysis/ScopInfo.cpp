@@ -919,33 +919,36 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, AccessType AccType, isl::map AccRel)
   Id = isl::id::alloc(Stmt->getParent()->getIslCtx(), IdName, this);
 }
 
-MemoryAccess:: MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
-	this->Statement = Parent;
-	auto IdName = AccToClone->getId().get_name() + "_clone";
+MemoryAccess::MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
+  this->Statement = Parent;
+  auto IdName = AccToClone->getId().get_name() + "_clone";
 
-	this->Id = isl::id::alloc(Parent->getParent()->getIslCtx(), IdName, this);
-	this->Kind = AccToClone->Kind;
-	this->AccType = AccToClone->getType();
-	this->RedType = AccToClone->RedType;
-	
-	this->InvalidDomain = AccToClone->getInvalidDomain();
-	this->BaseAddr = AccToClone->BaseAddr;
-	this->ElementType = AccToClone->getElementType();
-	this->Sizes = AccToClone->Sizes;
-	this->AccessInstruction = AccToClone->getAccessInstruction();
-	this->Incoming = AccToClone->Incoming;
-	this->AccessValue = AccToClone->AccessValue;
-	this->IsAffine = AccToClone->IsAffine;
-	this->Subscripts = AccToClone->Subscripts;
-	this->FAD = AccToClone->FAD;
+  this->Id = isl::id::alloc(Parent->getParent()->getIslCtx(), IdName, this);
+  this->Kind = AccToClone->Kind;
+  this->AccType = AccToClone->getType();
+  this->RedType = AccToClone->RedType;
 
-	// TODO: As a clone, the AccessRelation has never been updated. Might set only (Original)AccessRelation, or both to the same relation.
-	this->AccessRelation = AccToClone->AccessRelation;
-	this->AccessRelation = this->AccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
+  this->InvalidDomain = AccToClone->getInvalidDomain();
+  this->BaseAddr = AccToClone->BaseAddr;
+  this->ElementType = AccToClone->getElementType();
+  this->Sizes = AccToClone->Sizes;
+  this->AccessInstruction = AccToClone->getAccessInstruction();
+  this->Incoming = AccToClone->Incoming;
+  this->AccessValue = AccToClone->AccessValue;
+  this->IsAffine = AccToClone->IsAffine;
+  this->Subscripts = AccToClone->Subscripts;
+  this->FAD = AccToClone->FAD;
 
-	this->NewAccessRelation = AccToClone->NewAccessRelation;
-	if (this->NewAccessRelation)
-	this->NewAccessRelation = this->NewAccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
+  // TODO: As a clone, the AccessRelation has never been updated. Might set only
+  // (Original)AccessRelation, or both to the same relation.
+  this->AccessRelation = AccToClone->AccessRelation;
+  this->AccessRelation =
+      this->AccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
+
+  this->NewAccessRelation = AccToClone->NewAccessRelation;
+  if (this->NewAccessRelation)
+    this->NewAccessRelation = this->NewAccessRelation.set_tuple_id(
+        isl::dim::in, Parent->getDomainId());
 }
 
 MemoryAccess::~MemoryAccess() = default;
@@ -1217,16 +1220,18 @@ void ScopStmt::realignParams() {
 ScopStmt::ScopStmt(Scop &parent, Region &R, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> EntryBlockInstructions)
-    : Parent(parent),  R(&R),  BaseName(Name), SurroundingLoop(SurroundingLoop), Instructions(EntryBlockInstructions) {}
+    : Parent(parent), R(&R), BaseName(Name), SurroundingLoop(SurroundingLoop),
+      Instructions(EntryBlockInstructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> Instructions)
-    : Parent(parent),  BB(&bb),  BaseName(Name), SurroundingLoop(SurroundingLoop), Instructions(Instructions) {}
+    : Parent(parent), BB(&bb), BaseName(Name), SurroundingLoop(SurroundingLoop),
+      Instructions(Instructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
                    isl::set NewDomain)
-    : Parent(parent),  Domain(NewDomain){
+    : Parent(parent), Domain(NewDomain) {
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   isl::id Id = isl::id::alloc(getIslCtx(), getBaseName(), this);
@@ -1242,33 +1247,32 @@ ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
   addAccess(Access);
 }
 
+ScopStmt::ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain)
+    : Parent(parent) {
+  auto Ctx = parent.getIslCtx();
 
-ScopStmt:: ScopStmt(Scop &parent, ScopStmt * StmtToClone, isl::set Domain) : Parent(parent) {
-	auto Ctx = parent.getIslCtx();
+  this->BB = StmtToClone->getBasicBlock();
+  this->R = StmtToClone->getRegion();
+  this->SurroundingLoop = StmtToClone->getSurroundingLoop();
+  this->Instructions = StmtToClone->getInstructions();
+  this->BaseName = (Twine(StmtToClone->getBaseName()) + Twine("_clone")).str();
+  this->Build = StmtToClone->getAstBuild();
+  this->NestLoops = StmtToClone->NestLoops;
 
-	this->BB = StmtToClone->getBasicBlock();
-	this->R = StmtToClone->getRegion();
-	this->SurroundingLoop = StmtToClone->getSurroundingLoop();
-	this->Instructions = StmtToClone->getInstructions();
-	this->BaseName = (Twine(StmtToClone->getBaseName()) + Twine("_clone")).str();
-	this->Build = StmtToClone->getAstBuild();
-	this->NestLoops = StmtToClone->NestLoops;
+  auto NewId = isl::id::alloc(Ctx, BaseName, this);
+  Domain = Domain.project_out(isl::dim::set, 0, 0).set_tuple_id(NewId);
+  this->Domain = Domain;
+  this->InvalidDomain = StmtToClone->getInvalidDomain()
+                            .project_out(isl::dim::set, 0, 0)
+                            .set_tuple_id(NewId);
 
-	auto NewId = isl::id::alloc(Ctx, BaseName, this);
-	Domain = Domain.project_out(isl::dim::set, 0,0). set_tuple_id(NewId);
-	this->Domain = Domain;
-	this->InvalidDomain = StmtToClone->getInvalidDomain().project_out(isl::dim::set, 0,0). set_tuple_id(NewId);
-	
-
-	for (auto MA : *StmtToClone) {
-		auto NewMA = new MemoryAccess(this, MA);
-		Parent.addAccessFunction(NewMA, /*IsPrimary=*/ false);
-		addAccess(NewMA);
-	}
-	// this->InstructionToAccess
+  for (auto MA : *StmtToClone) {
+    auto NewMA = new MemoryAccess(this, MA);
+    Parent.addAccessFunction(NewMA, /*IsPrimary=*/false);
+    addAccess(NewMA);
+  }
+  // this->InstructionToAccess
 }
-
-
 
 ScopStmt::~ScopStmt() = default;
 
@@ -2490,15 +2494,15 @@ void Scop::addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
   }
 }
 
+ScopStmt *Scop::addClonedStmt(ScopStmt *StmtToClone, isl::set Domain) {
+  assert(StmtToClone);
+  assert(Domain);
+  assert(StmtToClone->isBlockStmt() &&
+         "cloning other statements not supported yet");
 
-ScopStmt* Scop:: addClonedStmt(ScopStmt * StmtToClone, isl::set Domain) {
-	assert(StmtToClone);
-	assert(Domain);
-	assert(StmtToClone->isBlockStmt() && "cloning other statements not supported yet");
+  Stmts.emplace_back(*this, StmtToClone, Domain);
+  return &Stmts.back();
 
-	Stmts.emplace_back(*this, StmtToClone, Domain);
-	return &Stmts.back();
-	
 #if 0
 	auto *Stmt = &Stmts.back();
 	StmtMap[BB].push_back(Stmt);

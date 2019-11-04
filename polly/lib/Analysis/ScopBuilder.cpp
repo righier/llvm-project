@@ -1276,7 +1276,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   // completed by this node.
   size_t Dimension = LoopStack.size();
   while (LoopData->L &&
-    LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
+         LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
     isl::schedule Schedule = LoopData->Schedule;
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
@@ -1294,9 +1294,9 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
       auto IslLoopId = getIslLoopAttr(scop->getIslCtx(), L);
       if (IslLoopId)
         Schedule = Schedule.get_root()
-        .get_child(0)
-        .insert_mark(IslLoopId)
-        .get_schedule();
+                       .get_child(0)
+                       .insert_mark(IslLoopId)
+                       .get_schedule();
 
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
     }

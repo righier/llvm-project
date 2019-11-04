@@ -1158,7 +1158,8 @@ class ScopStmt {
 
 public:
   /// Create the ScopStmt from a BasicBlock.
-  ScopStmt(Scop &parent, BasicBlock &bb, StringRef Name, Loop *SurroundingLoop, std::vector<Instruction *> Instructions);
+  ScopStmt(Scop &parent, BasicBlock &bb, StringRef Name, Loop *SurroundingLoop,
+           std::vector<Instruction *> Instructions);
 
   /// Create an overapproximating ScopStmt for the region @p R.
   ///
@@ -1168,7 +1169,8 @@ public:
   ///                               blocks for now. We currently do not allow
   ///                               to modify the instructions of blocks later
   ///                               in the region statement.
-  ScopStmt(Scop &parent, Region &R, StringRef Name, Loop *SurroundingLoop, std::vector<Instruction *> EntryBlockInstructions);
+  ScopStmt(Scop &parent, Region &R, StringRef Name, Loop *SurroundingLoop,
+           std::vector<Instruction *> EntryBlockInstructions);
 
   /// Create a copy statement.
   ///
@@ -1177,10 +1179,11 @@ public:
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would
   ///                   be executed.
-  ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel, isl::set Domain);
+  ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
+           isl::set Domain);
 
   // Clone a statement with a new domain.
-  explicit ScopStmt(Scop &parent, ScopStmt * StmtToClone, isl::set Domain);
+  explicit ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain);
 
   ScopStmt(const ScopStmt &) = delete;
   const ScopStmt &operator=(const ScopStmt &) = delete;
@@ -1293,9 +1296,7 @@ public:
   /// @return The iteration domain of this ScopStmt.
   isl::set getDomain() const;
 
-  void setDomain(isl::set Domain ) {
-	  this->Domain = Domain;
-  }
+  void setDomain(isl::set Domain) { this->Domain = Domain; }
 
   /// Get the space of the iteration domain
   ///
@@ -2004,10 +2005,10 @@ private:
   void addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
                    std::vector<Instruction *> EntryBlockInstructions);
 
-  public:
-  ScopStmt*  addClonedStmt(ScopStmt * StmtToClone, isl::set Domain);
-  private:
+public:
+  ScopStmt *addClonedStmt(ScopStmt *StmtToClone, isl::set Domain);
 
+private:
   /// Remove statements from the list of scop statements.
   ///
   /// @param ShouldDelete  A function that returns true if the statement passed
@@ -2077,8 +2078,8 @@ public:
   void addAccessFunction(MemoryAccess *Access, bool IsPrimary = true) {
     AccessFunctions.emplace_back(Access);
 
-	if (!IsPrimary)
-		return;
+    if (!IsPrimary)
+      return;
 
     // Register value definitions.
     if (Access->isWrite() && Access->isOriginalValueKind()) {

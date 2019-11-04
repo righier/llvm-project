@@ -512,15 +512,17 @@ struct TupleInfo {
 
 struct SpaceRef {
   isl::space Space;
-  //std::unique_ptr<  SpaceRef > Domain;
-  //std::unique_ptr< SpaceRef > Range;
-const SpaceRef*  Domain = nullptr, *Range = nullptr;
+  // std::unique_ptr<  SpaceRef > Domain;
+  // std::unique_ptr< SpaceRef > Range;
+  const SpaceRef *Domain = nullptr, *Range = nullptr;
   const TupleInfo *Tuple = nullptr;
 
   // SpaceRef(){}
   SpaceRef(isl::space Space) : Space(Space) { assert(Space.is_set()); }
- // SpaceRef(const SpaceRef &Domain, const SpaceRef &Range) : Domain(new SpaceRef( Domain)), Range(new SpaceRef( Range)) {}
-  SpaceRef(const SpaceRef &Domain, const SpaceRef &Range) : Domain(&Domain), Range(&Range) {}
+  // SpaceRef(const SpaceRef &Domain, const SpaceRef &Range) : Domain(new
+  // SpaceRef( Domain)), Range(new SpaceRef( Range)) {}
+  SpaceRef(const SpaceRef &Domain, const SpaceRef &Range)
+      : Domain(&Domain), Range(&Range) {}
   SpaceRef(const TupleInfo &Tuple) : Tuple(&Tuple) {}
 
 #if 0
@@ -533,14 +535,13 @@ const SpaceRef*  Domain = nullptr, *Range = nullptr;
 #endif
 };
 
-
 struct TupleNest {
   isl::set Ref;
   llvm::StringMap<TupleInfo> Tuples;
 
   const TupleInfo &operator[](llvm::StringRef Name) const {
-	  assert(Tuples.count(Name) );
-	  return  const_cast<TupleNest*>(this)-> Tuples[ Name];
+    assert(Tuples.count(Name));
+    return const_cast<TupleNest *>(this)->Tuples[Name];
   }
 
   TupleNest(isl::set Ref, llvm::StringRef ModelStr);
@@ -548,20 +549,23 @@ struct TupleNest {
   // TODO: union_map/union_set
 };
 
-
 isl::set
-rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>> Intersections, const SpaceRef &NewNesting);
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &NewNesting);
 
 isl::map
-rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>> Intersections, const SpaceRef &Domain, const SpaceRef &Range);
-
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &Domain, const SpaceRef &Range);
 
 isl::set rebuildSetNesting(const TupleNest &Nest, llvm::StringRef NewModelStr);
 isl::map rebuildMapNesting(const TupleNest &Nest, llvm::StringRef NewModelStr);
 
-isl::set rebuildNesting(isl::set Set, llvm::StringRef ModelStr, llvm::StringRef NewModelStr);
-isl::map rebuildNesting(isl::map Map, llvm::StringRef ModelStr, llvm::StringRef NewModelStr);
-
+isl::set rebuildNesting(isl::set Set, llvm::StringRef ModelStr,
+                        llvm::StringRef NewModelStr);
+isl::map rebuildNesting(isl::map Map, llvm::StringRef ModelStr,
+                        llvm::StringRef NewModelStr);
 
 /// @param { Domain[] -> Range[...,Pos,...] }
 /// @param { Domain[] -> [Pos] }
