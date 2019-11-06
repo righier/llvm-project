@@ -21,7 +21,7 @@ TransformExecutableDirective *TransformExecutableDirective::create(
     ASTContext &Ctx, SourceRange Range, Stmt *Associated,
     ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind) {
   void *Mem = Ctx.Allocate(totalSizeToAlloc<TransformClause *>(Clauses.size()));
-  return new (Mem) TransformExecutableDirective(Range, Associated,                                                Clauses, TransKind);
+  return new (Mem) TransformExecutableDirective(Range, Associated, Clauses, TransKind);
 }
 
 TransformExecutableDirective *
@@ -68,6 +68,21 @@ TransformClause ::getClauseKind(Transform::Kind TransformKind,
 #include "clang/AST/TransformClauseKinds.def"
   return TransformClause::UnknownKind;
 }
+
+
+ llvm::StringRef
+   TransformClause ::getClauseKeyword(TransformClause::Kind ClauseKind) {
+     assert(ClauseKind > UnknownKind);
+  assert(ClauseKind <= LastKind);
+   static const char* ClauseKeyword[LastKind] = {
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+   # Keyword ,
+#include "clang/AST/TransformClauseKinds.def"
+       
+  };
+   return ClauseKeyword[ClauseKind-1];
+ }
+
 
 TransformClause ::child_range TransformClause ::children() {
   switch (getKind()) {

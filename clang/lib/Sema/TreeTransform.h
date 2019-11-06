@@ -347,44 +347,44 @@ public:
   TransformClause *TransformTransformClause(TransformClause *S);
 
   TransformClause *TransformFullClause(FullClause *C) {
-    return RebuildFullClause(C->getLoc());
+    return RebuildFullClause(C->getRange());
   }
 
-  TransformClause *RebuildFullClause(SourceRange Loc) {
-    return getSema().ActOnFullClause(Loc);
+  TransformClause *RebuildFullClause(SourceRange Range) {
+    return getSema().ActOnFullClause(Range);
   }
 
   TransformClause *TransformPartialClause(PartialClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getFactor());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildPartialClause(C->getLoc(), E.get());
+    return getDerived().RebuildPartialClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildPartialClause(SourceRange Loc, Expr *Factor) {
-    return getSema().ActOnPartialClause(Loc, Factor);
+  TransformClause *RebuildPartialClause(SourceRange Range, Expr *Factor) {
+    return getSema().ActOnPartialClause(Range, Factor);
   }
 
   TransformClause *TransformWidthClause(WidthClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getWidth());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildWidthClause(C->getLoc(), E.get());
+    return getDerived().RebuildWidthClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildWidthClause(SourceRange Loc, Expr *Width) {
-    return getSema().ActOnWidthClause(Loc, Width);
+  TransformClause *RebuildWidthClause(SourceRange Range, Expr *Width) {
+    return getSema().ActOnWidthClause(Range, Width);
   }
 
   TransformClause *TransformFactorClause(FactorClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getFactor());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildFactorClause(C->getLoc(), E.get());
+    return getDerived().RebuildFactorClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildFactorClause(SourceRange Loc, Expr *Factor) {
-    return getSema().ActOnFactorClause(Loc, Factor);
+  TransformClause *RebuildFactorClause(SourceRange Range, Expr *Factor) {
+    return getSema().ActOnFactorClause(Range, Factor);
   }
 
   /// Transform the given statement.
@@ -7952,7 +7952,7 @@ StmtResult TreeTransform<Derived>::TransformTransformExecutableDirective(
   assert(TBody.isUsable());
 
   StmtResult TDirective = getDerived().RebuildTransformExecutableDirective(
-      D->getTransformKind(), TClauses, TBody.get(), D->getLoc());
+      D->getTransformKind(), TClauses, TBody.get(), D->getRange());
   return TDirective;
 }
 

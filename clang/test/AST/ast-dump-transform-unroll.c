@@ -6,9 +6,8 @@ void unroll_full(int n) {
     ;
 }
 
-// CHECK: FunctionDecl {{.*}} unroll_full
+// CHECK-LABEL: FunctionDecl {{.*}} unroll_full
 // CHECK: TransformExecutableDirective
-// CHECK-NEXT: LoopUnrollingTransform
 // CHECK-NEXT: FullClause
 // CHECK-NEXT: ForStmt
 
@@ -21,7 +20,6 @@ void unroll_partial(int n) {
 
 // CHECK-LABEL: FunctionDecl {{.*}} unroll_partial
 // CHECK: TransformExecutableDirective
-// CHECK-NEXT: LoopUnrollingTransform
 // CHECK-NEXT: PartialClause
 // CHECK-NEXT:   IntegerLiteral
 // CHECK-NEXT: ForStmt

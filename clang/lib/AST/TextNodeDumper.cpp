@@ -322,8 +322,13 @@ void TextNodeDumper::Visit(const OMPClause *C) {
 
 void TextNodeDumper::VisitTransformExecutableDirective(
     const TransformExecutableDirective *S) {
+#if 0
   if (S)
-    AddChild([=] { Visit(S->getTransform()); });
+    AddChild([=] { 
+      for (TransformClause *C : S->clauses())
+  Visit( C);
+      });
+#endif
 }
 
 void TextNodeDumper::Visit(const TransformClause *C) {
@@ -338,23 +343,7 @@ void TextNodeDumper::Visit(const TransformClause *C) {
     OS << ClauseName << "Clause";
   }
   dumpPointer(C);
-  dumpSourceRange(C->getLoc());
-}
-
-void TextNodeDumper::Visit(const Transform *T) {
-  if (!T) {
-    ColorScope Color(OS, ShowColors, NullColor);
-    OS << "<<<NULL>>> Transform";
-    return;
-  }
-  {
-    ColorScope Color(OS, ShowColors, AttrColor);
-    StringRef TransformName =
-        Transform::getTransformDirectiveName(T->getKind());
-    OS << TransformName << "Transform";
-  }
-  dumpPointer(T);
-  dumpSourceRange(T->getLoc());
+  dumpSourceRange(C->getRange());
 }
 
 void TextNodeDumper::Visit(const GenericSelectionExpr::ConstAssociation &A) {

@@ -2014,7 +2014,7 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 void ASTStmtReader::VisitTransformExecutableDirective(
     TransformExecutableDirective *D) {
   VisitStmt(D);
-  D->setLoc(ReadSourceRange());
+  D->setRange(ReadSourceRange());
   uint64_t NumClauses = Record.readInt();
   SmallVector<TransformClause *, 8> Clauses;
   for (uint64_t i = 0; i < NumClauses; ++i) {

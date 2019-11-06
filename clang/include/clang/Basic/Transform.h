@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_AST_TRANSFORM_H
-#define LLVM_CLANG_AST_TRANSFORM_H
+#ifndef LLVM_CLANG_BASIC_TRANSFORM_H
+#define LLVM_CLANG_BASIC_TRANSFORM_H
 
 #include "clang/AST/Stmt.h"
 #include "llvm/ADT/StringRef.h"
@@ -36,26 +36,25 @@ public:
 
 private:
   Kind TransformKind;
-  SourceRange Loc;
+  SourceRange LocRange;
   bool IsLegacy;
 
 public:
-  Transform(Kind K, SourceRange Loc, bool IsLegacy)
-      : TransformKind(K), Loc(Loc), IsLegacy(IsLegacy) {}
+  Transform(Kind K, SourceRange LocRange, bool IsLegacy)
+      : TransformKind(K), LocRange(LocRange), IsLegacy(IsLegacy) {}
 
   Kind getKind() const { return TransformKind; }
   static bool classof(const Transform *Trans) { return true; }
 
   /// Source location of the code transformation directive.
   /// @{
-  SourceRange getLoc() const { return Loc; }
-  SourceLocation getBeginLoc() const { return Loc.getBegin(); }
-  SourceLocation getEndLoc() const { return Loc.getEnd(); }
-
-  void setLoc(SourceLocation BeginLoc, SourceLocation EndLoc) {
-    Loc = SourceRange(BeginLoc, EndLoc);
+  SourceRange getRange() const { return LocRange; }
+  SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
+  SourceLocation getEndLoc() const { return LocRange.getEnd(); }
+  void setRange(SourceRange L) { LocRange = L; }
+  void setRange(SourceLocation BeginLoc, SourceLocation EndLoc) {
+    LocRange = SourceRange(BeginLoc, EndLoc);
   }
-  void setLoc(SourceRange L) { Loc = L; }
   /// @}
 
   /// Non-legacy directives originate from a #pragma clang transform directive.
@@ -433,4 +432,4 @@ public:
 };
 
 } // namespace clang
-#endif /* LLVM_CLANG_AST_TRANSFORM_H */
+#endif /* LLVM_CLANG_BASIC_TRANSFORM_H */

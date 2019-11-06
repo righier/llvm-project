@@ -10072,29 +10072,27 @@ def err_bit_cast_type_size_mismatch : Error<
   "__builtin_bit_cast source size does not equal destination size (%0 vs %1)">;
 
 // Pragma transform support.
+def err_sema_transform_expected_loop : Error<
+  "cannot find loop to transform">;
+def err_sema_transform_unroll_full_or_partial : Error<
+  "the full and partial clauses are mutually exclusive">;
 def err_sema_transform_unrollandjam_expect_nested_loop : Error<
   "unroll-and-jam requires exactly one nested loop">;
 def err_sema_transform_unrollandjam_not_innermost : Error<
   "inner loop of unroll-and-jam is not the innermost">;
 def err_sema_transform_missing_loop : Error<
   "transformation did not find its loop to transform; it might have been consumed by another transformations">;
-def err_sema_transform_unroll_full_or_partial : Error<
-  "unroll full/partial clauses specified multiple times">;
-def err_sema_transform_unroll_factor_expect_int : Error<
-  "unroll partial clause expects an int">;
-def err_sema_transform_unroll_partial_once : Error<
-  "unroll-and-jam partial clause can only be used once">;
-def err_sema_transform_vectorize_width_once : Error<
-  "vectorize width clause can only be used once">;
-def err_sema_transform_interleave_factor_once : Error<
-  "interleave factor clause can only be used once">;
-def err_sema_transform_expected_loop : Error<
-  "cannot find loop to transform">;
-def err_sema_transform_unroll_partial_ge_two : Error<
-  "unroll factor must be at least two">;
-  def err_sema_transform_interleave_factor_ge_two : Error<
-  "interleave factor must be at least two">;
+def err_sema_transform_clause_one_max : Error<
+  "the %0 clause can be specified at most once">;
+def err_sema_transform_clause_arg_expect_int : Error<
+  "clause expects an integer argument">;
+def err_sema_transform_clause_arg_min_val : Error<
+  "clause argument must me at least %0">;
+def err_sema_transform_legacy_mix : Error<
+  "Cannot combine #pragma clang transform with other transformations">;
+
 def warn_sema_transform_pass_order : Warning<
-  "the LLVM pass structure currently is not able to apply the transformations in this order">, InGroup<ClangTransform>;
+  "the LLVM pass structure currently is not able to apply the transformations in this order">,
+  InGroup<ClangTransform>;
 
 } // end of sema component.

@@ -13,6 +13,7 @@
 #ifndef LLVM_CLANG_SEMA_SEMATRANSFORM_H
 #define LLVM_CLANG_SEMA_SEMATRANSFORM_H
 
+#include "clang/Analysis/TransformedTree.h"
 #include "clang/Analysis/AnalysisTransform.h"
 #include "clang/Sema/Sema.h"
 
@@ -29,8 +30,8 @@ class SemaTransformedTree : public TransformedTree<SemaTransformedTree> {
 
 public:
   SemaTransformedTree(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
-                      clang::Stmt *Original, int FollowupRole, int Stage)
-      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole, Stage) {}
+                      clang::Stmt *Original, int FollowupRole)
+      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole) {}
 };
 
 class SemaTransformedTreeBuilder
@@ -42,9 +43,9 @@ class SemaTransformedTreeBuilder
 
 public:
   SemaTransformedTreeBuilder(ASTContext &ASTCtx,
-                             llvm::SmallVectorImpl<NodeTy *> &AllNodes,
+                             llvm::SmallVectorImpl<NodeTy *> &AllNodes,   llvm::SmallVectorImpl<Transform *> &AllTransforms,
                              Sema &Sem)
-      : TransformedTreeBuilder(ASTCtx, AllNodes), Sem(Sem) {}
+      : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms), Sem(Sem) {}
 
   auto Diag(SourceLocation Loc, unsigned DiagID) {
     return Sem.Diag(Loc, DiagID);
