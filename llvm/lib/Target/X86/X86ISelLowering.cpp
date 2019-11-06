@@ -87,7 +87,7 @@ static cl::opt<bool> MulConstantOptimization(
     cl::Hidden);
 
 static cl::opt<bool> ExperimentalUnorderedISEL(
-    "x86-experimental-unordered-atomic-isel", cl::init(true),
+    "x86-experimental-unordered-atomic-isel", cl::init(false),
     cl::desc("Use LoadSDNode and StoreSDNode instead of "
              "AtomicSDNode for unordered atomic loads and "
              "stores respectively."),
@@ -19035,7 +19035,7 @@ static SDValue LowerAVXExtend(SDValue Op, SelectionDAG &DAG,
   assert(VT.isVector() && InVT.isVector() && "Expected vector type");
   assert((Opc == ISD::ANY_EXTEND || Opc == ISD::ZERO_EXTEND) &&
          "Unexpected extension opcode");
-  assert(VT.getVectorNumElements() == VT.getVectorNumElements() &&
+  assert(VT.getVectorNumElements() == InVT.getVectorNumElements() &&
          "Expected same number of elements");
   assert((VT.getVectorElementType() == MVT::i16 ||
           VT.getVectorElementType() == MVT::i32 ||
@@ -21722,7 +21722,7 @@ static SDValue LowerSIGN_EXTEND(SDValue Op, const X86Subtarget &Subtarget,
     return LowerSIGN_EXTEND_Mask(Op, Subtarget, DAG);
 
   assert(VT.isVector() && InVT.isVector() && "Expected vector type");
-  assert(VT.getVectorNumElements() == VT.getVectorNumElements() &&
+  assert(VT.getVectorNumElements() == InVT.getVectorNumElements() &&
          "Expected same number of elements");
   assert((VT.getVectorElementType() == MVT::i16 ||
           VT.getVectorElementType() == MVT::i32 ||
@@ -21776,12 +21776,14 @@ static SDValue splitVectorStore(StoreSDNode *Store, SelectionDAG &DAG) {
          "Expecting 256/512-bit op");
 
   // Splitting volatile memory ops is not allowed unless the operation was not
-  // legal to begin with. We are assuming the input op is legal (this transform
-  // is only used for targets with AVX).
+  // legal to begin with. Assume the input store is legal (this transform is
+  // only used for targets with AVX). Note: It is possible that we have an
+  // illegal type like v2i128, and so we could allow splitting a volatile store
+  // in that case if that is important.
   if (!Store->isSimple())
     return SDValue();
 
-  MVT StoreVT = StoredVal.getSimpleValueType();
+  EVT StoreVT = StoredVal.getValueType();
   unsigned NumElems = StoreVT.getVectorNumElements();
   unsigned HalfSize = StoredVal.getValueSizeInBits() / 2;
   unsigned HalfAlign = (128 == HalfSize ? 16 : 32);
@@ -23634,9 +23636,12 @@ SDValue X86TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     SDValue ShAmt = Op.getOperand(2);
     // If the argument is a constant, convert it to a target constant.
     if (auto *C = dyn_cast<ConstantSDNode>(ShAmt)) {
-      ShAmt = DAG.getTargetConstant(C->getZExtValue(), DL, MVT::i32);
+      // Clamp out of bounds shift amounts since they will otherwise be masked
+      // to 8-bits which may make it no longer out of bounds.
+      unsigned ShiftAmount = C->getAPIntValue().getLimitedValue(255);
       return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, Op.getValueType(),
-                         Op.getOperand(0), Op.getOperand(1), ShAmt);
+                         Op.getOperand(0), Op.getOperand(1),
+                         DAG.getTargetConstant(ShiftAmount, DL, MVT::i32));
     }
 
     unsigned NewIntrinsic;
@@ -36916,7 +36921,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
         // the operands would cause it to handle comparisons between positive
         // and negative zero incorrectly.
         if (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS)) {
-          if (!DAG.getTarget().Options.UnsafeFPMath &&
+          if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
               !(DAG.isKnownNeverZeroFloat(LHS) ||
                 DAG.isKnownNeverZeroFloat(RHS)))
             break;
@@ -36927,7 +36932,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
       case ISD::SETOLE:
         // Converting this to a min would handle comparisons between positive
         // and negative zero incorrectly.
-        if (!DAG.getTarget().Options.UnsafeFPMath &&
+        if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
             !DAG.isKnownNeverZeroFloat(LHS) && !DAG.isKnownNeverZeroFloat(RHS))
           break;
         Opcode = X86ISD::FMIN;
@@ -36946,7 +36951,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
       case ISD::SETOGE:
         // Converting this to a max would handle comparisons between positive
         // and negative zero incorrectly.
-        if (!DAG.getTarget().Options.UnsafeFPMath &&
+        if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
             !DAG.isKnownNeverZeroFloat(LHS) && !DAG.isKnownNeverZeroFloat(RHS))
           break;
         Opcode = X86ISD::FMAX;
@@ -36956,7 +36961,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
         // the operands would cause it to handle comparisons between positive
         // and negative zero incorrectly.
         if (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS)) {
-          if (!DAG.getTarget().Options.UnsafeFPMath &&
+          if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
               !(DAG.isKnownNeverZeroFloat(LHS) ||
                 DAG.isKnownNeverZeroFloat(RHS)))
             break;
@@ -36984,7 +36989,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
         // Converting this to a min would handle comparisons between positive
         // and negative zero incorrectly, and swapping the operands would
         // cause it to handle NaNs incorrectly.
-        if (!DAG.getTarget().Options.UnsafeFPMath &&
+        if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
             !(DAG.isKnownNeverZeroFloat(LHS) ||
               DAG.isKnownNeverZeroFloat(RHS))) {
           if (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS))
@@ -36995,8 +37000,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
         break;
       case ISD::SETUGT:
         // Converting this to a min would handle NaNs incorrectly.
-        if (!DAG.getTarget().Options.UnsafeFPMath &&
-            (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS)))
+        if (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS))
           break;
         Opcode = X86ISD::FMIN;
         break;
@@ -37021,7 +37025,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
         // Converting this to a max would handle comparisons between positive
         // and negative zero incorrectly, and swapping the operands would
         // cause it to handle NaNs incorrectly.
-        if (!DAG.getTarget().Options.UnsafeFPMath &&
+        if (!DAG.getTarget().Options.NoSignedZerosFPMath &&
             !DAG.isKnownNeverZeroFloat(LHS) &&
             !DAG.isKnownNeverZeroFloat(RHS)) {
           if (!DAG.isKnownNeverNaN(LHS) || !DAG.isKnownNeverNaN(RHS))
@@ -41986,8 +41990,9 @@ static SDValue combineFOr(SDNode *N, SelectionDAG &DAG,
 static SDValue combineFMinFMax(SDNode *N, SelectionDAG &DAG) {
   assert(N->getOpcode() == X86ISD::FMIN || N->getOpcode() == X86ISD::FMAX);
 
-  // Only perform optimizations if UnsafeMath is used.
-  if (!DAG.getTarget().Options.UnsafeFPMath)
+  // FMIN/FMAX are commutative if no NaNs and no negative zeros are allowed.
+  if (!DAG.getTarget().Options.NoNaNsFPMath ||
+      !DAG.getTarget().Options.NoSignedZerosFPMath)
     return SDValue();
 
   // If we run in unsafe-math mode, then convert the FMAX and FMIN nodes
