@@ -17,31 +17,24 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/Analysis/AnalysisTransform.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "llvm/ADT/SmallVector.h"
-#include "clang/Analysis/AnalysisTransform.h"
-
-
 
 namespace clang {
 template <typename Derived, typename NodeTy> class TransformedTreeBuilder;
 
-
-  struct DefaultExtractTransform : ExtractTransform<DefaultExtractTransform> {
-  DefaultExtractTransform( ASTContext &ASTCtx,const TransformExecutableDirective*Directive) : ExtractTransform(ASTCtx, Directive) {  }
+struct DefaultExtractTransform : ExtractTransform<DefaultExtractTransform> {
+  DefaultExtractTransform(ASTContext &ASTCtx,
+                          const TransformExecutableDirective *Directive)
+      : ExtractTransform(ASTCtx, Directive) {}
 
   // Ignore any diagnostic and its arguments.
   struct DummyDiag {
-        template<typename T>
-      DummyDiag operator<<( const T &)const  {
-        return {};
-    }
+    template <typename T> DummyDiag operator<<(const T &) const { return {}; }
   };
-  DummyDiag Diag(SourceLocation Loc, unsigned DiagID) {
-    return {};
-  }
+  DummyDiag Diag(SourceLocation Loc, unsigned DiagID) { return {}; }
 };
-
 
 /// Represents an input of a code representation.
 /// Current can reference the input code only by the AST node, but in the future
@@ -142,16 +135,19 @@ public:
   Derived *getPrimaryInput() const { return PrimaryInput; }
   Transform *getTransformedBy() const { return TransformedBy; }
 
-  /// Return the transformation that generated this loop. Return nullptr if not the result of any transformation, i.e. it is an original loop.
-  Transform* getSourceTransformation() const {
-    assert(!BasedOn == isOriginal() && "Non-original loops must be based on some other loop");
+  /// Return the transformation that generated this loop. Return nullptr if not
+  /// the result of any transformation, i.e. it is an original loop.
+  Transform *getSourceTransformation() const {
+    assert(!BasedOn == isOriginal() &&
+           "Non-original loops must be based on some other loop");
     if (isOriginal())
       return nullptr;
 
     assert(BasedOn);
     assert(BasedOn->isTransformationInput());
-    Transform* Result = BasedOn->PrimaryInput->TransformedBy;
-    assert( Result && "Non-original loops must have a generating transformation");
+    Transform *Result = BasedOn->PrimaryInput->TransformedBy;
+    assert(Result &&
+           "Non-original loops must have a generating transformation");
     return Result;
   }
 
@@ -693,16 +689,19 @@ private:
 
     bool
     VisitTransformExecutableDirective(const TransformExecutableDirective *S) {
-      // This ExtractTransform does not emit any diagnostics. Diagnostics should have been emitted in Sema::ActOnTransformExecutableDirective.
-      DefaultExtractTransform ExtractTransform(Builder.ASTCtx,  S );
-   std::unique_ptr<   Transform> Trans = ExtractTransform.createTransform();
+      // This ExtractTransform does not emit any diagnostics. Diagnostics should
+      // have been emitted in Sema::ActOnTransformExecutableDirective.
+      DefaultExtractTransform ExtractTransform(Builder.ASTCtx, S);
+      std::unique_ptr<Transform> Trans = ExtractTransform.createTransform();
 
-      // We might not get a transform in non-instantiated templates or inconsistent clauses.
-   if (Trans) {
-     const Stmt* TheLoop = getAssociatedLoop(S->getAssociated());
-     Transforms.emplace_back(Trans.get(), TransformInput::createByStmt(TheLoop));
-     Builder.AllTransforms.push_back(Trans.release());
-   }
+      // We might not get a transform in non-instantiated templates or
+      // inconsistent clauses.
+      if (Trans) {
+        const Stmt *TheLoop = getAssociatedLoop(S->getAssociated());
+        Transforms.emplace_back(Trans.get(),
+                                TransformInput::createByStmt(TheLoop));
+        Builder.AllTransforms.push_back(Trans.release());
+      }
 
       return true;
     }
@@ -908,36 +907,38 @@ private:
     }
 
     void checkStageOrder(ArrayRef<NodeTy *> PrevLoops, Transform *NewTrans) {
-      for (NodeTy * PrevLoop : PrevLoops) {
-        // Cannot combine legacy disable pragmas (e.g. #pragma clang loop unroll(disable)) and new transformations (#pragma clang transform).
-        if ( !NewTrans->isLegacy( ) && PrevLoop->HasLegacyDisable ) {
-                  Builder.Diag(NewTrans->getBeginLoc(), diag::err_sema_transform_legacy_mix);
-          return;
-}
-
-        Transform * PrevSourceTrans = PrevLoop -> getSourceTransformation();
-        if (!PrevSourceTrans)
-          continue;
-
-
-        // Cannot combine legacy constructs (#pragma clang loop, ...) with new ones (#pragma clang transform).
-        if (NewTrans->isLegacy() != PrevSourceTrans->isLegacy()) {
-          Builder.Diag(NewTrans->getBeginLoc(), diag::err_sema_transform_legacy_mix);
+      for (NodeTy *PrevLoop : PrevLoops) {
+        // Cannot combine legacy disable pragmas (e.g. #pragma clang loop
+        // unroll(disable)) and new transformations (#pragma clang transform).
+        if (!NewTrans->isLegacy() && PrevLoop->HasLegacyDisable) {
+          Builder.Diag(NewTrans->getBeginLoc(),
+                       diag::err_sema_transform_legacy_mix);
           return;
         }
 
+        Transform *PrevSourceTrans = PrevLoop->getSourceTransformation();
+        if (!PrevSourceTrans)
+          continue;
+
+        // Cannot combine legacy constructs (#pragma clang loop, ...) with new
+        // ones (#pragma clang transform).
+        if (NewTrans->isLegacy() != PrevSourceTrans->isLegacy()) {
+          Builder.Diag(NewTrans->getBeginLoc(),
+                       diag::err_sema_transform_legacy_mix);
+          return;
+        }
 
         int PrevStage = PrevSourceTrans->getLoopPipelineStage();
         int NewStage = NewTrans->getLoopPipelineStage();
         if (PrevStage >= 0 && NewStage >= 0 && PrevStage > NewStage) {
-          Builder.Diag(NewTrans->getBeginLoc(), diag::warn_sema_transform_pass_order);
+          Builder.Diag(NewTrans->getBeginLoc(),
+                       diag::warn_sema_transform_pass_order);
 
           // At most one warning per transformation.
           return;
         }
       }
     }
-
 
     NodeTy *applyTransform(Transform *Trans, NodeTy *MainLoop) {
       switch (Trans->getKind()) {
@@ -981,15 +982,14 @@ private:
         // Full unrolling has no followup-loop.
         MainLoop->applyTransformation(Trans, {}, nullptr);
       } else {
-        NodeTy *All =
+        NodeTy *All = Builder.createFollowup(
+            MainLoop->Subloops, MainLoop, LoopUnrollingTransform::FollowupAll);
+        NodeTy *Unrolled =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollingTransform::FollowupAll);
-        NodeTy *Unrolled = Builder.createFollowup(
-            MainLoop->Subloops, MainLoop,
-            LoopUnrollingTransform::FollowupUnrolled);
-        NodeTy *Remainder = Builder.createFollowup(
-            MainLoop->Subloops, MainLoop,
-            LoopUnrollingTransform::FollowupRemainder);
+                                   LoopUnrollingTransform::FollowupUnrolled);
+        NodeTy *Remainder =
+            Builder.createFollowup(MainLoop->Subloops, MainLoop,
+                                   LoopUnrollingTransform::FollowupRemainder);
         Successor = Trans->isLegacy() ? All : Unrolled;
 
         inheritLoopAttributes(All, MainLoop, true, All == Successor);
@@ -1029,8 +1029,6 @@ private:
         return nullptr;
       }
 
-
-
       // Having no loop to jam does not make a lot of sense, but fixes
       // regression tests.
       if (!Inner) {
@@ -1048,7 +1046,7 @@ private:
       checkStageOrder({MainLoop, Inner}, Trans);
 
       NodeTy *TransformedInner = Builder.createFollowup(
-          Inner->Subloops, Inner, LoopUnrollAndJamTransform::FollowupInner          );
+          Inner->Subloops, Inner, LoopUnrollAndJamTransform::FollowupInner);
       inheritLoopAttributes(TransformedInner, Inner, false, false);
 
       // TODO: Handle full unrolling
@@ -1068,9 +1066,8 @@ private:
                               NodeTy *MainLoop) {
       checkStageOrder({MainLoop}, Trans);
 
-      NodeTy *All =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopDistributionTransform::FollowupAll);
+      NodeTy *All = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop, LoopDistributionTransform::FollowupAll);
       NodeTy *Successor = Trans->isLegacy() ? All : nullptr;
       inheritLoopAttributes(All, MainLoop, true, Successor == All);
 
@@ -1145,7 +1142,6 @@ private:
       applyTransform(NT->Trans, L);
     }
 
-
 #if 0
     void applyOne(NodeTy *L, const TransformExecutableDirective *D) {
       Transform *Trans = D->getTransform();
@@ -1197,7 +1193,8 @@ private:
 
 protected:
   TransformedTreeBuilder(ASTContext &ASTCtx,
-                         llvm::SmallVectorImpl<NodeTy *> &AllNodes,  llvm::SmallVectorImpl<Transform *> &AllTransforms)
+                         llvm::SmallVectorImpl<NodeTy *> &AllNodes,
+                         llvm::SmallVectorImpl<Transform *> &AllTransforms)
       : ASTCtx(ASTCtx), AllNodes(AllNodes), AllTransforms(AllTransforms) {}
 
   NodeTy *createRoot(llvm::ArrayRef<NodeTy *> SubLoops) {
@@ -1223,13 +1220,12 @@ protected:
     return Result;
   }
 
-
-
 public:
   void markParallel(NodeTy *L) { L->markParallel(); }
 
   NodeTy *
-  computeTransformedStructure(Stmt *Body,                              llvm::DenseMap<Stmt *, NodeTy *> &StmtToTree) {
+  computeTransformedStructure(Stmt *Body,
+                              llvm::DenseMap<Stmt *, NodeTy *> &StmtToTree) {
     if (!Body)
       return nullptr;
 
@@ -1272,7 +1268,8 @@ public:
       }
 
       // Remove applied transformations from list.
-      auto NewEnd =          std::remove_if(TransformList.begin(), TransformList.end(), Pred);
+      auto NewEnd =
+          std::remove_if(TransformList.begin(), TransformList.end(), Pred);
       TransformList.erase(NewEnd, TransformList.end());
     };
 

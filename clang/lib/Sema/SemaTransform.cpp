@@ -13,9 +13,9 @@
 #include "clang/Sema/SemaTransform.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtTransform.h"
-#include "clang/Basic/Transform.h"
 #include "clang/Analysis/AnalysisTransform.h"
 #include "clang/Analysis/TransformedTree.h"
+#include "clang/Basic/Transform.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/DenseMap.h"
@@ -23,20 +23,15 @@
 
 using namespace clang;
 
-
-
 struct SemaExtractTransform : ExtractTransform<SemaExtractTransform> {
-  Sema& Sem;
-  SemaExtractTransform(TransformExecutableDirective*Directive, Sema &Sem) : ExtractTransform(Sem.getASTContext(), Directive), Sem(Sem) {  }
-  
+  Sema &Sem;
+  SemaExtractTransform(TransformExecutableDirective *Directive, Sema &Sem)
+      : ExtractTransform(Sem.getASTContext(), Directive), Sem(Sem) {}
+
   auto Diag(SourceLocation Loc, unsigned DiagID) {
-     return Sem.Diag(Loc, DiagID);
+    return Sem.Diag(Loc, DiagID);
   }
 };
- 
-
-
-
 
 StmtResult
 Sema::ActOnLoopTransformDirective(Transform::Kind Kind, 
@@ -46,11 +41,12 @@ Sema::ActOnLoopTransformDirective(Transform::Kind Kind,
   if (!Loop)
     return StmtError(
         Diag(Loc.getBegin(), diag::err_sema_transform_expected_loop));
-  
- auto * Result = TransformExecutableDirective::create(Context, Loc, AStmt, Clauses, Kind);
 
- // Emit errors and warnings.
-  SemaExtractTransform VerifyTransform( Result, *this);
+  auto *Result =
+      TransformExecutableDirective::create(Context, Loc, AStmt, Clauses, Kind);
+
+  // Emit errors and warnings.
+  SemaExtractTransform VerifyTransform(Result, *this);
   VerifyTransform.createTransform();
 
   return Result;
@@ -80,11 +76,12 @@ void Sema::HandleLoopTransformations(FunctionDecl *FD) {
   llvm::DenseMap<Stmt *, SemaTransformedTree *> StmtToTree;
   llvm::SmallVector<SemaTransformedTree *, 64> AllNodes;
   llvm::SmallVector<Transform *, 64> AllTransforms;
-  SemaTransformedTreeBuilder Builder(getASTContext(), AllNodes, AllTransforms, *this);
+  SemaTransformedTreeBuilder Builder(getASTContext(), AllNodes, AllTransforms,
+                                     *this);
   Builder.computeTransformedStructure(FD->getBody(), StmtToTree);
-   
+
   for (auto N : AllNodes)
     delete N;
-    for (auto T : AllTransforms)
+  for (auto T : AllTransforms)
     delete T;
 }

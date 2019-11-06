@@ -49,11 +49,10 @@ public:
   SourceRange getRange() const { return LocRange; }
   SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
   SourceLocation getEndLoc() const { return LocRange.getEnd(); }
-    void setLoc(SourceRange L) { LocRange = L; }
+  void setLoc(SourceRange L) { LocRange = L; }
   void setLoc(SourceLocation BeginLoc, SourceLocation EndLoc) {
     LocRange = SourceRange(BeginLoc, EndLoc);
   }
-
 
   using child_iterator = Stmt::child_iterator;
   using const_child_iterator = Stmt::const_child_iterator;
@@ -223,8 +222,8 @@ private:
 
 protected:
   explicit TransformExecutableDirective(SourceRange LocRange, Stmt *Associated,
-                                       ArrayRef<TransformClause *> Clauses,
-                                       Transform::Kind TransKind)
+                                        ArrayRef<TransformClause *> Clauses,
+                                        Transform::Kind TransKind)
       : Stmt(Stmt::TransformExecutableDirectiveClass), LocRange(LocRange),
         Associated(Associated), TransKind(TransKind),
         NumClauses(Clauses.size()) {
@@ -253,7 +252,7 @@ public:
   SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
   SourceLocation getEndLoc() const { return LocRange.getEnd(); }
   void setRange(SourceRange Loc) { LocRange = Loc; }
-      void setRange(SourceLocation BeginLoc, SourceLocation EndLoc) {
+  void setRange(SourceLocation BeginLoc, SourceLocation EndLoc) {
     LocRange = SourceRange(BeginLoc, EndLoc);
   }
 

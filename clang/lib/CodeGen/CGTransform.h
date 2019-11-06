@@ -93,17 +93,15 @@ class CGTransformedTreeBuilder
 
 public:
   CGTransformedTreeBuilder(ASTContext &ASTCtx, llvm::LLVMContext &LLVMCtx,
-                           llvm::SmallVectorImpl<NodeTy *> &AllNodes, llvm::SmallVectorImpl<Transform *> &AllTransforms,
+                           llvm::SmallVectorImpl<NodeTy *> &AllNodes,
+                           llvm::SmallVectorImpl<Transform *> &AllTransforms,
                            CGDebugInfo *DbgInfo)
-      : TransformedTreeBuilder(ASTCtx, AllNodes,AllTransforms ), LLVMCtx(LLVMCtx),
-        DbgInfo(DbgInfo) {}
+      : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms),
+        LLVMCtx(LLVMCtx), DbgInfo(DbgInfo) {}
 
   // Ignore any diagnostic and its arguments.
   struct DummyDiag {
-        template<typename T>
-      DummyDiag operator<<( const T &)const  {
-        return {};
-    }
+    template <typename T> DummyDiag operator<<(const T &) const { return {}; }
   };
   DummyDiag Diag(SourceLocation Loc, unsigned DiagID) { return {}; }
 

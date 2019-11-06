@@ -100,7 +100,7 @@ private:
   llvm::SmallVector<std::unique_ptr<LoopInfo>, 4> Active;
 
   llvm::SmallVector<CGTransformedTree *, 64> AllNodes;
-   llvm::SmallVector<Transform *, 64> AllTransforms;
+  llvm::SmallVector<Transform *, 64> AllTransforms;
   llvm::DenseMap<Stmt *, CGTransformedTree *> StmtToTree;
 
   CGTransformedTree *TransformedStructure = nullptr;

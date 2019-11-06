@@ -13,8 +13,8 @@
 #ifndef LLVM_CLANG_SEMA_SEMATRANSFORM_H
 #define LLVM_CLANG_SEMA_SEMATRANSFORM_H
 
-#include "clang/Analysis/TransformedTree.h"
 #include "clang/Analysis/AnalysisTransform.h"
+#include "clang/Analysis/TransformedTree.h"
 #include "clang/Sema/Sema.h"
 
 namespace clang {
@@ -43,7 +43,8 @@ class SemaTransformedTreeBuilder
 
 public:
   SemaTransformedTreeBuilder(ASTContext &ASTCtx,
-                             llvm::SmallVectorImpl<NodeTy *> &AllNodes,   llvm::SmallVectorImpl<Transform *> &AllTransforms,
+                             llvm::SmallVectorImpl<NodeTy *> &AllNodes,
+                             llvm::SmallVectorImpl<Transform *> &AllTransforms,
                              Sema &Sem)
       : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms), Sem(Sem) {}
 
