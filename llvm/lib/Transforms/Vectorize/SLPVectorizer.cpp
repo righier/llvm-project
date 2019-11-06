@@ -1355,14 +1355,21 @@ private:
       for (Value *V : Scalars)
         dbgs().indent(2) << *V << "\n";
       dbgs() << "NeedToGather: " << NeedToGather << "\n";
-      dbgs() << "MainOp: " << *MainOp << "\n";
-      dbgs() << "AltOp: " << *AltOp << "\n";
+      dbgs() << "MainOp: ";
+      if (MainOp)
+        dbgs() << *MainOp << "\n";
+      else
+        dbgs() << "NULL\n";
+      dbgs() << "AltOp: ";
+      if (AltOp)
+        dbgs() << *AltOp << "\n";
+      else
+        dbgs() << "NULL\n";
       dbgs() << "VectorizedValue: ";
       if (VectorizedValue)
-        dbgs() << *VectorizedValue;
+        dbgs() << *VectorizedValue << "\n";
       else
-        dbgs() << "NULL";
-      dbgs() << "\n";
+        dbgs() << "NULL\n";
       dbgs() << "ReuseShuffleIndices: ";
       if (ReuseShuffleIndices.empty())
         dbgs() << "Emtpy";
@@ -2638,9 +2645,14 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth,
       }
 
       // We don't combine GEPs with non-constant indexes.
+      Type *Ty1 = VL0->getOperand(1)->getType();
       for (Value *V : VL) {
         auto Op = cast<Instruction>(V)->getOperand(1);
-        if (!isa<ConstantInt>(Op)) {
+        if (!isa<ConstantInt>(Op) ||
+            (Op->getType() != Ty1 &&
+             Op->getType()->getScalarSizeInBits() >
+                 DL->getIndexSizeInBits(
+                     V->getType()->getPointerAddressSpace()))) {
           LLVM_DEBUG(dbgs()
                      << "SLP: not-vectorizable GEP (non-constant indexes).\n");
           BS.cancelScheduling(VL, VL0);
@@ -4156,7 +4168,22 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
       std::vector<Value *> OpVecs;
       for (int j = 1, e = cast<GetElementPtrInst>(VL0)->getNumOperands(); j < e;
            ++j) {
-        Value *OpVec = vectorizeTree(E->getOperand(j));
+        ValueList &VL = E->getOperand(j);
+        // Need to cast all elements to the same type before vectorization to
+        // avoid crash.
+        Type *VL0Ty = VL0->getOperand(j)->getType();
+        Type *Ty = llvm::all_of(
+                       VL, [VL0Ty](Value *V) { return VL0Ty == V->getType(); })
+                       ? VL0Ty
+                       : DL->getIndexType(cast<GetElementPtrInst>(VL0)
+                                              ->getPointerOperandType()
+                                              ->getScalarType());
+        for (Value *&V : VL) {
+          auto *CI = cast<ConstantInt>(V);
+          V = ConstantExpr::getIntegerCast(CI, Ty,
+                                           CI->getValue().isSignBitSet());
+        }
+        Value *OpVec = vectorizeTree(VL);
         OpVecs.push_back(OpVec);
       }
 
