@@ -14,8 +14,8 @@
 #define LLVM_CLANG_AST_STMTTRANSFROM_H
 
 #include "clang/AST/Stmt.h"
-#include "clang/AST/Transform.h"
 #include "llvm/Support/raw_ostream.h"
+#include "clang/Basic/Transform.h"
 
 namespace clang {
 
@@ -26,12 +26,13 @@ public:
     UnknownKind,
 #define TRANSFORM_CLAUSE(Keyword, Name) Name##Kind,
 #define TRANSFORM_CLAUSE_LAST(Keyword, Name) Name##Kind, LastKind = Name##Kind
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   };
 
   static bool isValidForTransform(Transform::Kind TransformKind,
                                   TransformClause::Kind ClauseKind);
   static Kind getClauseKind(Transform::Kind TransformKind, llvm::StringRef Str);
+  static llvm::StringRef getClauseKeyword(TransformClause::Kind ClauseKind);
 
   // TODO: implement
 };

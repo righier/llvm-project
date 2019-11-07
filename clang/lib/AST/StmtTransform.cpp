@@ -40,8 +40,20 @@ TransformClause ::getClauseKind(Transform::Kind TransformKind,
   if (isValidForTransform(TransformKind, TransformClause::Kind::Name##Kind) && \
       Str == #Keyword)                                                         \
     return TransformClause::Kind::Name##Kind;
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   return TransformClause::UnknownKind;
+}
+
+llvm::StringRef
+TransformClause ::getClauseKeyword(TransformClause::Kind ClauseKind) {
+  assert(ClauseKind > UnknownKind);
+  assert(ClauseKind <= LastKind);
+  static const char *ClauseKeyword[LastKind] = {
+#define TRANSFORM_CLAUSE(Keyword, Name) #Keyword,
+#include "clang/AST/TransformClauseKinds.def"
+
+  };
+  return ClauseKeyword[ClauseKind - 1];
 }
 
 const Stmt *clang::getAssociatedLoop(const Stmt *S) {
