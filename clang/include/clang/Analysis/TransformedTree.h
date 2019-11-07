@@ -706,7 +706,7 @@ private:
       return true;
     }
 
-    bool HandleOMPLoopClauses(OMPLoopDirective *Directive, bool HasTaskloop,
+    bool handleOMPLoopClauses(OMPLoopDirective *Directive, bool HasTaskloop,
                               bool HasFor, bool HasSimd) {
       assert((!HasTaskloop || !HasFor) &&
              "taskloop and for are mutually exclusive");
@@ -789,106 +789,106 @@ private:
     }
 
     bool VisitOMPForDirective(OMPForDirective *For) {
-      return HandleOMPLoopClauses(For, false, true, false);
+      return handleOMPLoopClauses(For, false, true, false);
     }
 
     bool VisitOMPDistributeParallelForDirective(
         OMPDistributeParallelForDirective *L) {
-      return HandleOMPLoopClauses(L, false, true, false);
+      return handleOMPLoopClauses(L, false, true, false);
     }
 
     bool VisitOMPTeamsDistributeParallelForDirective(
         OMPTeamsDistributeParallelForDirective *L) {
-      return HandleOMPLoopClauses(L, false, true, false);
+      return handleOMPLoopClauses(L, false, true, false);
     }
 
     bool VisitOMPTargetTeamsDistributeParallelForDirective(
         OMPTargetTeamsDistributeParallelForDirective *L) {
-      return HandleOMPLoopClauses(L, false, true, false);
+      return handleOMPLoopClauses(L, false, true, false);
     }
 
     bool VisitOMPSimdDirective(OMPLoopDirective *Simd) {
-      return HandleOMPLoopClauses(Simd, false, false, true);
+      return handleOMPLoopClauses(Simd, false, false, true);
     }
 
     bool VisitOMPForSimdDirective(OMPForSimdDirective *ForSimd) {
-      return HandleOMPLoopClauses(ForSimd, false, true, true);
+      return handleOMPLoopClauses(ForSimd, false, true, true);
     }
 
     bool
     VisitOMPParallelForSimdDirective(OMPParallelForSimdDirective *ForSimd) {
-      return HandleOMPLoopClauses(ForSimd, false, true, true);
+      return handleOMPLoopClauses(ForSimd, false, true, true);
     }
 
     bool VisitOMPDistributeSimdDirective(
         OMPDistributeSimdDirective *DistributeSimd) {
-      return HandleOMPLoopClauses(DistributeSimd, false, false, true);
+      return handleOMPLoopClauses(DistributeSimd, false, false, true);
     }
 
     bool VisitOMPDistributeParallelForSimdDirective(
         OMPDistributeParallelForSimdDirective *DistributeSimd) {
-      return HandleOMPLoopClauses(DistributeSimd, false, true, true);
+      return handleOMPLoopClauses(DistributeSimd, false, true, true);
     }
 
     bool VisitOMPTeamsDistributeSimdDirective(
         OMPTeamsDistributeSimdDirective *TeamsDistributeSimd) {
-      return HandleOMPLoopClauses(TeamsDistributeSimd, false, false, true);
+      return handleOMPLoopClauses(TeamsDistributeSimd, false, false, true);
     }
 
     bool VisitOMPTeamsDistributeParallelForSimdDirective(
         OMPTeamsDistributeParallelForSimdDirective
             *TeamsDistributeParallelForSimd) {
-      return HandleOMPLoopClauses(TeamsDistributeParallelForSimd, false, true,
+      return handleOMPLoopClauses(TeamsDistributeParallelForSimd, false, true,
                                   true);
     }
 
     bool VisitOMPTargetTeamsDistributeSimdDirective(
         OMPTargetTeamsDistributeSimdDirective *TargetTeamsDistributeSimd) {
-      return HandleOMPLoopClauses(TargetTeamsDistributeSimd, false, false,
+      return handleOMPLoopClauses(TargetTeamsDistributeSimd, false, false,
                                   true);
     }
 
     bool VisitOMPTargetTeamsDistributeParallelForSimdDirective(
         OMPTargetTeamsDistributeParallelForSimdDirective
             *TargetTeamsDistributeParallelForSimd) {
-      return HandleOMPLoopClauses(TargetTeamsDistributeParallelForSimd, false,
+      return handleOMPLoopClauses(TargetTeamsDistributeParallelForSimd, false,
                                   true, true);
     }
 
     bool VisitOMPTaskLoopSimdDirective(
         OMPTaskLoopSimdDirective *TaskLoopSimdDirective) {
-      return HandleOMPLoopClauses(TaskLoopSimdDirective, true, false, true);
+      return handleOMPLoopClauses(TaskLoopSimdDirective, true, false, true);
     }
 
     bool
     VisitOMPTargetSimdDirective(OMPTargetSimdDirective *TargetSimdDirective) {
-      return HandleOMPLoopClauses(TargetSimdDirective, false, false, true);
+      return handleOMPLoopClauses(TargetSimdDirective, false, false, true);
     }
 
     bool VisitOMPTargetParallelForSimdDirective(
         OMPTargetParallelForSimdDirective *TargetParallelForSimdDirective) {
-      return HandleOMPLoopClauses(TargetParallelForSimdDirective, false, true,
+      return handleOMPLoopClauses(TargetParallelForSimdDirective, false, true,
                                   true);
     }
 
     bool VisitOMPMasterTaskLoopDirective(
         OMPMasterTaskLoopDirective *MasterTaskloop) {
-      return HandleOMPLoopClauses(MasterTaskloop, true, false, false);
+      return handleOMPLoopClauses(MasterTaskloop, true, false, false);
     }
 
     bool VisitOMPMasterTaskLoopSimdDirective(
         OMPMasterTaskLoopSimdDirective *MasterTaskloopSimd) {
-      return HandleOMPLoopClauses(MasterTaskloopSimd, true, false, true);
+      return handleOMPLoopClauses(MasterTaskloopSimd, true, false, true);
     }
 
     bool VisitOMPParallelMasterTaskLoopDirective(
         OMPParallelMasterTaskLoopDirective *ParallelMasterTaskloop) {
-      return HandleOMPLoopClauses(ParallelMasterTaskloop, true, false, false);
+      return handleOMPLoopClauses(ParallelMasterTaskloop, true, false, false);
     }
 
     bool VisitOMPParallelMasterTaskLoopSimdDirective(
         OMPParallelMasterTaskLoopSimdDirective *ParallelMasterTaskloopSimd) {
-      return HandleOMPLoopClauses(ParallelMasterTaskloopSimd, true, false,
+      return handleOMPLoopClauses(ParallelMasterTaskloopSimd, true, false,
                                   true);
     }
   };

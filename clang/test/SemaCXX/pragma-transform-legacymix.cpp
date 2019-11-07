@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++11 -fopenmp -fexperimental-transform-pragma -fsyntax-only -verify %s
 
 void legacymix(int *List, int Length, int Value) {
 
@@ -39,7 +39,7 @@ void legacymix(int *List, int Length, int Value) {
     for (int j = 0; j < 16; j++)
     List[i] = Value;
 
-/* expected-error@+1 {{Cannot combine #pragma clang transform with other transformations}} */
+/* expected-error@+3 {{Cannot combine #pragma clang transform with other transformations}} */
 #pragma unroll_and_jam(2)
   for (int i = 0; i < 8; i++)
 #pragma clang transform unroll
@@ -52,7 +52,7 @@ void legacymix(int *List, int Length, int Value) {
   for (int i = 0; i < 8; i++)
     List[i] = Value;
 
-/* expected-error@+1 {{Cannot combine #pragma clang transform with other transformations}} */
+/* expected-error@+2 {{statement after '#pragma omp simd' must be a for loop}} */
 #pragma omp simd
 #pragma clang transform unroll
   for (int i = 0; i < 8; i++)
