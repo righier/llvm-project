@@ -15,8 +15,8 @@
 
 #include "clang/AST/Expr.h"
 #include "clang/AST/Stmt.h"
-#include "clang/AST/Transform.h"
 #include "llvm/Support/raw_ostream.h"
+#include "clang/Basic/Transform.h"
 
 namespace clang {
 
@@ -27,32 +27,32 @@ public:
     UnknownKind,
 #define TRANSFORM_CLAUSE(Keyword, Name) Name##Kind,
 #define TRANSFORM_CLAUSE_LAST(Keyword, Name) Name##Kind, LastKind = Name##Kind
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   };
 
   static bool isValidForTransform(Transform::Kind TransformKind,
                                   TransformClause::Kind ClauseKind);
   static Kind getClauseKind(Transform::Kind TransformKind, llvm::StringRef Str);
+  static llvm::StringRef getClauseKeyword(TransformClause::Kind ClauseKind);
 
 private:
   Kind ClauseKind;
-  SourceRange Loc;
+  SourceRange LocRange;
 
 protected:
-  TransformClause(Kind K, SourceRange Loc) : ClauseKind(K), Loc(Loc) {}
+  TransformClause(Kind K, SourceRange Range) : ClauseKind(K), LocRange(Range) {}
   TransformClause(Kind K) : ClauseKind(K) {}
 
 public:
   Kind getKind() const { return ClauseKind; }
 
-  SourceRange getLoc() const { return Loc; }
-  SourceLocation getBeginLoc() const { return Loc.getBegin(); }
-  SourceLocation getEndLoc() const { return Loc.getEnd(); }
-
+  SourceRange getRange() const { return LocRange; }
+  SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
+  SourceLocation getEndLoc() const { return LocRange.getEnd(); }
+  void setLoc(SourceRange L) { LocRange = L; }
   void setLoc(SourceLocation BeginLoc, SourceLocation EndLoc) {
-    Loc = SourceRange(BeginLoc, EndLoc);
+    LocRange = SourceRange(BeginLoc, EndLoc);
   }
-  void setLoc(SourceRange L) { Loc = L; }
 
   using child_iterator = Stmt::child_iterator;
   using const_child_iterator = Stmt::const_child_iterator;
@@ -215,19 +215,17 @@ public:
   friend TrailingObjects;
 
 private:
-  SourceRange Range;
+  SourceRange LocRange;
   Stmt *Associated = nullptr;
-  Transform *Trans = nullptr;
   Transform::Kind TransKind = Transform::Kind::UnknownKind;
   unsigned NumClauses;
 
 protected:
-  explicit TransformExecutableDirective(SourceRange Range, Stmt *Associated,
-                                        Transform *Trans,
+  explicit TransformExecutableDirective(SourceRange LocRange, Stmt *Associated,
                                         ArrayRef<TransformClause *> Clauses,
                                         Transform::Kind TransKind)
-      : Stmt(Stmt::TransformExecutableDirectiveClass), Range(Range),
-        Associated(Associated), Trans(Trans), TransKind(TransKind),
+      : Stmt(Stmt::TransformExecutableDirectiveClass), LocRange(LocRange),
+        Associated(Associated), TransKind(TransKind),
         NumClauses(Clauses.size()) {
     setClauses(Clauses);
   }
@@ -246,23 +244,21 @@ public:
   }
 
   static TransformExecutableDirective *
-  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, Transform *Trans,
-         ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
+  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
   static TransformExecutableDirective *createEmpty(ASTContext &Ctx,
                                                    unsigned NumClauses);
 
-  SourceRange getLoc() const { return Range; }
-  SourceLocation getBeginLoc() const { return Range.getBegin(); }
-  SourceLocation getEndLoc() const { return Range.getEnd(); }
-  void setLoc(SourceRange Loc) { Range = Loc; }
-  void setLoc(SourceLocation BeginLoc, SourceLocation EndLoc) {
-    Range = SourceRange(BeginLoc, EndLoc);
+  SourceRange getRange() const { return LocRange; }
+  SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
+  SourceLocation getEndLoc() const { return LocRange.getEnd(); }
+  void setRange(SourceRange Loc) { LocRange = Loc; }
+  void setRange(SourceLocation BeginLoc, SourceLocation EndLoc) {
+    LocRange = SourceRange(BeginLoc, EndLoc);
   }
 
   Stmt *getAssociated() const { return Associated; }
   void setAssociated(Stmt *S) { Associated = S; }
 
-  Transform *getTransform() const { return Trans; }
   Transform::Kind getTransformKind() const { return TransKind; }
 
   child_range children() { return child_range(&Associated, &Associated + 1); }

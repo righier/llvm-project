@@ -176,8 +176,6 @@ public:
 
   void Visit(const TransformClause *C);
 
-  void Visit(const Transform *T);
-
   void Visit(const BlockDecl::Capture &C);
 
   void Visit(const GenericSelectionExpr::ConstAssociation &A);
