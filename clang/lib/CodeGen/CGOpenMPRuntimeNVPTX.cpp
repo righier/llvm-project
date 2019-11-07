@@ -804,7 +804,9 @@ static bool hasNestedSPMDDirective(ASTContext &Ctx,
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_master_taskloop:
+    case OMPD_master_taskloop_simd:
     case OMPD_parallel_master_taskloop:
+    case OMPD_parallel_master_taskloop_simd:
     case OMPD_requires:
     case OMPD_unknown:
       llvm_unreachable("Unexpected directive.");
@@ -877,7 +879,9 @@ static bool supportsSPMDExecutionMode(ASTContext &Ctx,
   case OMPD_taskloop:
   case OMPD_taskloop_simd:
   case OMPD_master_taskloop:
+  case OMPD_master_taskloop_simd:
   case OMPD_parallel_master_taskloop:
+  case OMPD_parallel_master_taskloop_simd:
   case OMPD_requires:
   case OMPD_unknown:
     break;
@@ -1043,7 +1047,9 @@ static bool hasNestedLightweightDirective(ASTContext &Ctx,
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_master_taskloop:
+    case OMPD_master_taskloop_simd:
     case OMPD_parallel_master_taskloop:
+    case OMPD_parallel_master_taskloop_simd:
     case OMPD_requires:
     case OMPD_unknown:
       llvm_unreachable("Unexpected directive.");
@@ -1122,7 +1128,9 @@ static bool supportsLightweightRuntime(ASTContext &Ctx,
   case OMPD_taskloop:
   case OMPD_taskloop_simd:
   case OMPD_master_taskloop:
+  case OMPD_master_taskloop_simd:
   case OMPD_parallel_master_taskloop:
+  case OMPD_parallel_master_taskloop_simd:
   case OMPD_requires:
   case OMPD_unknown:
     break;
@@ -1797,9 +1805,8 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
     llvm::Type *TypeParams[] = {getIdentTyPointerTy(), CGM.Int32Ty};
     auto *FnTy =
         llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, /*Name*/ "__kmpc_barrier");
-    cast<llvm::Function>(RTLFn.getCallee())
-        ->addFnAttr(llvm::Attribute::Convergent);
+    RTLFn =
+        CGM.CreateConvergentRuntimeFunction(FnTy, /*Name*/ "__kmpc_barrier");
     break;
   }
   case OMPRTL__kmpc_barrier_simple_spmd: {
@@ -1808,24 +1815,22 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
     llvm::Type *TypeParams[] = {getIdentTyPointerTy(), CGM.Int32Ty};
     auto *FnTy =
         llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
-    RTLFn =
-        CGM.CreateRuntimeFunction(FnTy, /*Name*/ "__kmpc_barrier_simple_spmd");
-    cast<llvm::Function>(RTLFn.getCallee())
-        ->addFnAttr(llvm::Attribute::Convergent);
+    RTLFn = CGM.CreateConvergentRuntimeFunction(
+        FnTy, /*Name*/ "__kmpc_barrier_simple_spmd");
     break;
   }
   case OMPRTL_NVPTX__kmpc_warp_active_thread_mask: {
     // Build int32_t __kmpc_warp_active_thread_mask(void);
     auto *FnTy =
         llvm::FunctionType::get(CGM.Int32Ty, llvm::None, /*isVarArg=*/false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_warp_active_thread_mask");
+    RTLFn = CGM.CreateConvergentRuntimeFunction(FnTy, "__kmpc_warp_active_thread_mask");
     break;
   }
   case OMPRTL_NVPTX__kmpc_syncwarp: {
     // Build void __kmpc_syncwarp(kmp_int32 Mask);
     auto *FnTy =
         llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, /*isVarArg=*/false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_syncwarp");
+    RTLFn = CGM.CreateConvergentRuntimeFunction(FnTy, "__kmpc_syncwarp");
     break;
   }
   }
@@ -4954,7 +4959,8 @@ void CGOpenMPRuntimeNVPTX::checkArchForUnifiedAddressing(
     const OMPRequiresDecl *D) {
   for (const OMPClause *Clause : D->clauselists()) {
     if (Clause->getClauseKind() == OMPC_unified_shared_memory) {
-      switch (getCudaArch(CGM)) {
+      CudaArch Arch = getCudaArch(CGM);
+      switch (Arch) {
       case CudaArch::SM_20:
       case CudaArch::SM_21:
       case CudaArch::SM_30:
@@ -4966,10 +4972,14 @@ void CGOpenMPRuntimeNVPTX::checkArchForUnifiedAddressing(
       case CudaArch::SM_53:
       case CudaArch::SM_60:
       case CudaArch::SM_61:
-      case CudaArch::SM_62:
-        CGM.Error(Clause->getBeginLoc(),
-                  "Target architecture does not support unified addressing");
+      case CudaArch::SM_62: {
+        SmallString<256> Buffer;
+        llvm::raw_svector_ostream Out(Buffer);
+        Out << "Target architecture " << CudaArchToString(Arch)
+            << " does not support unified addressing";
+        CGM.Error(Clause->getBeginLoc(), Out.str());
         return;
+      }
       case CudaArch::SM_70:
       case CudaArch::SM_72:
       case CudaArch::SM_75:

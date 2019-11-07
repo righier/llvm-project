@@ -8,6 +8,7 @@
 
 #include "clang/Driver/Driver.h"
 #include "InputInfo.h"
+#include "ToolChains/AIX.h"
 #include "ToolChains/AMDGPU.h"
 #include "ToolChains/AVR.h"
 #include "ToolChains/Ananas.h"
@@ -177,6 +178,7 @@ void Driver::setDriverModeFromOption(StringRef Opt) {
                    .Case("g++", GXXMode)
                    .Case("cpp", CPPMode)
                    .Case("cl", CLMode)
+                   .Case("flang", FlangMode)
                    .Default(None))
     Mode = *M;
   else
@@ -1802,23 +1804,36 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
   return true;
 }
 
+enum {
+  TopLevelAction = 0,
+  HeadSibAction = 1,
+  OtherSibAction = 2,
+};
+
 // Display an action graph human-readably.  Action A is the "sink" node
 // and latest-occuring action. Traversal is in pre-order, visiting the
 // inputs to each action before printing the action itself.
 static unsigned PrintActions1(const Compilation &C, Action *A,
-                              std::map<Action *, unsigned> &Ids) {
+                              std::map<Action *, unsigned> &Ids,
+                              Twine Indent = {}, int Kind = TopLevelAction) {
   if (Ids.count(A)) // A was already visited.
     return Ids[A];
 
   std::string str;
   llvm::raw_string_ostream os(str);
 
+  auto getSibIndent = [](int K) -> Twine {
+    return (K == HeadSibAction) ? "   " : (K == OtherSibAction) ? "|  " : "";
+  };
+
+  Twine SibIndent = Indent + getSibIndent(Kind);
+  int SibKind = HeadSibAction;
   os << Action::getClassName(A->getKind()) << ", ";
   if (InputAction *IA = dyn_cast<InputAction>(A)) {
     os << "\"" << IA->getInputArg().getValue() << "\"";
   } else if (BindArchAction *BIA = dyn_cast<BindArchAction>(A)) {
     os << '"' << BIA->getArchName() << '"' << ", {"
-       << PrintActions1(C, *BIA->input_begin(), Ids) << "}";
+       << PrintActions1(C, *BIA->input_begin(), Ids, SibIndent, SibKind) << "}";
   } else if (OffloadAction *OA = dyn_cast<OffloadAction>(A)) {
     bool IsFirst = true;
     OA->doOnEachDependence(
@@ -1841,8 +1856,9 @@ static unsigned PrintActions1(const Compilation &C, Action *A,
             os << ":" << BoundArch;
           os << ")";
           os << '"';
-          os << " {" << PrintActions1(C, A, Ids) << "}";
+          os << " {" << PrintActions1(C, A, Ids, SibIndent, SibKind) << "}";
           IsFirst = false;
+          SibKind = OtherSibAction;
         });
   } else {
     const ActionList *AL = &A->getInputs();
@@ -1850,8 +1866,9 @@ static unsigned PrintActions1(const Compilation &C, Action *A,
     if (AL->size()) {
       const char *Prefix = "{";
       for (Action *PreRequisite : *AL) {
-        os << Prefix << PrintActions1(C, PreRequisite, Ids);
+        os << Prefix << PrintActions1(C, PreRequisite, Ids, SibIndent, SibKind);
         Prefix = ", ";
+        SibKind = OtherSibAction;
       }
       os << "}";
     } else
@@ -1872,9 +1889,13 @@ static unsigned PrintActions1(const Compilation &C, Action *A,
     }
   }
 
+  auto getSelfIndent = [](int K) -> Twine {
+    return (K == HeadSibAction) ? "+- " : (K == OtherSibAction) ? "|- " : "";
+  };
+
   unsigned Id = Ids.size();
   Ids[A] = Id;
-  llvm::errs() << Id << ": " << os.str() << ", "
+  llvm::errs() << Indent + getSelfIndent(Kind) << Id << ": " << os.str() << ", "
                << types::getTypeName(A->getType()) << offload_os.str() << "\n";
 
   return Id;
@@ -4680,6 +4701,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
   auto &TC = ToolChains[Target.str()];
   if (!TC) {
     switch (Target.getOS()) {
+    case llvm::Triple::AIX:
+      TC = std::make_unique<toolchains::AIX>(*this, Target, Args);
+      break;
     case llvm::Triple::Haiku:
       TC = std::make_unique<toolchains::Haiku>(*this, Target, Args);
       break;
@@ -4848,6 +4872,19 @@ bool Driver::ShouldUseClangCompiler(const JobAction &JA) const {
   // And say "no" if this is not a kind of action clang understands.
   if (!isa<PreprocessJobAction>(JA) && !isa<PrecompileJobAction>(JA) &&
       !isa<CompileJobAction>(JA) && !isa<BackendJobAction>(JA))
+    return false;
+
+  return true;
+}
+
+bool Driver::ShouldUseFlangCompiler(const JobAction &JA) const {
+  // Say "no" if there is not exactly one input of a type flang understands.
+  if (JA.size() != 1 ||
+      !types::isFortran((*JA.input_begin())->getType()))
+    return false;
+
+  // And say "no" if this is not a kind of action flang understands.
+  if (!isa<PreprocessJobAction>(JA) && !isa<CompileJobAction>(JA) && !isa<BackendJobAction>(JA))
     return false;
 
   return true;

@@ -18,11 +18,11 @@
 using namespace clang;
 
 TransformExecutableDirective *TransformExecutableDirective::create(
-    ASTContext &Ctx, SourceRange Range, Stmt *Associated, Transform *Trans,
+    ASTContext &Ctx, SourceRange Range, Stmt *Associated,
     ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind) {
   void *Mem = Ctx.Allocate(totalSizeToAlloc<TransformClause *>(Clauses.size()));
-  return new (Mem) TransformExecutableDirective(Range, Associated, Trans,
-                                                Clauses, TransKind);
+  return new (Mem)
+      TransformExecutableDirective(Range, Associated, Clauses, TransKind);
 }
 
 TransformExecutableDirective *
@@ -38,7 +38,7 @@ llvm::StringRef TransformClause::getClauseName(Kind K) {
   const char *Names[LastKind + 1] = {
       "Unknown",
 #define TRANSFORM_CLAUSE(Keyword, Name) #Name,
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   };
   return Names[K];
 }
@@ -66,8 +66,20 @@ TransformClause ::getClauseKind(Transform::Kind TransformKind,
   if (isValidForTransform(TransformKind, TransformClause::Kind::Name##Kind) && \
       Str == #Keyword)                                                         \
     return TransformClause::Kind::Name##Kind;
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   return TransformClause::UnknownKind;
+}
+
+llvm::StringRef
+TransformClause ::getClauseKeyword(TransformClause::Kind ClauseKind) {
+  assert(ClauseKind > UnknownKind);
+  assert(ClauseKind <= LastKind);
+  static const char *ClauseKeyword[LastKind] = {
+#define TRANSFORM_CLAUSE(Keyword, Name) #Keyword,
+#include "clang/AST/TransformClauseKinds.def"
+
+  };
+  return ClauseKeyword[ClauseKind - 1];
 }
 
 TransformClause ::child_range TransformClause ::children() {
@@ -77,7 +89,7 @@ TransformClause ::child_range TransformClause ::children() {
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   case TransformClause::Kind::Name##Kind:                                      \
     return static_cast<Name##Clause *>(this)->children();
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   }
   llvm_unreachable("Unhandled clause kind");
 }
@@ -89,7 +101,7 @@ void TransformClause ::print(llvm::raw_ostream &OS,
   static decltype(&TransformClause::print) PrintFuncs[LastKind] = {
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   static_cast<decltype(&TransformClause::print)>(&Name##Clause ::print),
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   };
   (this->*PrintFuncs[getKind() - 1])(OS, Policy);
 }

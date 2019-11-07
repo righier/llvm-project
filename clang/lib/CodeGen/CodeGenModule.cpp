@@ -482,8 +482,11 @@ void CodeGenModule::Release() {
     getModule().addModuleFlag(llvm::Module::Warning, "CodeViewGHash", 1);
   }
   if (CodeGenOpts.ControlFlowGuard) {
-    // We want function ID tables for Control Flow Guard.
-    getModule().addModuleFlag(llvm::Module::Warning, "cfguardtable", 1);
+    // Function ID tables and checks for Control Flow Guard (cfguard=2).
+    getModule().addModuleFlag(llvm::Module::Warning, "cfguard", 2);
+  } else if (CodeGenOpts.ControlFlowGuardNoChecks) {
+    // Function ID tables for Control Flow Guard (cfguard=1).
+    getModule().addModuleFlag(llvm::Module::Warning, "cfguard", 1);
   }
   if (CodeGenOpts.OptimizationLevel > 0 && CodeGenOpts.StrictVTablePointers) {
     // We don't support LTO with 2 with different StrictVTablePointers
@@ -1699,8 +1702,11 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
   return AddedAttr;
 }
 
-void CodeGenModule::setPragmaSectionAttributes(const Decl *D,
-					       llvm::GlobalObject *GO) {
+void CodeGenModule::setNonAliasAttributes(GlobalDecl GD,
+                                          llvm::GlobalObject *GO) {
+  const Decl *D = GD.getDecl();
+  SetCommonAttributes(GD, GO);
+
   if (D) {
     if (auto *GV = dyn_cast<llvm::GlobalVariable>(GO)) {
       if (auto *SA = D->getAttr<PragmaClangBSSSectionAttr>())
@@ -1718,26 +1724,6 @@ void CodeGenModule::setPragmaSectionAttributes(const Decl *D,
         if (!D->getAttr<SectionAttr>())
           F->addFnAttr("implicit-section-name", SA->getName());
 
-      if (auto *SA = D->getAttr<PragmaClangBSSSectionAttr>())
-        F->addFnAttr("bss-section", SA->getName());
-      if (auto *SA = D->getAttr<PragmaClangDataSectionAttr>())
-        F->addFnAttr("data-section", SA->getName());
-      if (auto *SA = D->getAttr<PragmaClangRodataSectionAttr>())
-        F->addFnAttr("rodata-section", SA->getName());
-      if (auto *SA = D->getAttr<PragmaClangRelroSectionAttr>())
-        F->addFnAttr("relro-section", SA->getName());
-    }
-  }
-}
-
-void CodeGenModule::setNonAliasAttributes(GlobalDecl GD,
-                                          llvm::GlobalObject *GO) {
-  const Decl *D = GD.getDecl();
-  SetCommonAttributes(GD, GO);
-  setPragmaSectionAttributes(D, GO);
-
-  if (D) {
-    if (auto *F = dyn_cast<llvm::Function>(GO)) {
       llvm::AttrBuilder Attrs;
       if (GetCPUAndFeaturesAttributes(GD, Attrs)) {
         // We know that GetCPUAndFeaturesAttributes will always have the
@@ -1947,6 +1933,8 @@ void CodeGenModule::AppendLinkerOptions(StringRef Opts) {
 void CodeGenModule::AddDetectMismatch(StringRef Name, StringRef Value) {
   llvm::SmallString<32> Opt;
   getTargetCodeGenInfo().getDetectMismatchOption(Name, Value, Opt);
+  if (Opt.empty())
+    return;
   auto *MDOpts = llvm::MDString::get(getLLVMContext(), Opt);
   LinkerOptionsMetadata.push_back(llvm::MDNode::get(getLLVMContext(), MDOpts));
 }
@@ -3349,8 +3337,14 @@ GetRuntimeFunctionDecl(ASTContext &C, StringRef Name) {
 /// type and name.
 llvm::FunctionCallee
 CodeGenModule::CreateRuntimeFunction(llvm::FunctionType *FTy, StringRef Name,
-                                     llvm::AttributeList ExtraAttrs,
-                                     bool Local) {
+                                     llvm::AttributeList ExtraAttrs, bool Local,
+                                     bool AssumeConvergent) {
+  if (AssumeConvergent) {
+    ExtraAttrs =
+        ExtraAttrs.addAttribute(VMContext, llvm::AttributeList::FunctionIndex,
+                                llvm::Attribute::Convergent);
+  }
+
   llvm::Constant *C =
       GetOrCreateLLVMFunction(Name, FTy, GlobalDecl(), /*ForVTable=*/false,
                               /*DontDefer=*/false, /*IsThunk=*/false,
@@ -3563,7 +3557,8 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
               // Make a new global with the correct type, this is now guaranteed
               // to work.
               auto *NewGV = cast<llvm::GlobalVariable>(
-                  GetAddrOfGlobalVar(D, InitType, IsForDefinition));
+                  GetAddrOfGlobalVar(D, InitType, IsForDefinition)
+                      ->stripPointerCasts());
 
               // Erase the old global, since it is no longer used.
               GV->eraseFromParent();
@@ -3580,6 +3575,9 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
     }
   }
 
+  if (GV->isDeclaration())
+    getTargetCodeGenInfo().setTargetAttributes(D, GV, *this);
+
   LangAS ExpectedAS =
       D ? D->getType().getAddressSpace()
         : (LangOpts.OpenCL ? LangAS::opencl_global : LangAS::Default);
@@ -3588,9 +3586,6 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
   if (AddrSpace != ExpectedAS)
     return getTargetCodeGenInfo().performAddrSpaceCast(*this, GV, AddrSpace,
                                                        ExpectedAS, Ty);
-
-  if (GV->isDeclaration())
-    getTargetCodeGenInfo().setTargetAttributes(D, GV, *this);
 
   return GV;
 }
@@ -3945,14 +3940,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   llvm::Constant *Entry =
       GetAddrOfGlobalVar(D, InitType, ForDefinition_t(!IsTentative));
 
-  // Strip off a bitcast if we got one back.
-  if (auto *CE = dyn_cast<llvm::ConstantExpr>(Entry)) {
-    assert(CE->getOpcode() == llvm::Instruction::BitCast ||
-           CE->getOpcode() == llvm::Instruction::AddrSpaceCast ||
-           // All zero index gep.
-           CE->getOpcode() == llvm::Instruction::GetElementPtr);
-    Entry = CE->getOperand(0);
-  }
+  // Strip off pointer casts if we got them.
+  Entry = Entry->stripPointerCasts();
 
   // Entry is now either a Function or GlobalVariable.
   auto *GV = dyn_cast<llvm::GlobalVariable>(Entry);
@@ -3975,7 +3964,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
 
     // Make a new global with the correct type, this is now guaranteed to work.
     GV = cast<llvm::GlobalVariable>(
-        GetAddrOfGlobalVar(D, InitType, ForDefinition_t(!IsTentative)));
+        GetAddrOfGlobalVar(D, InitType, ForDefinition_t(!IsTentative))
+            ->stripPointerCasts());
 
     // Replace all uses of the old global with the new global
     llvm::Constant *NewPtrForOldDecl =

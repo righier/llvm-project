@@ -24,6 +24,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Lookup.h"
+#include "clang/Sema/Overload.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaInternal.h"
@@ -2548,6 +2549,9 @@ struct DependencyChecker : RecursiveASTVisitor<DependencyChecker> {
 /// list.
 static bool
 DependsOnTemplateParameters(QualType T, TemplateParameterList *Params) {
+  if (!Params->size())
+    return false;
+
   DependencyChecker Checker(Params, /*IgnoreNonTypeDependent*/false);
   Checker.TraverseType(T);
   return Checker.Match;
@@ -4302,7 +4306,7 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
                               TemplateKWLoc, TemplateArgs);
   }
 
-  if (R.getAsSingle<ConceptDecl>() && !AnyDependentArguments()) {
+  if (R.getAsSingle<ConceptDecl>()) {
     return CheckConceptTemplateId(SS, TemplateKWLoc,
                                   R.getLookupNameInfo().getBeginLoc(),
                                   R.getFoundDecl(),
@@ -8488,7 +8492,7 @@ bool Sema::CheckFunctionTemplateSpecialization(
     // candidates at once, to get proper sorting and limiting.
     for (auto *OldND : Previous) {
       if (auto *OldFD = dyn_cast<FunctionDecl>(OldND->getUnderlyingDecl()))
-        NoteOverloadCandidate(OldND, OldFD, FD->getType(), false);
+        NoteOverloadCandidate(OldND, OldFD, CRK_None, FD->getType(), false);
     }
     FailedCandidates.NoteCandidates(*this, FD->getLocation());
     return true;

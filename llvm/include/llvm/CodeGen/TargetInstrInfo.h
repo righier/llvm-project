@@ -23,7 +23,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineOutliner.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
@@ -39,10 +38,12 @@
 
 namespace llvm {
 
+class AAResults;
 class DFAPacketizer;
 class InstrItineraryData;
 class LiveIntervals;
 class LiveVariables;
+class MachineLoop;
 class MachineMemOperand;
 class MachineRegisterInfo;
 class MCAsmInfo;
@@ -95,7 +96,7 @@ public:
   /// registers so that the instructions result is independent of the place
   /// in the function.
   bool isTriviallyReMaterializable(const MachineInstr &MI,
-                                   AliasAnalysis *AA = nullptr) const {
+                                   AAResults *AA = nullptr) const {
     return MI.getOpcode() == TargetOpcode::IMPLICIT_DEF ||
            (MI.getDesc().isRematerializable() &&
             (isReallyTriviallyReMaterializable(MI, AA) ||
@@ -111,7 +112,7 @@ protected:
   /// not always available.
   /// Requirements must be check as stated in isTriviallyReMaterializable() .
   virtual bool isReallyTriviallyReMaterializable(const MachineInstr &MI,
-                                                 AliasAnalysis *AA) const {
+                                                 AAResults *AA) const {
     return false;
   }
 
@@ -154,7 +155,7 @@ private:
   /// this function does target-independent tests to determine if the
   /// instruction is really trivially rematerializable.
   bool isReallyTriviallyReMaterializableGeneric(const MachineInstr &MI,
-                                                AliasAnalysis *AA) const;
+                                                AAResults *AA) const;
 
 public:
   /// These methods return the opcode of the frame setup/destroy instructions
@@ -941,6 +942,17 @@ public:
       return true;
     }
     return isCopyInstrImpl(MI, Source, Destination);
+  }
+
+  /// If the specific machine instruction is an instruction that adds an
+  /// immediate value to its \c Source operand and stores it in \c Destination,
+  /// return true along with \c Destination and \c Source machine operand to
+  /// which \c Offset has been added.
+  virtual bool isAddImmediate(const MachineInstr &MI,
+                              const MachineOperand *&Destination,
+                              const MachineOperand *&Source,
+                              int64_t &Offset) const {
+    return false;
   }
 
   /// Store the specified register of the given register class to the specified

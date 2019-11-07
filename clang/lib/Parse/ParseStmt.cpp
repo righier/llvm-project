@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/PrettyDeclStackTrace.h"
-#include "clang/AST/Transform.h"
+#include "clang/Basic/Transform.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Parse/LoopHint.h"
@@ -221,6 +221,8 @@ Retry:
         Decl =
             ParseDeclaration(DeclaratorContext::BlockContext, DeclEnd, Attrs);
       }
+      if (Attrs.Range.getBegin().isValid())
+        DeclStart = Attrs.Range.getBegin();
       return Actions.ActOnDeclStmt(Decl, DeclStart, DeclEnd);
     }
 

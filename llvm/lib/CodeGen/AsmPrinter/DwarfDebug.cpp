@@ -642,15 +642,20 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
     // least partially) defined by the instruction's single explicit define.
     if (I->getNumExplicitDefs() != 1 || ExplicitFwdRegDefs.empty())
       continue;
-    unsigned Reg = ExplicitFwdRegDefs[0];
+    unsigned ParamFwdReg = ExplicitFwdRegDefs[0];
 
     if (auto ParamValue = TII->describeLoadedValue(*I)) {
       if (ParamValue->first.isImm()) {
         int64_t Val = ParamValue->first.getImm();
         DbgValueLoc DbgLocVal(ParamValue->second, Val);
-        finishCallSiteParam(DbgLocVal, Reg);
+        finishCallSiteParam(DbgLocVal, ParamFwdReg);
       } else if (ParamValue->first.isReg()) {
         Register RegLoc = ParamValue->first.getReg();
+       // TODO: For now, there is no use of describing the value loaded into the
+       //       register that is also the source registers (e.g. $r0 = add $r0, x).
+       if (ParamFwdReg == RegLoc)
+         continue;
+
         unsigned SP = TLI->getStackPointerRegisterToSaveRestore();
         Register FP = TRI->getFrameRegister(*MF);
         bool IsSPorFP = (RegLoc == SP) || (RegLoc == FP);
@@ -658,10 +663,12 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
           DbgValueLoc DbgLocVal(ParamValue->second,
                                 MachineLocation(RegLoc,
                                                 /*IsIndirect=*/IsSPorFP));
-          finishCallSiteParam(DbgLocVal, Reg);
-        } else if (ShouldTryEmitEntryVals) {
+          finishCallSiteParam(DbgLocVal, ParamFwdReg);
+        // TODO: Add support for entry value plus an expression.
+        } else if (ShouldTryEmitEntryVals &&
+                   ParamValue->second->getNumElements() == 0) {
           ForwardedRegWorklist.insert(RegLoc);
-          RegsForEntryValues[RegLoc] = Reg;
+          RegsForEntryValues[RegLoc] = ParamFwdReg;
         }
       }
     }
@@ -965,8 +972,6 @@ void DwarfDebug::beginModule() {
     DwarfFile &Holder = useSplitDwarf() ? SkeletonHolder : InfoHolder;
     Holder.setRnglistsTableBaseSym(
         Asm->createTempSymbol("rnglists_table_base"));
-    Holder.setLoclistsTableBaseSym(
-        Asm->createTempSymbol("loclists_table_base"));
 
     if (useSplitDwarf())
       InfoHolder.setRnglistsTableBaseSym(
@@ -1138,8 +1143,12 @@ void DwarfDebug::finalizeModuleInfo() {
       if (U.hasRangeLists())
         U.addRnglistsBase();
 
-      if (!DebugLocs.getLists().empty() && !useSplitDwarf())
-        U.addLoclistsBase();
+      if (!DebugLocs.getLists().empty() && !useSplitDwarf()) {
+        DebugLocs.setSym(Asm->createTempSymbol("loclists_table_base"));
+        U.addSectionLabel(U.getUnitDie(), dwarf::DW_AT_loclists_base,
+                          DebugLocs.getSym(),
+                          TLOF.getDwarfLoclistsSection()->getBeginSymbol());
+      }
     }
 
     auto *CUNode = cast<DICompileUnit>(P.first);
@@ -2262,7 +2271,7 @@ void DwarfDebug::emitDebugLocEntryLocation(const DebugLocStream::Entry &Entry,
 }
 
 // Emit the common part of the DWARF 5 range/locations list tables header.
-static void emitListsTableHeaderStart(AsmPrinter *Asm, const DwarfFile &Holder,
+static void emitListsTableHeaderStart(AsmPrinter *Asm,
                                       MCSymbol *TableStart,
                                       MCSymbol *TableEnd) {
   // Build the table header, which starts with the length field.
@@ -2287,7 +2296,7 @@ static MCSymbol *emitRnglistsTableHeader(AsmPrinter *Asm,
                                          const DwarfFile &Holder) {
   MCSymbol *TableStart = Asm->createTempSymbol("debug_rnglist_table_start");
   MCSymbol *TableEnd = Asm->createTempSymbol("debug_rnglist_table_end");
-  emitListsTableHeaderStart(Asm, Holder, TableStart, TableEnd);
+  emitListsTableHeaderStart(Asm, TableStart, TableEnd);
 
   Asm->OutStreamer->AddComment("Offset entry count");
   Asm->emitInt32(Holder.getRangeLists().size());
@@ -2304,16 +2313,18 @@ static MCSymbol *emitRnglistsTableHeader(AsmPrinter *Asm,
 // designates the end of the table for the caller to emit when the table is
 // complete.
 static MCSymbol *emitLoclistsTableHeader(AsmPrinter *Asm,
-                                         const DwarfFile &Holder) {
+                                         const DwarfDebug &DD) {
   MCSymbol *TableStart = Asm->createTempSymbol("debug_loclist_table_start");
   MCSymbol *TableEnd = Asm->createTempSymbol("debug_loclist_table_end");
-  emitListsTableHeaderStart(Asm, Holder, TableStart, TableEnd);
+  emitListsTableHeaderStart(Asm, TableStart, TableEnd);
+
+  const auto &DebugLocs = DD.getDebugLocs();
 
   // FIXME: Generate the offsets table and use DW_FORM_loclistx with the
   // DW_AT_loclists_base attribute. Until then set the number of offsets to 0.
   Asm->OutStreamer->AddComment("Offset entry count");
   Asm->emitInt32(0);
-  Asm->OutStreamer->EmitLabel(Holder.getLoclistsTableBaseSym());
+  Asm->OutStreamer->EmitLabel(DebugLocs.getSym());
 
   return TableEnd;
 }
@@ -2435,8 +2446,7 @@ void DwarfDebug::emitDebugLoc() {
   if (getDwarfVersion() >= 5) {
     Asm->OutStreamer->SwitchSection(
         Asm->getObjFileLowering().getDwarfLoclistsSection());
-    TableEnd = emitLoclistsTableHeader(Asm, useSplitDwarf() ? SkeletonHolder
-                                                            : InfoHolder);
+    TableEnd = emitLoclistsTableHeader(Asm, *this);
   } else {
     Asm->OutStreamer->SwitchSection(
         Asm->getObjFileLowering().getDwarfLocSection());
@@ -2645,10 +2655,23 @@ static void emitRangeList(DwarfDebug &DD, AsmPrinter *Asm,
                 [](auto) {});
 }
 
-static void emitDebugRangesImpl(DwarfDebug &DD, AsmPrinter *Asm,
-                                const DwarfFile &Holder, MCSymbol *TableEnd) {
+void DwarfDebug::emitDebugRangesImpl(const DwarfFile &Holder, MCSection *Section) {
+  if (Holder.getRangeLists().empty())
+    return;
+
+  assert(useRangesSection());
+  assert(!CUMap.empty());
+  assert(llvm::any_of(CUMap, [](const decltype(CUMap)::value_type &Pair) {
+    return !Pair.second->getCUNode()->isDebugDirectivesOnly();
+  }));
+
+  Asm->OutStreamer->SwitchSection(Section);
+
+  MCSymbol *TableEnd =
+      getDwarfVersion() < 5 ? nullptr : emitRnglistsTableHeader(Asm, Holder);
+
   for (const RangeSpanList &List : Holder.getRangeLists())
-    emitRangeList(DD, Asm, List);
+    emitRangeList(*this, Asm, List);
 
   if (TableEnd)
     Asm->OutStreamer->EmitLabel(TableEnd);
@@ -2657,55 +2680,17 @@ static void emitDebugRangesImpl(DwarfDebug &DD, AsmPrinter *Asm,
 /// Emit address ranges into the .debug_ranges section or into the DWARF v5
 /// .debug_rnglists section.
 void DwarfDebug::emitDebugRanges() {
-  if (CUMap.empty())
-    return;
-
   const auto &Holder = useSplitDwarf() ? SkeletonHolder : InfoHolder;
 
-  if (Holder.getRangeLists().empty())
-    return;
-
-  assert(useRangesSection());
-  assert(llvm::none_of(CUMap, [](const decltype(CUMap)::value_type &Pair) {
-    return Pair.second->getCUNode()->isDebugDirectivesOnly();
-  }));
-
-  // Start the dwarf ranges section.
-  MCSymbol *TableEnd = nullptr;
-  if (getDwarfVersion() >= 5) {
-    Asm->OutStreamer->SwitchSection(
-        Asm->getObjFileLowering().getDwarfRnglistsSection());
-    TableEnd = emitRnglistsTableHeader(Asm, Holder);
-  } else
-    Asm->OutStreamer->SwitchSection(
-        Asm->getObjFileLowering().getDwarfRangesSection());
-
-  emitDebugRangesImpl(*this, Asm, Holder, TableEnd);
+  emitDebugRangesImpl(Holder,
+                      getDwarfVersion() >= 5
+                          ? Asm->getObjFileLowering().getDwarfRnglistsSection()
+                          : Asm->getObjFileLowering().getDwarfRangesSection());
 }
 
 void DwarfDebug::emitDebugRangesDWO() {
-  assert(useSplitDwarf());
-
-  if (CUMap.empty())
-    return;
-
-  const auto &Holder = InfoHolder;
-
-  if (Holder.getRangeLists().empty())
-    return;
-
-  assert(getDwarfVersion() >= 5);
-  assert(useRangesSection());
-  assert(llvm::none_of(CUMap, [](const decltype(CUMap)::value_type &Pair) {
-    return Pair.second->getCUNode()->isDebugDirectivesOnly();
-  }));
-
-  // Start the dwarf ranges section.
-  Asm->OutStreamer->SwitchSection(
-      Asm->getObjFileLowering().getDwarfRnglistsDWOSection());
-  MCSymbol *TableEnd = emitRnglistsTableHeader(Asm, Holder);
-
-  emitDebugRangesImpl(*this, Asm, Holder, TableEnd);
+  emitDebugRangesImpl(InfoHolder,
+                      Asm->getObjFileLowering().getDwarfRnglistsDWOSection());
 }
 
 void DwarfDebug::handleMacroNodes(DIMacroNodeArray Nodes, DwarfCompileUnit &U) {

@@ -1,7 +1,7 @@
-// RUN: %clang_cc1 -std=c++11 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -fsyntax-only -verify %s
 
 void unrollandjam(int *List, int Length, int Value) {
-/* expected-error@+1 {{unroll-and-jam partial clause can only be used once}} */
+/* expected-error@+1 {{the partial clause can be specified at most once}} */
 #pragma clang transform unrollandjam partial(4) partial(4)
   for (int i = 0; i < Length; i++)
     for (int j = 0; j < Length; j++)

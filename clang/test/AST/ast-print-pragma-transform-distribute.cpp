@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-print %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fexperimental-transform-pragma -ast-print %s -o - | FileCheck %s
 
 void distribute(int *List, int Length) {
 // CHECK: #pragma clang transform distribute

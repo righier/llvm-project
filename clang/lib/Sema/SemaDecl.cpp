@@ -2993,28 +2993,6 @@ struct GNUCompatibleParamWarning {
 
 } // end anonymous namespace
 
-/// getSpecialMember - get the special member enum for a method.
-Sema::CXXSpecialMember Sema::getSpecialMember(const CXXMethodDecl *MD) {
-  if (const CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(MD)) {
-    if (Ctor->isDefaultConstructor())
-      return Sema::CXXDefaultConstructor;
-
-    if (Ctor->isCopyConstructor())
-      return Sema::CXXCopyConstructor;
-
-    if (Ctor->isMoveConstructor())
-      return Sema::CXXMoveConstructor;
-  } else if (isa<CXXDestructorDecl>(MD)) {
-    return Sema::CXXDestructor;
-  } else if (MD->isCopyAssignmentOperator()) {
-    return Sema::CXXCopyAssignment;
-  } else if (MD->isMoveAssignmentOperator()) {
-    return Sema::CXXMoveAssignment;
-  }
-
-  return Sema::CXXInvalid;
-}
-
 // Determine whether the previous declaration was a definition, implicit
 // declaration, or a declaration.
 template <typename T>
@@ -9062,25 +9040,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         Context, PragmaClangTextSection.SectionName,
         PragmaClangTextSection.PragmaLocation, AttributeCommonInfo::AS_Pragma));
 
-  if (D.isFunctionDefinition()) {
-    if (PragmaClangBSSSection.Valid)
-      NewFD->addAttr(PragmaClangBSSSectionAttr::CreateImplicit(
-          Context, PragmaClangBSSSection.SectionName,
-          PragmaClangBSSSection.PragmaLocation));
-    if (PragmaClangDataSection.Valid)
-      NewFD->addAttr(PragmaClangDataSectionAttr::CreateImplicit(
-          Context, PragmaClangDataSection.SectionName,
-          PragmaClangDataSection.PragmaLocation));
-    if (PragmaClangRodataSection.Valid)
-      NewFD->addAttr(PragmaClangRodataSectionAttr::CreateImplicit(
-          Context, PragmaClangRodataSection.SectionName,
-          PragmaClangRodataSection.PragmaLocation));
-    if (PragmaClangRelroSection.Valid)
-      NewFD->addAttr(PragmaClangRelroSectionAttr::CreateImplicit(
-          Context, PragmaClangRelroSection.SectionName,
-          PragmaClangRelroSection.PragmaLocation));
-  }
-
   // Apply an implicit SectionAttr if #pragma code_seg is active.
   if (CodeSegStack.CurrentValue && D.isFunctionDefinition() &&
       !NewFD->hasAttr<SectionAttr>()) {
@@ -9569,6 +9528,29 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       NewFD->dropAttr<AvailabilityAttr>();
     }
   }
+
+  // Diagnose no_builtin attribute on function declaration that are not a
+  // definition.
+  // FIXME: We should really be doing this in
+  // SemaDeclAttr.cpp::handleNoBuiltinAttr, unfortunately we only have access to
+  // the FunctionDecl and at this point of the code
+  // FunctionDecl::isThisDeclarationADefinition() which always returns `false`
+  // because Sema::ActOnStartOfFunctionDef has not been called yet.
+  if (const auto *NBA = NewFD->getAttr<NoBuiltinAttr>())
+    switch (D.getFunctionDefinitionKind()) {
+    case FDK_Defaulted:
+    case FDK_Deleted:
+      Diag(NBA->getLocation(),
+           diag::err_attribute_no_builtin_on_defaulted_deleted_function)
+          << NBA->getSpelling();
+      break;
+    case FDK_Declaration:
+      Diag(NBA->getLocation(), diag::err_attribute_no_builtin_on_non_definition)
+          << NBA->getSpelling();
+      break;
+    case FDK_Definition:
+      break;
+    }
 
   return NewFD;
 }

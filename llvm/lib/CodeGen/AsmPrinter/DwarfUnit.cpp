@@ -1307,6 +1307,9 @@ void DwarfUnit::applySubprogramAttributes(const DISubprogram *SP, DIE &SPDie,
     addFlag(SPDie, dwarf::DW_AT_elemental);
   if (SP->isRecursive())
     addFlag(SPDie, dwarf::DW_AT_recursive);
+
+  if (DD->getDwarfVersion() >= 5 && SP->isDeleted())
+    addFlag(SPDie, dwarf::DW_AT_deleted);
 }
 
 void DwarfUnit::constructSubrangeDIE(DIE &Buffer, const DISubrange *SR,
@@ -1712,15 +1715,6 @@ void DwarfUnit::addRnglistsBase() {
   addSectionLabel(getUnitDie(), dwarf::DW_AT_rnglists_base,
                   DU->getRnglistsTableBaseSym(),
                   TLOF.getDwarfRnglistsSection()->getBeginSymbol());
-}
-
-void DwarfUnit::addLoclistsBase() {
-  assert(DD->getDwarfVersion() >= 5 &&
-         "DW_AT_loclists_base requires DWARF version 5 or later");
-  const TargetLoweringObjectFile &TLOF = Asm->getObjFileLowering();
-  addSectionLabel(getUnitDie(), dwarf::DW_AT_loclists_base,
-                  DU->getLoclistsTableBaseSym(),
-                  TLOF.getDwarfLoclistsSection()->getBeginSymbol());
 }
 
 void DwarfTypeUnit::finishNonUnitTypeDIE(DIE& D, const DICompositeType *CTy) {

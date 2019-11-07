@@ -3604,6 +3604,15 @@ def err_attribute_overloadable_no_prototype : Error<
 def err_attribute_overloadable_multiple_unmarked_overloads : Error<
   "at most one overload for a given name may lack the 'overloadable' "
   "attribute">;
+def warn_attribute_no_builtin_invalid_builtin_name : Warning<
+  "'%0' is not a valid builtin name for %1">,
+  InGroup<DiagGroup<"invalid-no-builtin-names">>;
+def err_attribute_no_builtin_wildcard_or_builtin_name : Error<
+  "empty %0 cannot be composed with named ones">;
+def err_attribute_no_builtin_on_non_definition : Error<
+  "%0 attribute is permitted on definitions only">;
+def err_attribute_no_builtin_on_defaulted_deleted_function : Error<
+  "%0 attribute has no effect on defaulted or deleted functions">;
 def warn_ns_attribute_wrong_return_type : Warning<
   "%0 attribute only applies to %select{functions|methods|properties}1 that "
   "return %select{an Objective-C object|a pointer|a non-retainable pointer}2">,
@@ -3769,7 +3778,8 @@ def note_ovl_too_many_candidates : Note<
     "pass -fshow-overloads=all to show them">;
 
 def select_ovl_candidate_kind : TextSubstitution<
-  "%select{function|function|constructor|"
+  "%select{function|function|function (with reversed parameter order)|"
+    "constructor|"
     "constructor (the implicit default constructor)|"
     "constructor (the implicit copy constructor)|"
     "constructor (the implicit move constructor)|"
@@ -3990,6 +4000,13 @@ def err_ovl_ambiguous_oper_unary : Error<
   "use of overloaded operator '%0' is ambiguous (operand type %1)">;
 def err_ovl_ambiguous_oper_binary : Error<
   "use of overloaded operator '%0' is ambiguous (with operand types %1 and %2)">;
+def ext_ovl_ambiguous_oper_binary_reversed : ExtWarn<
+  "ISO C++20 considers use of overloaded operator '%0' (with operand types %1 "
+  "and %2) to be ambiguous despite there being a unique best viable function">,
+  InGroup<DiagGroup<"ambiguous-reversed-operator">>, SFINAEFailure;
+def note_ovl_ambiguous_oper_binary_reversed_candidate : Note<
+  "ambiguity is between a regular call to this operator and a call with the "
+  "argument order reversed">;
 def err_ovl_no_viable_oper : Error<"no viable overloaded '%0'">;
 def note_assign_lhs_incomplete : Note<"type %0 is incomplete">;
 def err_ovl_deleted_oper : Error<
@@ -3997,6 +4014,9 @@ def err_ovl_deleted_oper : Error<
 def err_ovl_deleted_special_oper : Error<
   "object of type %0 cannot be %select{constructed|copied|moved|assigned|"
   "assigned|destroyed}1 because its %sub{select_special_member_kind}1 is implicitly deleted">;
+def err_ovl_rewrite_equalequal_not_bool : Error<
+  "return type %0 of selected 'operator==' function for rewritten "
+  "'%1' comparison is not 'bool'">;
 def err_ovl_no_viable_subscript :
     Error<"no viable overloaded operator[] for type %0">;
 def err_ovl_no_oper :
@@ -5734,6 +5754,9 @@ def note_precedence_silence : Note<
 def warn_precedence_conditional : Warning<
   "operator '?:' has lower precedence than '%0'; '%0' will be evaluated first">,
   InGroup<Parentheses>;
+def warn_precedence_bitwise_conditional : Warning<
+  "operator '?:' has lower precedence than '%0'; '%0' will be evaluated first">,
+  InGroup<BitwiseConditionalParentheses>;
 def note_precedence_conditional_first : Note<
   "place parentheses around the '?:' expression to evaluate it first">;
 
@@ -6416,6 +6439,8 @@ def warn_objc_unsafe_perform_selector : Warning<
   InGroup<DiagGroup<"objc-unsafe-perform-selector">>;
 def note_objc_unsafe_perform_selector_method_declared_here :  Note<
   "method %0 that returns %1 declared here">;
+def err_attribute_arm_mve_alias : Error<
+  "'__clang_arm_mve_alias' attribute can only be applied to an ARM MVE builtin">;
 
 def warn_setter_getter_impl_required : Warning<
   "property %0 requires method %1 to be defined - "
@@ -6543,10 +6568,10 @@ def err_downcast_from_inaccessible_base : Error<
 def err_upcast_to_inaccessible_base : Error<
   "cannot cast %0 to its %select{private|protected}2 base class %1">;
 def err_bad_dynamic_cast_not_ref_or_ptr : Error<
-  "%0 is not a reference or pointer">;
-def err_bad_dynamic_cast_not_class : Error<"%0 is not a class">;
+  "invalid target type %0 for dynamic_cast; target type must be a reference or pointer type to a defined class">;
+def err_bad_dynamic_cast_not_class : Error<"%0 is not a class type">;
 def err_bad_dynamic_cast_incomplete : Error<"%0 is an incomplete type">;
-def err_bad_dynamic_cast_not_ptr : Error<"%0 is not a pointer">;
+def err_bad_dynamic_cast_not_ptr : Error<"cannot use dynamic_cast to convert from %0 to %1">;
 def err_bad_dynamic_cast_not_polymorphic : Error<"%0 is not polymorphic">;
 
 // Other C++ expressions
@@ -8085,6 +8110,46 @@ def note_vbase_moved_here : Note<
   "%select{%1 is a virtual base class of base class %2 declared here|"
   "virtual base class %1 declared here}0">;
 
+// C++20 defaulted comparisons
+// This corresponds to values of Sema::DefaultedComparisonKind.
+def select_defaulted_comparison_kind : TextSubstitution<
+  "%select{<ERROR>|equality|three-way|equality|relational}0 comparison "
+  "operator">;
+def ext_defaulted_comparison : ExtWarn<
+  "defaulted comparison operators are a C++20 extension">, InGroup<CXX2a>;
+def warn_cxx17_compat_defaulted_comparison : Warning<
+  "defaulted comparison operators are incompatible with C++ standards "
+  "before C++20">, InGroup<CXXPre2aCompat>, DefaultIgnore;
+def err_defaulted_comparison_template : Error<
+  "comparison operator template cannot be defaulted">;
+def err_defaulted_comparison_out_of_class : Error<
+  "%sub{select_defaulted_comparison_kind}0 can only be defaulted in a class "
+  "definition">;
+def err_defaulted_comparison_param : Error<
+  "invalid parameter type for defaulted %sub{select_defaulted_comparison_kind}0"
+  "%diff{; found $, expected $|}1,2">;
+def err_defaulted_comparison_non_const : Error<
+  "defaulted member %sub{select_defaulted_comparison_kind}0 must be "
+  "const-qualified">;
+def err_defaulted_comparison_return_type_not_bool : Error<
+  "return type for defaulted %sub{select_defaulted_comparison_kind}0 "
+  "must be 'bool', not %1">;
+def err_defaulted_comparison_reference_member : Error<
+  "cannot default %0 in class %1 with reference member">;
+def ext_defaulted_comparison_reference_member : ExtWarn<
+  "ISO C++2a does not allow defaulting %0 in class %1 with reference member">,
+  InGroup<DefaultedComparison>;
+def note_reference_member : Note<"reference member %0 declared here">;
+def err_defaulted_comparison_union : Error<
+  "cannot default %0 in %select{union-like class|union}1 %2">;
+def ext_defaulted_comparison_union : ExtWarn<
+  "ISO C++2a does not allow defaulting %0 in "
+  "%select{union-like class|union}1 %2">, InGroup<DefaultedComparison>;
+def ext_defaulted_comparison_empty_union : ExtWarn<
+  "ISO C++2a does not allow defaulting %0 in "
+  "%select{union-like class|union}1 %2 despite it having no variant members">,
+  InGroup<DefaultedComparison>;
+
 def ext_implicit_exception_spec_mismatch : ExtWarn<
   "function previously declared with an %select{explicit|implicit}0 exception "
   "specification redeclared with an %select{implicit|explicit}0 exception "
@@ -8321,7 +8386,10 @@ def warn_comparison_always : Warning<
   InGroup<TautologicalCompare>;
 def warn_comparison_bitwise_always : Warning<
   "bitwise comparison always evaluates to %select{false|true}0">,
-  InGroup<TautologicalCompare>;
+  InGroup<TautologicalBitwiseCompare>, DefaultIgnore;
+def warn_comparison_bitwise_or : Warning<
+  "bitwise or with non-zero value always evaluates to true">,
+  InGroup<TautologicalBitwiseCompare>, DefaultIgnore;
 def warn_tautological_overlap_comparison : Warning<
   "overlapping comparisons always evaluate to %select{false|true}0">,
   InGroup<TautologicalOverlapCompare>, DefaultIgnore;
@@ -8618,6 +8686,12 @@ def warn_argument_invalid_range : Warning<
   InGroup<DiagGroup<"argument-outside-range">>;
 def err_argument_not_multiple : Error<
   "argument should be a multiple of %0">;
+def err_argument_not_power_of_2 : Error<
+  "argument should be a power of 2">;
+def err_argument_not_shifted_byte : Error<
+  "argument should be an 8-bit value shifted by a multiple of 8 bits">;
+def err_argument_not_shifted_byte_or_xxff : Error<
+  "argument should be an 8-bit value shifted by a multiple of 8 bits, or in the form 0x??FF">;
 def warn_neon_vector_initializer_non_portable : Warning<
   "vector initializers are not compatible with NEON intrinsics in big endian "
   "mode">, InGroup<DiagGroup<"nonportable-vector-initialization">>;
@@ -9961,6 +10035,8 @@ def err_std_compare_type_not_supported : Error<
    "member '%2' is missing|"
    "the type is not trivially copyable|"
    "the type does not have the expected form}1">;
+def note_rewriting_operator_as_spaceship : Note<
+  "while rewriting comparison as call to 'operator<=>' declared here">;
 
 // Memory Tagging Extensions (MTE) diagnostics
 def err_memtag_arg_null_or_pointer : Error<
@@ -9996,29 +10072,27 @@ def err_bit_cast_type_size_mismatch : Error<
   "__builtin_bit_cast source size does not equal destination size (%0 vs %1)">;
 
 // Pragma transform support.
+def err_sema_transform_expected_loop : Error<
+  "cannot find loop to transform">;
+def err_sema_transform_unroll_full_or_partial : Error<
+  "the full and partial clauses are mutually exclusive">;
 def err_sema_transform_unrollandjam_expect_nested_loop : Error<
   "unroll-and-jam requires exactly one nested loop">;
 def err_sema_transform_unrollandjam_not_innermost : Error<
   "inner loop of unroll-and-jam is not the innermost">;
 def err_sema_transform_missing_loop : Error<
   "transformation did not find its loop to transform; it might have been consumed by another transformations">;
-def err_sema_transform_unroll_full_or_partial : Error<
-  "unroll full/partial clauses specified multiple times">;
-def err_sema_transform_unroll_factor_expect_int : Error<
-  "unroll partial clause expects an int">;
-def err_sema_transform_unroll_partial_once : Error<
-  "unroll-and-jam partial clause can only be used once">;
-def err_sema_transform_vectorize_width_once : Error<
-  "vectorize width clause can only be used once">;
-def err_sema_transform_interleave_factor_once : Error<
-  "interleave factor clause can only be used once">;
-def err_sema_transform_expected_loop : Error<
-  "cannot find loop to transform">;
-def err_sema_transform_unroll_partial_ge_two : Error<
-  "unroll factor must be at least two">;
-  def err_sema_transform_interleave_factor_ge_two : Error<
-  "interleave factor must be at least two">;
+def err_sema_transform_clause_one_max : Error<
+  "the %0 clause can be specified at most once">;
+def err_sema_transform_clause_arg_expect_int : Error<
+  "clause expects an integer argument">;
+def err_sema_transform_clause_arg_min_val : Error<
+  "clause argument must me at least %0">;
+def err_sema_transform_legacy_mix : Error<
+  "Cannot combine #pragma clang transform with other transformations">;
+
 def warn_sema_transform_pass_order : Warning<
-  "the LLVM pass structure currently is not able to apply the transformations in this order">, InGroup<ClangTransform>;
+  "the LLVM pass structure currently is not able to apply the transformations in this order">,
+  InGroup<ClangTransform>;
 
 } // end of sema component.

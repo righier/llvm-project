@@ -1702,18 +1702,23 @@ llvm::Value *CGOpenMPRuntime::getThreadID(CodeGenFunction &CGF,
       return ThreadID;
   }
   // If exceptions are enabled, do not use parameter to avoid possible crash.
-  if (!CGF.EHStack.requiresLandingPad() || !CGF.getLangOpts().Exceptions ||
-      !CGF.getLangOpts().CXXExceptions ||
-      CGF.Builder.GetInsertBlock() == CGF.AllocaInsertPt->getParent()) {
-    if (auto *OMPRegionInfo =
-            dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo)) {
-      if (OMPRegionInfo->getThreadIDVariable()) {
-        // Check if this an outlined function with thread id passed as argument.
-        LValue LVal = OMPRegionInfo->getThreadIDVariableLValue(CGF);
+  if (auto *OMPRegionInfo =
+          dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo)) {
+    if (OMPRegionInfo->getThreadIDVariable()) {
+      // Check if this an outlined function with thread id passed as argument.
+      LValue LVal = OMPRegionInfo->getThreadIDVariableLValue(CGF);
+      llvm::BasicBlock *TopBlock = CGF.AllocaInsertPt->getParent();
+      if (!CGF.EHStack.requiresLandingPad() || !CGF.getLangOpts().Exceptions ||
+          !CGF.getLangOpts().CXXExceptions ||
+          CGF.Builder.GetInsertBlock() == TopBlock ||
+          !isa<llvm::Instruction>(LVal.getPointer()) ||
+          cast<llvm::Instruction>(LVal.getPointer())->getParent() == TopBlock ||
+          cast<llvm::Instruction>(LVal.getPointer())->getParent() ==
+              CGF.Builder.GetInsertBlock()) {
         ThreadID = CGF.EmitLoadOfScalar(LVal, Loc);
         // If value loaded in entry block, cache it and use it everywhere in
         // function.
-        if (CGF.Builder.GetInsertBlock() == CGF.AllocaInsertPt->getParent()) {
+        if (CGF.Builder.GetInsertBlock() == TopBlock) {
           auto &Elem = OpenMPLocThreadIDMap.FindAndConstruct(CGF.CurFn);
           Elem.second.ThreadID = ThreadID;
         }
@@ -3080,17 +3085,15 @@ void CGOpenMPRuntime::emitParallelCall(CodeGenFunction &CGF, SourceLocation Loc,
     CGF.EmitRuntimeCall(
         RT.createRuntimeFunction(OMPRTL__kmpc_serialized_parallel), Args);
 
-    // OutlinedFn(&zero, &zero_bound, CapturedStruct);
-    Address ZeroAddr = CGF.CreateDefaultAlignTempAlloca(CGF.Int32Ty,
-                                                        /*Name=*/".zero.addr");
-    CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
+    // OutlinedFn(&GTid, &zero_bound, CapturedStruct);
+    Address ThreadIDAddr = RT.emitThreadIDAddress(CGF, Loc);
     Address ZeroAddrBound =
         CGF.CreateDefaultAlignTempAlloca(CGF.Int32Ty,
                                          /*Name=*/".bound.zero.addr");
     CGF.InitTempAlloca(ZeroAddrBound, CGF.Builder.getInt32(/*C*/ 0));
     llvm::SmallVector<llvm::Value *, 16> OutlinedFnArgs;
     // ThreadId for serialized parallels is 0.
-    OutlinedFnArgs.push_back(ZeroAddr.getPointer());
+    OutlinedFnArgs.push_back(ThreadIDAddr.getPointer());
     OutlinedFnArgs.push_back(ZeroAddrBound.getPointer());
     OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
     RT.emitOutlinedFunctionCall(CGF, Loc, OutlinedFn, OutlinedFnArgs);
@@ -6710,7 +6713,9 @@ emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
   case OMPD_taskloop:
   case OMPD_taskloop_simd:
   case OMPD_master_taskloop:
+  case OMPD_master_taskloop_simd:
   case OMPD_parallel_master_taskloop:
+  case OMPD_parallel_master_taskloop_simd:
   case OMPD_requires:
   case OMPD_unknown:
     break;
@@ -7018,7 +7023,9 @@ emitNumThreadsForTargetDirective(CodeGenFunction &CGF,
   case OMPD_taskloop:
   case OMPD_taskloop_simd:
   case OMPD_master_taskloop:
+  case OMPD_master_taskloop_simd:
   case OMPD_parallel_master_taskloop:
+  case OMPD_parallel_master_taskloop_simd:
   case OMPD_requires:
   case OMPD_unknown:
     break;
@@ -8791,7 +8798,9 @@ getNestedDistributeDirective(ASTContext &Ctx, const OMPExecutableDirective &D) {
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_master_taskloop:
+    case OMPD_master_taskloop_simd:
     case OMPD_parallel_master_taskloop:
+    case OMPD_parallel_master_taskloop_simd:
     case OMPD_requires:
     case OMPD_unknown:
       llvm_unreachable("Unexpected directive.");
@@ -9554,7 +9563,9 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_master_taskloop:
+    case OMPD_master_taskloop_simd:
     case OMPD_parallel_master_taskloop:
+    case OMPD_parallel_master_taskloop_simd:
     case OMPD_requires:
     case OMPD_unknown:
       llvm_unreachable("Unknown target directive for OpenMP device codegen.");
@@ -10171,7 +10182,9 @@ void CGOpenMPRuntime::emitTargetDataStandAloneCall(
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_master_taskloop:
+    case OMPD_master_taskloop_simd:
     case OMPD_parallel_master_taskloop:
+    case OMPD_parallel_master_taskloop_simd:
     case OMPD_target:
     case OMPD_target_simd:
     case OMPD_target_teams_distribute:
@@ -11042,40 +11055,10 @@ bool checkContext<OMPDeclareVariantAttr::CtxSetImplementation,
 }
 
 static bool greaterCtxScore(ASTContext &Ctx, const Expr *LHS, const Expr *RHS) {
-  // If both scores are unknown, choose the very first one.
-  if (!LHS && !RHS)
-    return true;
-  // If only one is known, return this one.
-  if (LHS && !RHS)
-    return true;
-  if (!LHS && RHS)
-    return false;
   llvm::APSInt LHSVal = LHS->EvaluateKnownConstInt(Ctx);
   llvm::APSInt RHSVal = RHS->EvaluateKnownConstInt(Ctx);
   return llvm::APSInt::compareValues(LHSVal, RHSVal) >= 0;
 }
-
-namespace {
-/// Comparator for the priority queue for context selector.
-class OMPDeclareVariantAttrComparer
-    : public std::greater<const OMPDeclareVariantAttr *> {
-private:
-  ASTContext &Ctx;
-
-public:
-  OMPDeclareVariantAttrComparer(ASTContext &Ctx) : Ctx(Ctx) {}
-  bool operator()(const OMPDeclareVariantAttr *LHS,
-                  const OMPDeclareVariantAttr *RHS) const {
-    const Expr *LHSExpr = nullptr;
-    const Expr *RHSExpr = nullptr;
-    if (LHS->getCtxScore() == OMPDeclareVariantAttr::ScoreSpecified)
-      LHSExpr = LHS->getScore();
-    if (RHS->getCtxScore() == OMPDeclareVariantAttr::ScoreSpecified)
-      RHSExpr = RHS->getScore();
-    return greaterCtxScore(Ctx, LHSExpr, RHSExpr);
-  }
-};
-} // anonymous namespace
 
 /// Finds the variant function that matches current context with its context
 /// selector.
@@ -11086,13 +11069,7 @@ static const FunctionDecl *getDeclareVariantFunction(ASTContext &Ctx,
   // Iterate through all DeclareVariant attributes and check context selectors.
   auto &&Comparer = [&Ctx](const OMPDeclareVariantAttr *LHS,
                            const OMPDeclareVariantAttr *RHS) {
-    const Expr *LHSExpr = nullptr;
-    const Expr *RHSExpr = nullptr;
-    if (LHS->getCtxScore() == OMPDeclareVariantAttr::ScoreSpecified)
-      LHSExpr = LHS->getScore();
-    if (RHS->getCtxScore() == OMPDeclareVariantAttr::ScoreSpecified)
-      RHSExpr = RHS->getScore();
-    return greaterCtxScore(Ctx, LHSExpr, RHSExpr);
+    return greaterCtxScore(Ctx, LHS->getScore(), RHS->getScore());
   };
   const OMPDeclareVariantAttr *TopMostAttr = nullptr;
   for (const auto *A : FD->specific_attrs<OMPDeclareVariantAttr>()) {

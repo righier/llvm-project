@@ -347,44 +347,44 @@ public:
   TransformClause *TransformTransformClause(TransformClause *S);
 
   TransformClause *TransformFullClause(FullClause *C) {
-    return RebuildFullClause(C->getLoc());
+    return RebuildFullClause(C->getRange());
   }
 
-  TransformClause *RebuildFullClause(SourceRange Loc) {
-    return getSema().ActOnFullClause(Loc);
+  TransformClause *RebuildFullClause(SourceRange Range) {
+    return getSema().ActOnFullClause(Range);
   }
 
   TransformClause *TransformPartialClause(PartialClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getFactor());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildPartialClause(C->getLoc(), E.get());
+    return getDerived().RebuildPartialClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildPartialClause(SourceRange Loc, Expr *Factor) {
-    return getSema().ActOnPartialClause(Loc, Factor);
+  TransformClause *RebuildPartialClause(SourceRange Range, Expr *Factor) {
+    return getSema().ActOnPartialClause(Range, Factor);
   }
 
   TransformClause *TransformWidthClause(WidthClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getWidth());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildWidthClause(C->getLoc(), E.get());
+    return getDerived().RebuildWidthClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildWidthClause(SourceRange Loc, Expr *Width) {
-    return getSema().ActOnWidthClause(Loc, Width);
+  TransformClause *RebuildWidthClause(SourceRange Range, Expr *Width) {
+    return getSema().ActOnWidthClause(Range, Width);
   }
 
   TransformClause *TransformFactorClause(FactorClause *C) {
     ExprResult E = getDerived().TransformExpr(C->getFactor());
     if (E.isInvalid())
       return nullptr;
-    return getDerived().RebuildFactorClause(C->getLoc(), E.get());
+    return getDerived().RebuildFactorClause(C->getRange(), E.get());
   }
 
-  TransformClause *RebuildFactorClause(SourceRange Loc, Expr *Factor) {
-    return getSema().ActOnFactorClause(Loc, Factor);
+  TransformClause *RebuildFactorClause(SourceRange Range, Expr *Factor) {
+    return getSema().ActOnFactorClause(Range, Factor);
   }
 
   /// Transform the given statement.
@@ -1550,11 +1550,10 @@ public:
   }
 
   StmtResult
-  RebuildTransformExecutableDirective(Transform::Kind Kind, Transform *Trans,
-                                      llvm::ArrayRef<TransformClause *> Clauses,
+  RebuildTransformExecutableDirective(Transform::Kind Kind,                                       llvm::ArrayRef<TransformClause *> Clauses,
                                       Stmt *AStmt, SourceRange Loc) {
     StmtResult Result =
-        getSema().ActOnLoopTransformDirective(Kind, Trans, Clauses, AStmt, Loc);
+        getSema().ActOnLoopTransformDirective(Kind,  Clauses, AStmt, Loc);
     assert(!Result.isUsable() ||
            isa<TransformExecutableDirective>(Result.get()));
     return Result;
@@ -2408,6 +2407,17 @@ public:
                                          BinaryOperatorKind Opc,
                                          Expr *LHS, Expr *RHS) {
     return getSema().BuildBinOp(/*Scope=*/nullptr, OpLoc, Opc, LHS, RHS);
+  }
+
+  /// Build a new rewritten operator expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildCXXRewrittenBinaryOperator(
+      SourceLocation OpLoc, BinaryOperatorKind Opcode,
+      const UnresolvedSetImpl &UnqualLookups, Expr *LHS, Expr *RHS) {
+    return getSema().CreateOverloadedBinOp(OpLoc, Opcode, UnqualLookups, LHS,
+                                           RHS, /*RequiresADL*/false);
   }
 
   /// Build a new conditional operator expression.
@@ -4612,7 +4622,7 @@ QualType TreeTransform<Derived>::TransformDecayedType(TypeLocBuilder &TLB,
 
 /// Helper to deduce addr space of a pointee type in OpenCL mode.
 /// If the type is updated it will be overwritten in PointeeType param.
-static void deduceOpenCLPointeeAddrSpace(Sema &SemaRef, QualType &PointeeType) {
+inline void deduceOpenCLPointeeAddrSpace(Sema &SemaRef, QualType &PointeeType) {
   if (PointeeType.getAddressSpace() == LangAS::Default)
     PointeeType = SemaRef.Context.getAddrSpaceQualType(PointeeType,
                                                        LangAS::opencl_generic);
@@ -7920,7 +7930,7 @@ TreeTransform<Derived>::TransformTransformClause(TransformClause *S) {
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   case TransformClause::Kind::Name##Kind:                                      \
     return getDerived().Transform##Name##Clause(cast<Name##Clause>(S));
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   case TransformClause::Kind::UnknownKind:
     llvm_unreachable("Should not be unknown");
   }
@@ -7941,9 +7951,8 @@ StmtResult TreeTransform<Derived>::TransformTransformExecutableDirective(
   StmtResult TBody = getDerived().TransformStmt(AStmt);
   assert(TBody.isUsable());
 
-  Transform *Trans = getDerived().TransformTransform(D->getTransform());
   StmtResult TDirective = getDerived().RebuildTransformExecutableDirective(
-      D->getTransformKind(), Trans, TClauses, TBody.get(), D->getLoc());
+      D->getTransformKind(), TClauses, TBody.get(), D->getRange());
   return TDirective;
 }
 
@@ -8371,11 +8380,34 @@ StmtResult TreeTransform<Derived>::TransformOMPMasterTaskLoopDirective(
 }
 
 template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformOMPMasterTaskLoopSimdDirective(
+    OMPMasterTaskLoopSimdDirective *D) {
+  DeclarationNameInfo DirName;
+  getDerived().getSema().StartOpenMPDSABlock(OMPD_master_taskloop_simd, DirName,
+                                             nullptr, D->getBeginLoc());
+  StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
+  getDerived().getSema().EndOpenMPDSABlock(Res.get());
+  return Res;
+}
+
+template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformOMPParallelMasterTaskLoopDirective(
     OMPParallelMasterTaskLoopDirective *D) {
   DeclarationNameInfo DirName;
   getDerived().getSema().StartOpenMPDSABlock(
       OMPD_parallel_master_taskloop, DirName, nullptr, D->getBeginLoc());
+  StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
+  getDerived().getSema().EndOpenMPDSABlock(Res.get());
+  return Res;
+}
+
+template <typename Derived>
+StmtResult
+TreeTransform<Derived>::TransformOMPParallelMasterTaskLoopSimdDirective(
+    OMPParallelMasterTaskLoopSimdDirective *D) {
+  DeclarationNameInfo DirName;
+  getDerived().getSema().StartOpenMPDSABlock(
+      OMPD_parallel_master_taskloop_simd, DirName, nullptr, D->getBeginLoc());
   StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
   getDerived().getSema().EndOpenMPDSABlock(Res.get());
   return Res;
@@ -9850,6 +9882,50 @@ TreeTransform<Derived>::TransformBinaryOperator(BinaryOperator *E) {
 
   return getDerived().RebuildBinaryOperator(E->getOperatorLoc(), E->getOpcode(),
                                             LHS.get(), RHS.get());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXRewrittenBinaryOperator(
+    CXXRewrittenBinaryOperator *E) {
+  CXXRewrittenBinaryOperator::DecomposedForm Decomp = E->getDecomposedForm();
+
+  ExprResult LHS = getDerived().TransformExpr(const_cast<Expr*>(Decomp.LHS));
+  if (LHS.isInvalid())
+    return ExprError();
+
+  ExprResult RHS = getDerived().TransformExpr(const_cast<Expr*>(Decomp.RHS));
+  if (RHS.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() &&
+      LHS.get() == Decomp.LHS &&
+      RHS.get() == Decomp.RHS)
+    return E;
+
+  // Extract the already-resolved callee declarations so that we can restrict
+  // ourselves to using them as the unqualified lookup results when rebuilding.
+  UnresolvedSet<2> UnqualLookups;
+  Expr *PossibleBinOps[] = {E->getSemanticForm(),
+                            const_cast<Expr *>(Decomp.InnerBinOp)};
+  for (Expr *PossibleBinOp : PossibleBinOps) {
+    auto *Op = dyn_cast<CXXOperatorCallExpr>(PossibleBinOp->IgnoreImplicit());
+    if (!Op)
+      continue;
+    auto *Callee = dyn_cast<DeclRefExpr>(Op->getCallee()->IgnoreImplicit());
+    if (!Callee || isa<CXXMethodDecl>(Callee->getDecl()))
+      continue;
+
+    // Transform the callee in case we built a call to a local extern
+    // declaration.
+    NamedDecl *Found = cast_or_null<NamedDecl>(getDerived().TransformDecl(
+        E->getOperatorLoc(), Callee->getFoundDecl()));
+    if (!Found)
+      return ExprError();
+    UnqualLookups.addDecl(Found);
+  }
+
+  return getDerived().RebuildCXXRewrittenBinaryOperator(
+      E->getOperatorLoc(), Decomp.Opcode, UnqualLookups, LHS.get(), RHS.get());
 }
 
 template<typename Derived>
@@ -11525,17 +11601,18 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
                                         E->getCaptureDefault());
   getDerived().transformedLocalDecl(OldClass, {Class});
 
-  Optional<std::pair<unsigned, Decl*>> Mangling;
+  Optional<std::tuple<unsigned, bool, Decl *>> Mangling;
   if (getDerived().ReplacingOriginal())
-    Mangling = std::make_pair(OldClass->getLambdaManglingNumber(),
-                              OldClass->getLambdaContextDecl());
+    Mangling = std::make_tuple(OldClass->getLambdaManglingNumber(),
+                               OldClass->hasKnownLambdaInternalLinkage(),
+                               OldClass->getLambdaContextDecl());
 
   // Build the call operator.
   CXXMethodDecl *NewCallOperator = getSema().startLambdaDefinition(
       Class, E->getIntroducerRange(), NewCallOpTSI,
       E->getCallOperator()->getEndLoc(),
       NewCallOpTSI->getTypeLoc().castAs<FunctionProtoTypeLoc>().getParams(),
-      E->getCallOperator()->getConstexprKind(), Mangling);
+      E->getCallOperator()->getConstexprKind());
 
   LSI->CallOperator = NewCallOperator;
 
@@ -11554,6 +11631,9 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
   getDerived().transformAttrs(E->getCallOperator(), NewCallOperator);
   getDerived().transformedLocalDecl(E->getCallOperator(), {NewCallOperator});
+
+  // Number the lambda for linkage purposes if necessary.
+  getSema().handleLambdaNumbering(Class, NewCallOperator, Mangling);
 
   // Introduce the context of the call operator.
   Sema::ContextRAII SavedContext(getSema(), NewCallOperator,

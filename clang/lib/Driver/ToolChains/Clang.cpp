@@ -378,15 +378,20 @@ static void addExceptionArgs(const ArgList &Args, types::ID InputType,
     CmdArgs.push_back("-fexceptions");
 }
 
-static bool ShouldDisableAutolink(const ArgList &Args, const ToolChain &TC) {
+static bool ShouldEnableAutolink(const ArgList &Args, const ToolChain &TC,
+                                 const JobAction &JA) {
   bool Default = true;
   if (TC.getTriple().isOSDarwin()) {
     // The native darwin assembler doesn't support the linker_option directives,
     // so we disable them if we think the .s file will be passed to it.
     Default = TC.useIntegratedAs();
   }
-  return !Args.hasFlag(options::OPT_fautolink, options::OPT_fno_autolink,
-                       Default);
+  // The linker_option directives are intended for host compilation.
+  if (JA.isDeviceOffloading(Action::OFK_Cuda) ||
+      JA.isDeviceOffloading(Action::OFK_HIP))
+    Default = false;
+  return Args.hasFlag(options::OPT_fautolink, options::OPT_fno_autolink,
+                      Default);
 }
 
 static bool ShouldDisableDwarfDirectory(const ArgList &Args,
@@ -3198,11 +3203,16 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
   }
 
   // If a -gdwarf argument appeared, remember it.
-  if (const Arg *A =
-          Args.getLastArg(options::OPT_gdwarf_2, options::OPT_gdwarf_3,
-                          options::OPT_gdwarf_4, options::OPT_gdwarf_5))
-    if (checkDebugInfoOption(A, Args, D, TC))
-      DWARFVersion = DwarfVersionNum(A->getSpelling());
+  const Arg *GDwarfN = Args.getLastArg(
+      options::OPT_gdwarf_2, options::OPT_gdwarf_3, options::OPT_gdwarf_4,
+      options::OPT_gdwarf_5, options::OPT_gdwarf);
+  bool EmitDwarf = false;
+  if (GDwarfN) {
+    if (checkDebugInfoOption(GDwarfN, Args, D, TC))
+      EmitDwarf = true;
+    else
+      GDwarfN = nullptr;
+  }
 
   if (const Arg *A = Args.getLastArg(options::OPT_gcodeview)) {
     if (checkDebugInfoOption(A, Args, D, TC))
@@ -3211,16 +3221,27 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
 
   // If the user asked for debug info but did not explicitly specify -gcodeview
   // or -gdwarf, ask the toolchain for the default format.
-  if (!EmitCodeView && DWARFVersion == 0 &&
+  if (!EmitCodeView && !EmitDwarf &&
       DebugInfoKind != codegenoptions::NoDebugInfo) {
     switch (TC.getDefaultDebugFormat()) {
     case codegenoptions::DIF_CodeView:
       EmitCodeView = true;
       break;
     case codegenoptions::DIF_DWARF:
-      DWARFVersion = TC.GetDefaultDwarfVersion();
+      EmitDwarf = true;
       break;
     }
+  }
+
+  if (EmitDwarf) {
+    // Start with the platform default DWARF version
+    DWARFVersion = TC.GetDefaultDwarfVersion();
+    assert(DWARFVersion && "toolchain default DWARF version must be nonzero");
+
+    // Override with a user-specified DWARF version
+    if (GDwarfN)
+      if (auto ExplicitVersion = DwarfVersionNum(GDwarfN->getSpelling()))
+        DWARFVersion = ExplicitVersion;
   }
 
   // -gline-directives-only supported only for the DWARF debug info.
@@ -3296,6 +3317,12 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     }
   }
 
+  // Omit inline line tables if requested.
+  if (Args.hasFlag(options::OPT_gno_inline_line_tables,
+                   options::OPT_ginline_line_tables, false)) {
+    CmdArgs.push_back("-gno-inline-line-tables");
+  }
+
   // Adjust the debug info kind for the given toolchain.
   TC.adjustDebugInfoKind(DebugInfoKind, Args);
 
@@ -3338,6 +3365,10 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
     CmdArgs.push_back("-mllvm");
     CmdArgs.push_back("-generate-arange-section");
   }
+
+  if (Args.hasFlag(options::OPT_fforce_dwarf_frame,
+                   options::OPT_fno_force_dwarf_frame, false))
+    CmdArgs.push_back("-fforce-dwarf-frame");
 
   if (Args.hasFlag(options::OPT_fdebug_types_section,
                    options::OPT_fno_debug_types_section, false)) {
@@ -3631,13 +3662,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
     if (D.isUsingLTO() && !isDeviceOffloadAction) {
       Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
-
-      // The Darwin and PS4 linkers currently use the legacy LTO API, which
-      // does not support LTO unit features (CFI, whole program vtable opt)
-      // under ThinLTO.
-      if (!(RawTriple.isOSDarwin() || RawTriple.isPS4()) ||
-          D.getLTOMode() == LTOK_Full)
-        CmdArgs.push_back("-flto-unit");
+      CmdArgs.push_back("-flto-unit");
     }
   }
 
@@ -3646,6 +3671,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::err_drv_arg_requires_bitcode_input) << A->getAsString(Args);
     Args.AddLastArg(CmdArgs, options::OPT_fthinlto_index_EQ);
   }
+
+  if (Args.getLastArg(options::OPT_fthin_link_bitcode_EQ))
+    Args.AddLastArg(CmdArgs, options::OPT_fthin_link_bitcode_EQ);
 
   if (Args.getLastArg(options::OPT_save_temps_EQ))
     Args.AddLastArg(CmdArgs, options::OPT_save_temps_EQ);
@@ -4368,7 +4396,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (ShouldDisableDwarfDirectory(Args, TC))
     CmdArgs.push_back("-fno-dwarf-directory-asm");
 
-  if (ShouldDisableAutolink(Args, TC))
+  if (!ShouldEnableAutolink(Args, TC, JA))
     CmdArgs.push_back("-fno-autolink");
 
   // Add in -fdebug-compilation-dir if necessary.
@@ -4587,6 +4615,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (TC.SupportsProfiling())
     Args.AddLastArg(CmdArgs, options::OPT_mfentry);
+
+  if (TC.SupportsProfiling())
+    Args.AddLastArg(CmdArgs, options::OPT_mnop_mcount);
 
   if (Args.getLastArg(options::OPT_fapple_kext) ||
       (Args.hasArg(options::OPT_mkernel) && types::isCXX(InputType)))
@@ -5337,6 +5368,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-fcuda-short-ptr");
   }
 
+  if (IsHIP)
+    CmdArgs.push_back("-fcuda-allow-variadic-functions");
+
   // OpenMP offloading device jobs take the argument -fopenmp-host-ir-file-path
   // to specify the result of the compile phase on the host, so the meaningful
   // device declarations can be identified. Also, -fopenmp-is-device is passed
@@ -5369,9 +5403,30 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString(TargetInfo.str()));
   }
 
-  bool WholeProgramVTables =
-      Args.hasFlag(options::OPT_fwhole_program_vtables,
-                   options::OPT_fno_whole_program_vtables, false);
+  bool VirtualFunctionElimination =
+      Args.hasFlag(options::OPT_fvirtual_function_elimination,
+                   options::OPT_fno_virtual_function_elimination, false);
+  if (VirtualFunctionElimination) {
+    // VFE requires full LTO (currently, this might be relaxed to allow ThinLTO
+    // in the future).
+    if (D.getLTOMode() != LTOK_Full)
+      D.Diag(diag::err_drv_argument_only_allowed_with)
+          << "-fvirtual-function-elimination"
+          << "-flto=full";
+
+    CmdArgs.push_back("-fvirtual-function-elimination");
+  }
+
+  // VFE requires whole-program-vtables, and enables it by default.
+  bool WholeProgramVTables = Args.hasFlag(
+      options::OPT_fwhole_program_vtables,
+      options::OPT_fno_whole_program_vtables, VirtualFunctionElimination);
+  if (VirtualFunctionElimination && !WholeProgramVTables) {
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+        << "-fno-whole-program-vtables"
+        << "-fvirtual-function-elimination";
+  }
+
   if (WholeProgramVTables) {
     if (!D.isUsingLTO())
       D.Diag(diag::err_drv_argument_only_allowed_with)
@@ -5380,7 +5435,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fwhole-program-vtables");
   }
 
-  bool DefaultsSplitLTOUnit = WholeProgramVTables || Sanitize.needsLTO();
+  bool DefaultsSplitLTOUnit =
+      (WholeProgramVTables || Sanitize.needsLTO()) &&
+      (D.getLTOMode() == LTOK_Full || TC.canSplitThinLTOUnit());
   bool SplitLTOUnit =
       Args.hasFlag(options::OPT_fsplit_lto_unit,
                    options::OPT_fno_split_lto_unit, DefaultsSplitLTOUnit);
@@ -5952,26 +6009,19 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
   }
 
   if (Arg *A = Args.getLastArg(options::OPT__SLASH_guard)) {
-    SmallVector<StringRef, 1> SplitArgs;
-    StringRef(A->getValue()).split(SplitArgs, ",");
-    bool Instrument = false;
-    bool NoChecks = false;
-    for (StringRef Arg : SplitArgs) {
-      if (Arg.equals_lower("cf"))
-        Instrument = true;
-      else if (Arg.equals_lower("cf-"))
-        Instrument = false;
-      else if (Arg.equals_lower("nochecks"))
-        NoChecks = true;
-      else if (Arg.equals_lower("nochecks-"))
-        NoChecks = false;
-      else
-        D.Diag(diag::err_drv_invalid_value) << A->getSpelling() << Arg;
-    }
-    // Currently there's no support emitting CFG instrumentation; the flag only
-    // emits the table of address-taken functions.
-    if (Instrument || NoChecks)
+    StringRef GuardArgs = A->getValue();
+    // The only valid options are "cf", "cf,nochecks", and "cf-".
+    if (GuardArgs.equals_lower("cf")) {
+      // Emit CFG instrumentation and the table of address-taken functions.
       CmdArgs.push_back("-cfguard");
+    } else if (GuardArgs.equals_lower("cf,nochecks")) {
+      // Emit only the table of address-taken functions.
+      CmdArgs.push_back("-cfguard-no-checks");
+    } else if (GuardArgs.equals_lower("cf-")) {
+      // Do nothing, but we might want to emit a security warning in future.
+    } else {
+      D.Diag(diag::err_drv_invalid_value) << A->getSpelling() << GuardArgs;
+    }
   }
 }
 

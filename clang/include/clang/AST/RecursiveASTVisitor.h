@@ -540,12 +540,10 @@ private:
   bool TraverseTransformClause(TransformClause *C);
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   bool Visit##Name##Clause(Name##Clause *C);
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
 
-  bool TraverseTransform(Transform *T);
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  bool Visit##Name##Transform(Name##Transform *T);
-#include "clang/AST/TransformKinds.def"
+
+
 
   bool dataTraverseNode(Stmt *S, DataRecursionQueue *Queue);
   bool PostVisitStmt(Stmt *S);
@@ -2617,6 +2615,15 @@ DEF_TRAVERSE_STMT(SEHLeaveStmt, {})
 DEF_TRAVERSE_STMT(CapturedStmt, { TRY_TO(TraverseDecl(S->getCapturedDecl())); })
 
 DEF_TRAVERSE_STMT(CXXOperatorCallExpr, {})
+DEF_TRAVERSE_STMT(CXXRewrittenBinaryOperator, {
+  if (!getDerived().shouldVisitImplicitCode()) {
+    CXXRewrittenBinaryOperator::DecomposedForm Decomposed =
+        S->getDecomposedForm();
+    TRY_TO(TraverseStmt(const_cast<Expr*>(Decomposed.LHS)));
+    TRY_TO(TraverseStmt(const_cast<Expr*>(Decomposed.RHS)));
+    ShouldVisitChildren = false;
+  }
+})
 DEF_TRAVERSE_STMT(OpaqueValueExpr, {})
 DEF_TRAVERSE_STMT(TypoExpr, {})
 DEF_TRAVERSE_STMT(CUDAKernelCallExpr, {})
@@ -2694,7 +2701,6 @@ DEF_TRAVERSE_STMT(ObjCDictionaryLiteral, {})
 DEF_TRAVERSE_STMT(AsTypeExpr, {})
 
 DEF_TRAVERSE_STMT(TransformExecutableDirective, {
-  TRY_TO(TraverseTransform(S->getTransform()));
   for (auto *C : S->clauses())
     TRY_TO(TraverseTransformClause(C));
 })
@@ -2816,7 +2822,13 @@ DEF_TRAVERSE_STMT(OMPTaskLoopSimdDirective,
 DEF_TRAVERSE_STMT(OMPMasterTaskLoopDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
+DEF_TRAVERSE_STMT(OMPMasterTaskLoopSimdDirective,
+                  { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
 DEF_TRAVERSE_STMT(OMPParallelMasterTaskLoopDirective,
+                  { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
+DEF_TRAVERSE_STMT(OMPParallelMasterTaskLoopSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
 DEF_TRAVERSE_STMT(OMPDistributeDirective,
@@ -2864,21 +2876,7 @@ DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeParallelForSimdDirective,
 DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
-template <typename Derived>
-bool RecursiveASTVisitor<Derived>::TraverseTransform(Transform *T) {
-  if (!T)
-    return true;
-  switch (T->getKind()) {
-  case Transform::Kind::UnknownKind:
-    llvm_unreachable("Cannot process unknown transformation");
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  case Transform::Kind::Name##Kind:                                            \
-    TRY_TO(Visit##Name##Transform(static_cast<Name##Transform *>(T)));         \
-    break;
-#include "clang/AST/TransformKinds.def"
-  }
-  return true;
-}
+
 
 template <typename Derived>
 bool RecursiveASTVisitor<Derived>::TraverseTransformClause(TransformClause *C) {
@@ -2891,7 +2889,7 @@ bool RecursiveASTVisitor<Derived>::TraverseTransformClause(TransformClause *C) {
   case TransformClause::Kind::Name##Kind:                                      \
     TRY_TO(Visit##Name##Clause(static_cast<Name##Clause *>(C)));               \
     break;
-#include "clang/AST/TransformKinds.def"
+#include "clang/AST/TransformClauseKinds.def"
   }
   return true;
 }
@@ -3416,13 +3414,7 @@ bool RecursiveASTVisitor<Derived>::VisitFactorClause(FactorClause *C) {
   return true;
 }
 
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  template <typename Derived>                                                  \
-  bool RecursiveASTVisitor<Derived>::Visit##Name##Transform(                   \
-      Name##Transform *T) {                                                    \
-    return true;                                                               \
-  }
-#include "clang/AST/TransformKinds.def"
+
 
 // FIXME: look at the following tricky-seeming exprs to see if we
 // need to recurse on anything.  These are ones that have methods
