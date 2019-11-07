@@ -11632,19 +11632,6 @@ public:
     BuiltinFunction
   };
 
-#if 0
-  using TransformResult = ActionResult<Transform *>;
-  static TransformResult TransformError() { return TransformResult(true); }
-  static TransformResult TransformError(const DiagnosticBuilder &) {
-    return TransformResult();
-  }
-  static TransformResult TransformEmpty() { return TransformResult(false); }
-
-  TransformResult ActOnTransform(Transform::Kind Kind,
-                                 llvm::ArrayRef<TransformClause *> Clauses,
-                                 SourceRange Loc);
-#endif 
-
   StmtResult
   ActOnLoopTransformDirective(Transform::Kind Kind, 
                               llvm::ArrayRef<TransformClause *> Clauses,

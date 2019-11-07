@@ -250,7 +250,6 @@ private:
   Sema &Actions;
 };
 
-
 /// PragmaAttributeHandler - "\#pragma clang attribute ...".
 struct PragmaAttributeHandler : public PragmaHandler {
   PragmaAttributeHandler(AttributeFactory &AttrFactory)
