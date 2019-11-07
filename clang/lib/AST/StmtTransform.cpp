@@ -82,18 +82,6 @@ TransformClause ::getClauseKeyword(TransformClause::Kind ClauseKind) {
   return ClauseKeyword[ClauseKind - 1];
 }
 
-llvm::StringRef
-TransformClause ::getClauseKeyword(TransformClause::Kind ClauseKind) {
-  assert(ClauseKind > UnknownKind);
-  assert(ClauseKind <= LastKind);
-  static const char *ClauseKeyword[LastKind] = {
-#define TRANSFORM_CLAUSE(Keyword, Name) #Keyword,
-#include "clang/AST/TransformClauseKinds.def"
-
-  };
-  return ClauseKeyword[ClauseKind - 1];
-}
-
 TransformClause ::child_range TransformClause ::children() {
   switch (getKind()) {
   case UnknownKind:
