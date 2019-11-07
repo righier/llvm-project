@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 -verify %s
+// RUN: %clang_cc1 -std=c++11 -fexperimental-transform-pragma -verify %s
 
 void pragma_transform(int *List, int Length) {
 // FIXME: This does not emit an error
@@ -69,7 +69,9 @@ int I;
 void func();
 
 class C1 {
-/* expected-error@+1 {{expected member name or ';' after declaration specifiers}} */
+/* expected-error@+3 {{this pragma cannot appear in class declaration}} */
+/* expected-error@+2 {{expected member name or ';' after declaration specifiers}} */
+/* expected-error@+1 {{unknown type name 'unroll'}} */
 #pragma clang transform unroll
 };
 

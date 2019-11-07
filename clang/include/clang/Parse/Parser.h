@@ -195,12 +195,12 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> NoUnrollHintHandler;
   std::unique_ptr<PragmaHandler> UnrollAndJamHintHandler;
   std::unique_ptr<PragmaHandler> NoUnrollAndJamHintHandler;
-  std::unique_ptr<PragmaHandler> TransformHandler;
   std::unique_ptr<PragmaHandler> FPHandler;
   std::unique_ptr<PragmaHandler> STDCFENVHandler;
   std::unique_ptr<PragmaHandler> STDCCXLIMITHandler;
   std::unique_ptr<PragmaHandler> STDCUnknownHandler;
   std::unique_ptr<PragmaHandler> AttributePragmaHandler;
+  std::unique_ptr<PragmaHandler> TransformHandler;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -1770,13 +1770,13 @@ private:
                                   bool EnteringContext, IdentifierInfo &II,
                                   CXXScopeSpec &SS);
 
-  bool ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
-                                      ParsedType ObjectType,
+  bool ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS, ParsedType ObjectType,
                                       bool EnteringContext,
                                       bool *MayBePseudoDestructor = nullptr,
                                       bool IsTypename = false,
                                       IdentifierInfo **LastII = nullptr,
-                                      bool OnlyNamespace = false);
+                                      bool OnlyNamespace = false,
+                                      bool InUsingDeclaration = false);
 
   //===--------------------------------------------------------------------===//
   // C++11 5.1.2: Lambda expressions

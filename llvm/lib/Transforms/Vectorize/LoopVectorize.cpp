@@ -200,9 +200,10 @@ static cl::opt<bool> EnableMaskedInterleavedMemAccesses(
     "enable-masked-interleaved-mem-accesses", cl::init(false), cl::Hidden,
     cl::desc("Enable vectorization on masked interleaved memory accesses in a loop"));
 
-/// We don't interleave loops with a known constant trip count below this
-/// number.
-static const unsigned TinyTripCountInterleaveThreshold = 128;
+static cl::opt<unsigned> TinyTripCountInterleaveThreshold(
+    "tiny-trip-count-interleave-threshold", cl::init(128), cl::Hidden,
+    cl::desc("We don't interleave loops with a estimated constant trip count "
+             "below this number"));
 
 static cl::opt<unsigned> ForceTargetNumScalarRegs(
     "force-target-num-scalar-regs", cl::init(0), cl::Hidden,
@@ -1190,16 +1191,16 @@ public:
 
   /// Returns true if the target machine supports masked store operation
   /// for the given \p DataType and kind of access to \p Ptr.
-  bool isLegalMaskedStore(Type *DataType, Value *Ptr, unsigned Alignment) {
+  bool isLegalMaskedStore(Type *DataType, Value *Ptr, MaybeAlign Alignment) {
     return Legal->isConsecutivePtr(Ptr) &&
-           TTI.isLegalMaskedStore(DataType, MaybeAlign(Alignment));
+           TTI.isLegalMaskedStore(DataType, Alignment);
   }
 
   /// Returns true if the target machine supports masked load operation
   /// for the given \p DataType and kind of access to \p Ptr.
-  bool isLegalMaskedLoad(Type *DataType, Value *Ptr, unsigned Alignment) {
+  bool isLegalMaskedLoad(Type *DataType, Value *Ptr, MaybeAlign Alignment) {
     return Legal->isConsecutivePtr(Ptr) &&
-           TTI.isLegalMaskedLoad(DataType, MaybeAlign(Alignment));
+           TTI.isLegalMaskedLoad(DataType, Alignment);
   }
 
   /// Returns true if the target machine supports masked scatter operation
@@ -2359,12 +2360,11 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(Instruction *Instr,
   Type *ScalarDataTy = getMemInstValueType(Instr);
   Type *DataTy = VectorType::get(ScalarDataTy, VF);
   Value *Ptr = getLoadStorePointerOperand(Instr);
-  unsigned Alignment = getLoadStoreAlignment(Instr);
   // An alignment of 0 means target abi alignment. We need to use the scalar's
   // target abi alignment in such a case.
   const DataLayout &DL = Instr->getModule()->getDataLayout();
-  if (!Alignment)
-    Alignment = DL.getABITypeAlignment(ScalarDataTy);
+  const Align Alignment =
+      DL.getValueOrABITypeAlignment(getLoadStoreAlignment(Instr), ScalarDataTy);
   unsigned AddressSpace = getLoadStoreAddressSpace(Instr);
 
   // Determine if the pointer operand of the access is either consecutive or
@@ -2428,8 +2428,8 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(Instruction *Instr,
       if (CreateGatherScatter) {
         Value *MaskPart = isMaskRequired ? Mask[Part] : nullptr;
         Value *VectorGep = getOrCreateVectorValue(Ptr, Part);
-        NewSI = Builder.CreateMaskedScatter(StoredVal, VectorGep, Alignment,
-                                            MaskPart);
+        NewSI = Builder.CreateMaskedScatter(StoredVal, VectorGep,
+                                            Alignment.value(), MaskPart);
       } else {
         if (Reverse) {
           // If we store to reverse consecutive memory locations, then we need
@@ -2440,10 +2440,11 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(Instruction *Instr,
         }
         auto *VecPtr = CreateVecPtr(Part, Ptr);
         if (isMaskRequired)
-          NewSI = Builder.CreateMaskedStore(StoredVal, VecPtr, Alignment,
-                                            Mask[Part]);
+          NewSI = Builder.CreateMaskedStore(StoredVal, VecPtr,
+                                            Alignment.value(), Mask[Part]);
         else
-          NewSI = Builder.CreateAlignedStore(StoredVal, VecPtr, Alignment);
+          NewSI =
+              Builder.CreateAlignedStore(StoredVal, VecPtr, Alignment.value());
       }
       addMetadata(NewSI, SI);
     }
@@ -2458,18 +2459,18 @@ void InnerLoopVectorizer::vectorizeMemoryInstruction(Instruction *Instr,
     if (CreateGatherScatter) {
       Value *MaskPart = isMaskRequired ? Mask[Part] : nullptr;
       Value *VectorGep = getOrCreateVectorValue(Ptr, Part);
-      NewLI = Builder.CreateMaskedGather(VectorGep, Alignment, MaskPart,
+      NewLI = Builder.CreateMaskedGather(VectorGep, Alignment.value(), MaskPart,
                                          nullptr, "wide.masked.gather");
       addMetadata(NewLI, LI);
     } else {
       auto *VecPtr = CreateVecPtr(Part, Ptr);
       if (isMaskRequired)
-        NewLI = Builder.CreateMaskedLoad(VecPtr, Alignment, Mask[Part],
+        NewLI = Builder.CreateMaskedLoad(VecPtr, Alignment.value(), Mask[Part],
                                          UndefValue::get(DataTy),
                                          "wide.masked.load");
       else
-        NewLI =
-            Builder.CreateAlignedLoad(DataTy, VecPtr, Alignment, "wide.load");
+        NewLI = Builder.CreateAlignedLoad(DataTy, VecPtr, Alignment.value(),
+                                          "wide.load");
 
       // Add metadata to the load, but setVectorValue to the reverse shuffle.
       addMetadata(NewLI, LI);
@@ -4553,7 +4554,6 @@ bool LoopVectorizationCostModel::isScalarWithPredication(Instruction *I, unsigne
       return false;
     auto *Ptr = getLoadStorePointerOperand(I);
     auto *Ty = getMemInstValueType(I);
-    unsigned Alignment = getLoadStoreAlignment(I);
     // We have already decided how to vectorize this instruction, get that
     // result.
     if (VF > 1) {
@@ -4562,6 +4562,7 @@ bool LoopVectorizationCostModel::isScalarWithPredication(Instruction *I, unsigne
              "Widening decision should be ready at this moment");
       return WideningDecision == CM_Scalarize;
     }
+    const MaybeAlign Alignment = getLoadStoreAlignment(I);
     return isa<LoadInst>(I) ?
         !(isLegalMaskedLoad(Ty, Ptr, Alignment) || isLegalMaskedGather(Ty))
       : !(isLegalMaskedStore(Ty, Ptr, Alignment) || isLegalMaskedScatter(Ty));
@@ -4607,9 +4608,9 @@ bool LoopVectorizationCostModel::interleavedAccessCanBeWidened(Instruction *I,
          "Masked interleave-groups for predicated accesses are not enabled.");
 
   auto *Ty = getMemInstValueType(I);
-  unsigned Alignment = getLoadStoreAlignment(I);
-  return isa<LoadInst>(I) ? TTI.isLegalMaskedLoad(Ty, MaybeAlign(Alignment))
-                          : TTI.isLegalMaskedStore(Ty, MaybeAlign(Alignment));
+  const MaybeAlign Alignment = getLoadStoreAlignment(I);
+  return isa<LoadInst>(I) ? TTI.isLegalMaskedLoad(Ty, Alignment)
+                          : TTI.isLegalMaskedStore(Ty, Alignment);
 }
 
 bool LoopVectorizationCostModel::memoryInstructionCanBeWidened(Instruction *I,
@@ -5143,9 +5144,10 @@ unsigned LoopVectorizationCostModel::selectInterleaveCount(unsigned VF,
   if (Legal->getMaxSafeDepDistBytes() != -1U)
     return 1;
 
-  // Do not interleave loops with a relatively small trip count.
-  unsigned TC = PSE.getSE()->getSmallConstantTripCount(TheLoop);
-  if (TC > 1 && TC < TinyTripCountInterleaveThreshold)
+  // Do not interleave loops with a relatively small known or estimated trip
+  // count.
+  auto BestKnownTC = getSmallBestKnownTC(*PSE.getSE(), TheLoop);
+  if (BestKnownTC && *BestKnownTC < TinyTripCountInterleaveThreshold)
     return 1;
 
   RegisterUsage R = calculateRegisterUsage({VF})[0];
@@ -5208,12 +5210,10 @@ unsigned LoopVectorizationCostModel::selectInterleaveCount(unsigned VF,
       MaxInterleaveCount = ForceTargetMaxVectorInterleaveFactor;
   }
 
-  // If the trip count is constant, limit the interleave count to be less than
-  // the trip count divided by VF.
-  if (TC > 0) {
-    assert(TC >= VF && "VF exceeds trip count?");
-    if ((TC / VF) < MaxInterleaveCount)
-      MaxInterleaveCount = (TC / VF);
+  // If trip count is known or estimated compile time constant, limit the
+  // interleave count to be less than the trip count divided by VF.
+  if (BestKnownTC) {
+    MaxInterleaveCount = std::min(*BestKnownTC / VF, MaxInterleaveCount);
   }
 
   // If we did not calculate the cost for VF (because the user selected the VF)
@@ -5731,7 +5731,6 @@ unsigned LoopVectorizationCostModel::getMemInstScalarizationCost(Instruction *I,
   Type *ValTy = getMemInstValueType(I);
   auto SE = PSE.getSE();
 
-  unsigned Alignment = getLoadStoreAlignment(I);
   unsigned AS = getLoadStoreAddressSpace(I);
   Value *Ptr = getLoadStorePointerOperand(I);
   Type *PtrTy = ToVectorTy(Ptr->getType(), VF);
@@ -5745,9 +5744,9 @@ unsigned LoopVectorizationCostModel::getMemInstScalarizationCost(Instruction *I,
 
   // Don't pass *I here, since it is scalar but will actually be part of a
   // vectorized loop where the user of it is a vectorized instruction.
-  Cost += VF *
-          TTI.getMemoryOpCost(I->getOpcode(), ValTy->getScalarType(), Alignment,
-                              AS);
+  const MaybeAlign Alignment = getLoadStoreAlignment(I);
+  Cost += VF * TTI.getMemoryOpCost(I->getOpcode(), ValTy->getScalarType(),
+                                   Alignment, AS);
 
   // Get the overhead of the extractelement and insertelement instructions
   // we might create due to scalarization.
@@ -5772,16 +5771,17 @@ unsigned LoopVectorizationCostModel::getConsecutiveMemOpCost(Instruction *I,
                                                              unsigned VF) {
   Type *ValTy = getMemInstValueType(I);
   Type *VectorTy = ToVectorTy(ValTy, VF);
-  unsigned Alignment = getLoadStoreAlignment(I);
   Value *Ptr = getLoadStorePointerOperand(I);
   unsigned AS = getLoadStoreAddressSpace(I);
   int ConsecutiveStride = Legal->isConsecutivePtr(Ptr);
 
   assert((ConsecutiveStride == 1 || ConsecutiveStride == -1) &&
          "Stride should be 1 or -1 for consecutive memory access");
+  const MaybeAlign Alignment = getLoadStoreAlignment(I);
   unsigned Cost = 0;
   if (Legal->isMaskRequired(I))
-    Cost += TTI.getMaskedMemoryOpCost(I->getOpcode(), VectorTy, Alignment, AS);
+    Cost += TTI.getMaskedMemoryOpCost(I->getOpcode(), VectorTy,
+                                      Alignment ? Alignment->value() : 0, AS);
   else
     Cost += TTI.getMemoryOpCost(I->getOpcode(), VectorTy, Alignment, AS, I);
 
@@ -5795,7 +5795,7 @@ unsigned LoopVectorizationCostModel::getUniformMemOpCost(Instruction *I,
                                                          unsigned VF) {
   Type *ValTy = getMemInstValueType(I);
   Type *VectorTy = ToVectorTy(ValTy, VF);
-  unsigned Alignment = getLoadStoreAlignment(I);
+  const MaybeAlign Alignment = getLoadStoreAlignment(I);
   unsigned AS = getLoadStoreAddressSpace(I);
   if (isa<LoadInst>(I)) {
     return TTI.getAddressComputationCost(ValTy) +
@@ -5807,21 +5807,23 @@ unsigned LoopVectorizationCostModel::getUniformMemOpCost(Instruction *I,
   bool isLoopInvariantStoreValue = Legal->isUniform(SI->getValueOperand());
   return TTI.getAddressComputationCost(ValTy) +
          TTI.getMemoryOpCost(Instruction::Store, ValTy, Alignment, AS) +
-         (isLoopInvariantStoreValue ? 0 : TTI.getVectorInstrCost(
-                                               Instruction::ExtractElement,
-                                               VectorTy, VF - 1));
+         (isLoopInvariantStoreValue
+              ? 0
+              : TTI.getVectorInstrCost(Instruction::ExtractElement, VectorTy,
+                                       VF - 1));
 }
 
 unsigned LoopVectorizationCostModel::getGatherScatterCost(Instruction *I,
                                                           unsigned VF) {
   Type *ValTy = getMemInstValueType(I);
   Type *VectorTy = ToVectorTy(ValTy, VF);
-  unsigned Alignment = getLoadStoreAlignment(I);
+  const MaybeAlign Alignment = getLoadStoreAlignment(I);
   Value *Ptr = getLoadStorePointerOperand(I);
 
   return TTI.getAddressComputationCost(VectorTy) +
          TTI.getGatherScatterOpCost(I->getOpcode(), VectorTy, Ptr,
-                                    Legal->isMaskRequired(I), Alignment);
+                                    Legal->isMaskRequired(I),
+                                    Alignment ? Alignment->value() : 0);
 }
 
 unsigned LoopVectorizationCostModel::getInterleaveGroupCost(Instruction *I,
@@ -5868,7 +5870,7 @@ unsigned LoopVectorizationCostModel::getMemoryInstructionCost(Instruction *I,
   // moment.
   if (VF == 1) {
     Type *ValTy = getMemInstValueType(I);
-    unsigned Alignment = getLoadStoreAlignment(I);
+    const MaybeAlign Alignment = getLoadStoreAlignment(I);
     unsigned AS = getLoadStoreAddressSpace(I);
 
     return TTI.getAddressComputationCost(ValTy) +
@@ -6708,37 +6710,6 @@ VPValue *VPRecipeBuilder::createBlockInMask(BasicBlock *BB, VPlanPtr &Plan) {
   return BlockMaskCache[BB] = BlockMask;
 }
 
-VPInterleaveRecipe *VPRecipeBuilder::tryToInterleaveMemory(Instruction *I,
-                                                           VFRange &Range,
-                                                           VPlanPtr &Plan) {
-  const InterleaveGroup<Instruction> *IG = CM.getInterleavedAccessGroup(I);
-  if (!IG)
-    return nullptr;
-
-  // Now check if IG is relevant for VF's in the given range.
-  auto isIGMember = [&](Instruction *I) -> std::function<bool(unsigned)> {
-    return [=](unsigned VF) -> bool {
-      return (VF >= 2 && // Query is illegal for VF == 1
-              CM.getWideningDecision(I, VF) ==
-                  LoopVectorizationCostModel::CM_Interleave);
-    };
-  };
-  if (!LoopVectorizationPlanner::getDecisionAndClampRange(isIGMember(I), Range))
-    return nullptr;
-
-  // I is a member of an InterleaveGroup for VF's in the (possibly trimmed)
-  // range. If it's the primary member of the IG construct a VPInterleaveRecipe.
-  // Otherwise, it's an adjunct member of the IG, do not construct any Recipe.
-  assert(I == IG->getInsertPos() &&
-         "Generating a recipe for an adjunct member of an interleave group");
-
-  VPValue *Mask = nullptr;
-  if (Legal->isMaskRequired(I))
-    Mask = createBlockInMask(I->getParent(), Plan);
-
-  return new VPInterleaveRecipe(IG, Mask);
-}
-
 VPWidenMemoryInstructionRecipe *
 VPRecipeBuilder::tryToWidenMemory(Instruction *I, VFRange &Range,
                                   VPlanPtr &Plan) {
@@ -6755,8 +6726,6 @@ VPRecipeBuilder::tryToWidenMemory(Instruction *I, VFRange &Range,
         CM.getWideningDecision(I, VF);
     assert(Decision != LoopVectorizationCostModel::CM_Unknown &&
            "CM decision should be taken at this point.");
-    assert(Decision != LoopVectorizationCostModel::CM_Interleave &&
-           "Interleave memory opportunity should be caught earlier.");
     return Decision != LoopVectorizationCostModel::CM_Scalarize;
   };
 
@@ -6921,15 +6890,21 @@ bool VPRecipeBuilder::tryToWiden(Instruction *I, VPBasicBlock *VPBB,
   if (!LoopVectorizationPlanner::getDecisionAndClampRange(willWiden, Range))
     return false;
 
+  // If this ingredient's recipe is to be recorded, keep its recipe a singleton
+  // to avoid having to split recipes later.
+  bool IsSingleton = Ingredient2Recipe.count(I);
+
   // Success: widen this instruction. We optimize the common case where
   // consecutive instructions can be represented by a single recipe.
-  if (!VPBB->empty()) {
-    VPWidenRecipe *LastWidenRecipe = dyn_cast<VPWidenRecipe>(&VPBB->back());
-    if (LastWidenRecipe && LastWidenRecipe->appendInstruction(I))
-      return true;
-  }
+  if (!IsSingleton && !VPBB->empty() && LastExtensibleRecipe == &VPBB->back() &&
+      LastExtensibleRecipe->appendInstruction(I))
+    return true;
 
-  VPBB->appendRecipe(new VPWidenRecipe(I));
+  VPWidenRecipe *WidenRecipe = new VPWidenRecipe(I);
+  if (!IsSingleton)
+    LastExtensibleRecipe = WidenRecipe;
+  setRecipe(I, WidenRecipe);
+  VPBB->appendRecipe(WidenRecipe);
   return true;
 }
 
@@ -6945,6 +6920,7 @@ VPBasicBlock *VPRecipeBuilder::handleReplication(
       [&](unsigned VF) { return CM.isScalarWithPredication(I, VF); }, Range);
 
   auto *Recipe = new VPReplicateRecipe(I, IsUniform, IsPredicated);
+  setRecipe(I, Recipe);
 
   // Find if I uses a predicated instruction. If so, it will use its scalar
   // value. Avoid hoisting the insert-element which packs the scalar value into
@@ -7003,36 +6979,20 @@ VPRegionBlock *VPRecipeBuilder::createReplicateRegion(Instruction *Instr,
 bool VPRecipeBuilder::tryToCreateRecipe(Instruction *Instr, VFRange &Range,
                                         VPlanPtr &Plan, VPBasicBlock *VPBB) {
   VPRecipeBase *Recipe = nullptr;
-  // Check if Instr should belong to an interleave memory recipe, or already
-  // does. In the latter case Instr is irrelevant.
-  if ((Recipe = tryToInterleaveMemory(Instr, Range, Plan))) {
+
+  // First, check for specific widening recipes that deal with memory
+  // operations, inductions and Phi nodes.
+  if ((Recipe = tryToWidenMemory(Instr, Range, Plan)) ||
+      (Recipe = tryToOptimizeInduction(Instr, Range)) ||
+      (Recipe = tryToBlend(Instr, Plan)) ||
+      (isa<PHINode>(Instr) &&
+       (Recipe = new VPWidenPHIRecipe(cast<PHINode>(Instr))))) {
+    setRecipe(Instr, Recipe);
     VPBB->appendRecipe(Recipe);
     return true;
   }
 
-  // Check if Instr is a memory operation that should be widened.
-  if ((Recipe = tryToWidenMemory(Instr, Range, Plan))) {
-    VPBB->appendRecipe(Recipe);
-    return true;
-  }
-
-  // Check if Instr should form some PHI recipe.
-  if ((Recipe = tryToOptimizeInduction(Instr, Range))) {
-    VPBB->appendRecipe(Recipe);
-    return true;
-  }
-  if ((Recipe = tryToBlend(Instr, Plan))) {
-    VPBB->appendRecipe(Recipe);
-    return true;
-  }
-  if (PHINode *Phi = dyn_cast<PHINode>(Instr)) {
-    VPBB->appendRecipe(new VPWidenPHIRecipe(Phi));
-    return true;
-  }
-
-  // Check if Instr is to be widened by a general VPWidenRecipe, after
-  // having first checked for specific widening recipes that deal with
-  // Interleave Groups, Inductions and Phi nodes.
+  // Check if Instr is to be widened by a general VPWidenRecipe.
   if (tryToWiden(Instr, VPBB, Range))
     return true;
 
@@ -7088,19 +7048,57 @@ void LoopVectorizationPlanner::buildVPlansWithVPRecipes(unsigned MinVF,
 VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
     VFRange &Range, SmallPtrSetImpl<Value *> &NeedDef,
     SmallPtrSetImpl<Instruction *> &DeadInstructions) {
+
   // Hold a mapping from predicated instructions to their recipes, in order to
   // fix their AlsoPack behavior if a user is determined to replicate and use a
   // scalar instead of vector value.
   DenseMap<Instruction *, VPReplicateRecipe *> PredInst2Recipe;
 
   DenseMap<Instruction *, Instruction *> &SinkAfter = Legal->getSinkAfter();
-  DenseMap<Instruction *, Instruction *> SinkAfterInverse;
+
+  SmallPtrSet<const InterleaveGroup<Instruction> *, 1> InterleaveGroups;
+
+  VPRecipeBuilder RecipeBuilder(OrigLoop, TLI, Legal, CM, Builder);
+
+  // ---------------------------------------------------------------------------
+  // Pre-construction: record ingredients whose recipes we'll need to further
+  // process after constructing the initial VPlan.
+  // ---------------------------------------------------------------------------
+
+  // Mark instructions we'll need to sink later and their targets as
+  // ingredients whose recipe we'll need to record.
+  for (auto &Entry : SinkAfter) {
+    RecipeBuilder.recordRecipeOf(Entry.first);
+    RecipeBuilder.recordRecipeOf(Entry.second);
+  }
+
+  // For each interleave group which is relevant for this (possibly trimmed)
+  // Range, add it to the set of groups to be later applied to the VPlan and add
+  // placeholders for its members' Recipes which we'll be replacing with a
+  // single VPInterleaveRecipe.
+  for (InterleaveGroup<Instruction> *IG : IAI.getInterleaveGroups()) {
+    auto applyIG = [IG, this](unsigned VF) -> bool {
+      return (VF >= 2 && // Query is illegal for VF == 1
+              CM.getWideningDecision(IG->getInsertPos(), VF) ==
+                  LoopVectorizationCostModel::CM_Interleave);
+    };
+    if (!getDecisionAndClampRange(applyIG, Range))
+      continue;
+    InterleaveGroups.insert(IG);
+    for (unsigned i = 0; i < IG->getFactor(); i++)
+      if (Instruction *Member = IG->getMember(i))
+        RecipeBuilder.recordRecipeOf(Member);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Build initial VPlan: Scan the body of the loop in a topological order to
+  // visit each basic block after having visited its predecessor basic blocks.
+  // ---------------------------------------------------------------------------
 
   // Create a dummy pre-entry VPBasicBlock to start building the VPlan.
   VPBasicBlock *VPBB = new VPBasicBlock("Pre-Entry");
   auto Plan = std::make_unique<VPlan>(VPBB);
 
-  VPRecipeBuilder RecipeBuilder(OrigLoop, TLI, Legal, CM, Builder);
   // Represent values that will have defs inside VPlan.
   for (Value *V : NeedDef)
     Plan->addVPValue(V);
@@ -7121,8 +7119,7 @@ VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
 
     std::vector<Instruction *> Ingredients;
 
-    // Organize the ingredients to vectorize from current basic block in the
-    // right order.
+    // Introduce each ingredient into VPlan.
     for (Instruction &I : BB->instructionsWithoutDebug()) {
       Instruction *Instr = &I;
 
@@ -7132,43 +7129,6 @@ VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
           DeadInstructions.find(Instr) != DeadInstructions.end())
         continue;
 
-      // I is a member of an InterleaveGroup for Range.Start. If it's an adjunct
-      // member of the IG, do not construct any Recipe for it.
-      const InterleaveGroup<Instruction> *IG =
-          CM.getInterleavedAccessGroup(Instr);
-      if (IG && Instr != IG->getInsertPos() &&
-          Range.Start >= 2 && // Query is illegal for VF == 1
-          CM.getWideningDecision(Instr, Range.Start) ==
-              LoopVectorizationCostModel::CM_Interleave) {
-        auto SinkCandidate = SinkAfterInverse.find(Instr);
-        if (SinkCandidate != SinkAfterInverse.end())
-          Ingredients.push_back(SinkCandidate->second);
-        continue;
-      }
-
-      // Move instructions to handle first-order recurrences, step 1: avoid
-      // handling this instruction until after we've handled the instruction it
-      // should follow.
-      auto SAIt = SinkAfter.find(Instr);
-      if (SAIt != SinkAfter.end()) {
-        LLVM_DEBUG(dbgs() << "Sinking" << *SAIt->first << " after"
-                          << *SAIt->second
-                          << " to vectorize a 1st order recurrence.\n");
-        SinkAfterInverse[SAIt->second] = Instr;
-        continue;
-      }
-
-      Ingredients.push_back(Instr);
-
-      // Move instructions to handle first-order recurrences, step 2: push the
-      // instruction to be sunk at its insertion point.
-      auto SAInvIt = SinkAfterInverse.find(Instr);
-      if (SAInvIt != SinkAfterInverse.end())
-        Ingredients.push_back(SAInvIt->second);
-    }
-
-    // Introduce each ingredient into VPlan.
-    for (Instruction *Instr : Ingredients) {
       if (RecipeBuilder.tryToCreateRecipe(Instr, Range, Plan, VPBB))
         continue;
 
@@ -7192,6 +7152,32 @@ VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
   VPBlockBase *Entry = Plan->setEntry(PreEntry->getSingleSuccessor());
   VPBlockUtils::disconnectBlocks(PreEntry, Entry);
   delete PreEntry;
+
+  // ---------------------------------------------------------------------------
+  // Transform initial VPlan: Apply previously taken decisions, in order, to
+  // bring the VPlan to its final state.
+  // ---------------------------------------------------------------------------
+
+  // Apply Sink-After legal constraints.
+  for (auto &Entry : SinkAfter) {
+    VPRecipeBase *Sink = RecipeBuilder.getRecipe(Entry.first);
+    VPRecipeBase *Target = RecipeBuilder.getRecipe(Entry.second);
+    Sink->moveAfter(Target);
+  }
+
+  // Interleave memory: for each Interleave Group we marked earlier as relevant
+  // for this VPlan, replace the Recipes widening its memory instructions with a
+  // single VPInterleaveRecipe at its insertion point.
+  for (auto IG : InterleaveGroups) {
+    auto *Recipe = cast<VPWidenMemoryInstructionRecipe>(
+        RecipeBuilder.getRecipe(IG->getInsertPos()));
+    (new VPInterleaveRecipe(IG, Recipe->getMask()))->insertBefore(Recipe);
+
+    for (unsigned i = 0; i < IG->getFactor(); ++i)
+      if (Instruction *Member = IG->getMember(i)) {
+        RecipeBuilder.getRecipe(Member)->eraseFromParent();
+      }
+  }
 
   // Finally, if tail is folded by masking, introduce selects between the phi
   // and the live-out instruction of each reduction, at the end of the latch.
@@ -7425,12 +7411,11 @@ void VPPredInstPHIRecipe::execute(VPTransformState &State) {
 }
 
 void VPWidenMemoryInstructionRecipe::execute(VPTransformState &State) {
-  if (!User)
+  VPValue *Mask = getMask();
+  if (!Mask)
     return State.ILV->vectorizeMemoryInstruction(&Instr);
 
-  // Last (and currently only) operand is a mask.
   InnerLoopVectorizer::VectorParts MaskValues(State.UF);
-  VPValue *Mask = User->getOperand(User->getNumOperands() - 1);
   for (unsigned Part = 0; Part < State.UF; ++Part)
     MaskValues[Part] = State.get(Mask, Part);
   State.ILV->vectorizeMemoryInstruction(&Instr, &MaskValues);
@@ -7438,13 +7423,18 @@ void VPWidenMemoryInstructionRecipe::execute(VPTransformState &State) {
 
 static ScalarEpilogueLowering
 getScalarEpilogueLowering(Function *F, Loop *L, LoopVectorizeHints &Hints,
-                          ProfileSummaryInfo *PSI, BlockFrequencyInfo *BFI) {
+                          ProfileSummaryInfo *PSI, BlockFrequencyInfo *BFI,
+                          TargetTransformInfo *TTI, TargetLibraryInfo *TLI,
+                          AssumptionCache *AC, LoopInfo *LI,
+                          ScalarEvolution *SE, DominatorTree *DT,
+                          const LoopAccessInfo *LAI) {
   ScalarEpilogueLowering SEL = CM_ScalarEpilogueAllowed;
   if (Hints.getForce() != LoopVectorizeHints::FK_Enabled &&
       (F->hasOptSize() ||
        llvm::shouldOptimizeForSize(L->getHeader(), PSI, BFI)))
     SEL = CM_ScalarEpilogueNotAllowedOptSize;
-  else if (PreferPredicateOverEpilog || Hints.getPredicate()) 
+  else if (PreferPredicateOverEpilog || Hints.getPredicate() ||
+           TTI->preferPredicateOverEpilogue(L, LI, *SE, *AC, TLI, DT, LAI))
     SEL = CM_ScalarEpilogueNotNeededUsePredicate;
 
   return SEL;
@@ -7464,14 +7454,17 @@ static bool processLoopInVPlanNativePath(
   assert(EnableVPlanNativePath && "VPlan-native path is disabled.");
   Function *F = L->getHeader()->getParent();
   InterleavedAccessInfo IAI(PSE, L, DT, LI, LVL->getLAI());
-  ScalarEpilogueLowering SEL = getScalarEpilogueLowering(F, L, Hints, PSI, BFI);
+
+  ScalarEpilogueLowering SEL =
+    getScalarEpilogueLowering(F, L, Hints, PSI, BFI, TTI, TLI, AC, LI,
+                              PSE.getSE(), DT, LVL->getLAI());
 
   LoopVectorizationCostModel CM(SEL, L, PSE, LI, LVL, *TTI, TLI, DB, AC, ORE, F,
                                 &Hints, IAI);
   // Use the planner for outer loop vectorization.
   // TODO: CM is not used at this point inside the planner. Turn CM into an
   // optional argument if we don't need it in the future.
-  LoopVectorizationPlanner LVP(L, LI, TLI, TTI, LVL, CM);
+  LoopVectorizationPlanner LVP(L, LI, TLI, TTI, LVL, CM, IAI);
 
   // Get user vectorization factor.
   const unsigned UserVF = Hints.getWidth();
@@ -7556,7 +7549,9 @@ bool LoopVectorizePass::processLoop(Loop *L) {
 
   // Check the function attributes and profiles to find out if this function
   // should be optimized for size.
-  ScalarEpilogueLowering SEL = getScalarEpilogueLowering(F, L, Hints, PSI, BFI);
+  ScalarEpilogueLowering SEL =
+    getScalarEpilogueLowering(F, L, Hints, PSI, BFI, TTI, TLI, AC, LI,
+                              PSE.getSE(), DT, LVL.getLAI());
 
   // Entrance to the VPlan-native vectorization path. Outer loops are processed
   // here. They may require CFG and instruction level transformations before
@@ -7629,7 +7624,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   CM.collectValuesToIgnore();
 
   // Use the planner for vectorization.
-  LoopVectorizationPlanner LVP(L, LI, TLI, TTI, &LVL, CM);
+  LoopVectorizationPlanner LVP(L, LI, TLI, TTI, &LVL, CM, IAI);
 
   // Get user vectorization factor.
   unsigned UserVF = Hints.getWidth();

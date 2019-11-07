@@ -13,7 +13,7 @@
 #include "clang/Sema/SemaTransform.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtTransform.h"
-#include "clang/AST/Transform.h"
+#include "clang/Basic/Transform.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/DenseMap.h"
@@ -187,10 +187,8 @@ Sema::ActOnTransform(Transform::Kind Kind,
   default:
     llvm_unreachable("unimplemented");
   }
-}
-
 StmtResult
-Sema::ActOnLoopTransformDirective(Transform::Kind Kind, Transform *Trans,
+Sema::ActOnLoopTransformDirective(Transform::Kind Kind,
                                   llvm::ArrayRef<TransformClause *> Clauses,
                                   Stmt *AStmt, SourceRange Loc) {
   const Stmt *Loop = getAssociatedLoop(AStmt);

@@ -56,6 +56,14 @@ Improvements to Clang's diagnostics
 - -Wtautological-compare for self comparisons and
   -Wtautological-overlap-compare will now look through member and array
   access to determine if two operand expressions are the same.
+- -Wtautological-bitwise-compare is a new warning group.  This group has the
+  current warning which diagnoses the tautological comparison of a bitwise
+  operation and a constant.  The group also has the new warning which diagnoses
+  when a bitwise-or with a non-negative value is converted to a bool, since
+  that bool will always be true.
+- -Wbitwise-conditional-parentheses will warn on operator precedence issues
+  when mixing bitwise-and (&) and bitwise-or (|) operator with the
+  conditional operator (?:).
 
 Non-comprehensive list of changes in this release
 -------------------------------------------------
@@ -84,6 +92,10 @@ New Compiler Flags
   macros. This flag does not enable or disable any GCC extensions implemented in
   Clang. Setting the version to zero causes Clang to leave ``__GNUC__`` and
   other GNU-namespaced macros, such as ``__GXX_WEAK__``, undefined.
+
+- vzeroupper insertion on X86 targets can now be disabled with -mno-vzeroupper.
+  You can also force vzeroupper insertion to be used on CPUs that normally
+  wouldn't with -mvzeroupper.
 
 Deprecated Compiler Flags
 -------------------------
@@ -154,7 +166,49 @@ C++1z Feature Support
 Objective-C Language Changes in Clang
 -------------------------------------
 
-- ...
+- In both Objective-C and
+  Objective-C++, ``-Wcompare-distinct-pointer-types`` will now warn when
+  comparing ObjC ``Class`` with an ObjC instance type pointer.
+
+  .. code-block:: objc
+
+    Class clz = ...;
+    MyType *instance = ...;
+    bool eq = (clz == instance); // Previously undiagnosed, now warns.
+
+- Objective-C++ now diagnoses conversions between ``Class`` and ObjC
+  instance type pointers. Such conversions already emitted an
+  on-by-default ``-Wincompatible-pointer-types`` warning in Objective-C
+  mode, but had inadvertently been missed entirely in
+  Objective-C++. This has been fixed, and they are now diagnosed as
+  errors, consistent with the usual C++ treatment for conversions
+  between unrelated pointer types.
+
+  .. code-block:: objc
+
+    Class clz = ...;
+    MyType *instance = ...;
+    clz = instance; // Previously undiagnosed, now an error.
+    instance = clz; // Previously undiagnosed, now an error.
+
+  One particular issue you may run into is attempting to use a class
+  as a key in a dictionary literal. This will now result in an error,
+  because ``Class`` is not convertable to ``id<NSCopying>``. (Note that
+  this was already a warning in Objective-C mode.) While an arbitrary
+  ``Class`` object is not guaranteed to implement ``NSCopying``, the
+  default metaclass implementation does. Therefore, the recommended
+  solution is to insert an explicit cast to ``id``, which disables the
+  type-checking here.
+
+ .. code-block:: objc
+
+    Class cls = ...;
+
+    // Error: cannot convert from Class to id<NSCoding>.
+    NSDictionary* d = @{cls : @"Hello"};
+
+    // Fix: add an explicit cast to 'id'.
+    NSDictionary* d = @{(id)cls : @"Hello"};
 
 OpenCL C Language Changes in Clang
 ----------------------------------

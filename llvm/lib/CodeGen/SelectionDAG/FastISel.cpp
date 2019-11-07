@@ -1190,6 +1190,8 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
       Flags.setSwiftSelf();
     if (Arg.IsSwiftError)
       Flags.setSwiftError();
+    if (Arg.IsCFGuardTarget)
+      Flags.setCFGuardTarget();
     if (Arg.IsByVal)
       Flags.setByVal();
     if (Arg.IsInAlloca) {
@@ -1213,14 +1215,13 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
       if (!FrameAlign)
         FrameAlign = TLI.getByValTypeAlignment(ElementTy, DL);
       Flags.setByValSize(FrameSize);
-      Flags.setByValAlign(FrameAlign);
+      Flags.setByValAlign(Align(FrameAlign));
     }
     if (Arg.IsNest)
       Flags.setNest();
     if (NeedsRegBlock)
       Flags.setInConsecutiveRegs();
-    unsigned OriginalAlignment = DL.getABITypeAlignment(Arg.Ty);
-    Flags.setOrigAlign(OriginalAlignment);
+    Flags.setOrigAlign(Align(DL.getABITypeAlignment(Arg.Ty)));
 
     CLI.OutVals.push_back(Arg.Val);
     CLI.OutFlags.push_back(Flags);
@@ -1237,10 +1238,9 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
     updateValueMap(CLI.CS->getInstruction(), CLI.ResultReg, CLI.NumResultRegs);
 
   // Set labels for heapallocsite call.
-  if (CLI.CS && CLI.CS->getInstruction()->hasMetadata("heapallocsite")) {
-    const MDNode *MD = CLI.CS->getInstruction()->getMetadata("heapallocsite");
-    MF->addCodeViewHeapAllocSite(CLI.Call, MD);
-  }
+  if (CLI.CS)
+    if (MDNode *MD = CLI.CS->getInstruction()->getMetadata("heapallocsite"))
+      CLI.Call->setHeapAllocMarker(*MF, MD);
 
   return true;
 }
@@ -1927,7 +1927,8 @@ FastISel::FastISel(FunctionLoweringInfo &FuncInfo,
       TII(*MF->getSubtarget().getInstrInfo()),
       TLI(*MF->getSubtarget().getTargetLowering()),
       TRI(*MF->getSubtarget().getRegisterInfo()), LibInfo(LibInfo),
-      SkipTargetIndependentISel(SkipTargetIndependentISel) {}
+      SkipTargetIndependentISel(SkipTargetIndependentISel),
+      LastLocalValue(nullptr), EmitStartPt(nullptr) {}
 
 FastISel::~FastISel() = default;
 

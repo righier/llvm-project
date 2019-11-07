@@ -1375,6 +1375,14 @@ void ASTStmtWriter::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
   Code = serialization::EXPR_CXX_MEMBER_CALL;
 }
 
+void ASTStmtWriter::VisitCXXRewrittenBinaryOperator(
+    CXXRewrittenBinaryOperator *E) {
+  VisitExpr(E);
+  Record.push_back(E->isReversed());
+  Record.AddStmt(E->getSemanticForm());
+  Code = serialization::EXPR_CXX_REWRITTEN_BINARY_OPERATOR;
+}
+
 void ASTStmtWriter::VisitCXXConstructExpr(CXXConstructExpr *E) {
   VisitExpr(E);
 
@@ -2255,10 +2263,22 @@ void ASTStmtWriter::VisitOMPMasterTaskLoopDirective(
   Code = serialization::STMT_OMP_MASTER_TASKLOOP_DIRECTIVE;
 }
 
+void ASTStmtWriter::VisitOMPMasterTaskLoopSimdDirective(
+    OMPMasterTaskLoopSimdDirective *D) {
+  VisitOMPLoopDirective(D);
+  Code = serialization::STMT_OMP_MASTER_TASKLOOP_SIMD_DIRECTIVE;
+}
+
 void ASTStmtWriter::VisitOMPParallelMasterTaskLoopDirective(
     OMPParallelMasterTaskLoopDirective *D) {
   VisitOMPLoopDirective(D);
   Code = serialization::STMT_OMP_PARALLEL_MASTER_TASKLOOP_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPParallelMasterTaskLoopSimdDirective(
+    OMPParallelMasterTaskLoopSimdDirective *D) {
+  VisitOMPLoopDirective(D);
+  Code = serialization::STMT_OMP_PARALLEL_MASTER_TASKLOOP_SIMD_DIRECTIVE;
 }
 
 void ASTStmtWriter::VisitOMPDistributeDirective(OMPDistributeDirective *D) {

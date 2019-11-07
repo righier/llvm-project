@@ -235,7 +235,8 @@ MachineInstr *GCNDPPCombine::createDPPInst(MachineInstr &OrigMI,
     }
 
     if (auto *Src2 = TII->getNamedOperand(OrigMI, AMDGPU::OpName::src2)) {
-      if (!TII->isOperandLegal(*DPPInst.getInstr(), NumOperands, Src2)) {
+      if (!TII->getNamedOperand(*DPPInst.getInstr(), AMDGPU::OpName::src2) ||
+          !TII->isOperandLegal(*DPPInst.getInstr(), NumOperands, Src2)) {
         LLVM_DEBUG(dbgs() << "  failed: src2 is illegal\n");
         Fail = true;
         break;
@@ -375,7 +376,13 @@ bool GCNDPPCombine::combineDPPMov(MachineInstr &MovMI) const {
   bool BoundCtrlZero = BCZOpnd->getImm();
 
   auto *OldOpnd = TII->getNamedOperand(MovMI, AMDGPU::OpName::old);
+  auto *SrcOpnd = TII->getNamedOperand(MovMI, AMDGPU::OpName::src0);
   assert(OldOpnd && OldOpnd->isReg());
+  assert(SrcOpnd && SrcOpnd->isReg());
+  if (OldOpnd->getReg().isPhysical() || SrcOpnd->getReg().isPhysical()) {
+    LLVM_DEBUG(dbgs() << "  failed: dpp move reads physreg\n");
+    return false;
+  }
 
   auto * const OldOpndValue = getOldOpndValue(*OldOpnd);
   // OldOpndValue is either undef (IMPLICIT_DEF) or immediate or something else

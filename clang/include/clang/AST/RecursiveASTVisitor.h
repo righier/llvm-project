@@ -2617,6 +2617,15 @@ DEF_TRAVERSE_STMT(SEHLeaveStmt, {})
 DEF_TRAVERSE_STMT(CapturedStmt, { TRY_TO(TraverseDecl(S->getCapturedDecl())); })
 
 DEF_TRAVERSE_STMT(CXXOperatorCallExpr, {})
+DEF_TRAVERSE_STMT(CXXRewrittenBinaryOperator, {
+  if (!getDerived().shouldVisitImplicitCode()) {
+    CXXRewrittenBinaryOperator::DecomposedForm Decomposed =
+        S->getDecomposedForm();
+    TRY_TO(TraverseStmt(const_cast<Expr*>(Decomposed.LHS)));
+    TRY_TO(TraverseStmt(const_cast<Expr*>(Decomposed.RHS)));
+    ShouldVisitChildren = false;
+  }
+})
 DEF_TRAVERSE_STMT(OpaqueValueExpr, {})
 DEF_TRAVERSE_STMT(TypoExpr, {})
 DEF_TRAVERSE_STMT(CUDAKernelCallExpr, {})
@@ -2816,7 +2825,13 @@ DEF_TRAVERSE_STMT(OMPTaskLoopSimdDirective,
 DEF_TRAVERSE_STMT(OMPMasterTaskLoopDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
+DEF_TRAVERSE_STMT(OMPMasterTaskLoopSimdDirective,
+                  { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
 DEF_TRAVERSE_STMT(OMPParallelMasterTaskLoopDirective,
+                  { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
+DEF_TRAVERSE_STMT(OMPParallelMasterTaskLoopSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
 DEF_TRAVERSE_STMT(OMPDistributeDirective,

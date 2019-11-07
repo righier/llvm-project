@@ -1902,8 +1902,8 @@ static bool isGEPKnownNonNull(const GEPOperator *GEP, unsigned Depth,
 static bool isKnownNonNullFromDominatingCondition(const Value *V,
                                                   const Instruction *CtxI,
                                                   const DominatorTree *DT) {
-  assert(V->getType()->isPointerTy() && "V must be pointer type");
-  assert(!isa<ConstantData>(V) && "Did not expect ConstantPointerNull");
+  if (isa<Constant>(V))
+    return false;
 
   if (!CtxI || !DT)
     return false;
@@ -2078,12 +2078,11 @@ bool isKnownNonZero(const Value *V, unsigned Depth, const Query &Q) {
     }
   }
 
+  if (isKnownNonNullFromDominatingCondition(V, Q.CxtI, Q.DT))
+    return true;
 
   // Check for recursive pointer simplifications.
   if (V->getType()->isPointerTy()) {
-    if (isKnownNonNullFromDominatingCondition(V, Q.CxtI, Q.DT))
-      return true;
-
     // Look through bitcast operations, GEPs, and int2ptr instructions as they
     // do not alter the value, or at least not the nullness property of the
     // value, e.g., int2ptr is allowed to zero/sign extend the value.
@@ -3938,9 +3937,9 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
     if (mustSuppressSpeculation(*LI))
       return false;
     const DataLayout &DL = LI->getModule()->getDataLayout();
-    return isDereferenceableAndAlignedPointer(LI->getPointerOperand(),
-                                              LI->getType(), LI->getAlignment(),
-                                              DL, CtxI, DT);
+    return isDereferenceableAndAlignedPointer(
+        LI->getPointerOperand(), LI->getType(), MaybeAlign(LI->getAlignment()),
+        DL, CtxI, DT);
   }
   case Instruction::Call: {
     auto *CI = cast<const CallInst>(Inst);

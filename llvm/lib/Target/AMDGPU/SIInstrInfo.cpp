@@ -1062,6 +1062,7 @@ void SIInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 
   if (RI.isSGPRClass(RC)) {
     MFI->setHasSpilledSGPRs();
+    assert(SrcReg != AMDGPU::M0 && "m0 should not be spilled");
 
     // We are only allowed to create one new instruction when spilling
     // registers, so we need to use pseudo instruction for spilling SGPRs.
@@ -1074,7 +1075,7 @@ void SIInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
       MRI.constrainRegClass(SrcReg, &AMDGPU::SReg_32_XM0RegClass);
     }
 
-    MachineInstrBuilder Spill = BuildMI(MBB, MI, DL, OpDesc)
+    BuildMI(MBB, MI, DL, OpDesc)
       .addReg(SrcReg, getKillRegState(isKill)) // data
       .addFrameIndex(FrameIndex)               // addr
       .addMemOperand(MMO)
@@ -1085,11 +1086,6 @@ void SIInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     // correctly handled.
     if (RI.spillSGPRToVGPR())
       FrameInfo.setStackID(FrameIndex, TargetStackID::SGPRSpill);
-    if (ST.hasScalarStores()) {
-      // m0 is used for offset to scalar stores if used to spill.
-      Spill.addReg(AMDGPU::M0, RegState::ImplicitDefine | RegState::Dead);
-    }
-
     return;
   }
 
@@ -1195,6 +1191,7 @@ void SIInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 
   if (RI.isSGPRClass(RC)) {
     MFI->setHasSpilledSGPRs();
+    assert(DestReg != AMDGPU::M0 && "m0 should not be reloaded into");
 
     // FIXME: Maybe this should not include a memoperand because it will be
     // lowered to non-memory instructions.
@@ -1206,17 +1203,11 @@ void SIInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 
     if (RI.spillSGPRToVGPR())
       FrameInfo.setStackID(FrameIndex, TargetStackID::SGPRSpill);
-    MachineInstrBuilder Spill = BuildMI(MBB, MI, DL, OpDesc, DestReg)
+    BuildMI(MBB, MI, DL, OpDesc, DestReg)
       .addFrameIndex(FrameIndex) // addr
       .addMemOperand(MMO)
       .addReg(MFI->getScratchRSrcReg(), RegState::Implicit)
       .addReg(MFI->getStackPtrOffsetReg(), RegState::Implicit);
-
-    if (ST.hasScalarStores()) {
-      // m0 is used for offset to scalar stores if used to spill.
-      Spill.addReg(AMDGPU::M0, RegState::ImplicitDefine | RegState::Dead);
-    }
-
     return;
   }
 
@@ -3932,20 +3923,18 @@ bool SIInstrInfo::isLegalRegOperand(const MachineRegisterInfo &MRI,
                                       ? MRI.getRegClass(Reg)
                                       : RI.getPhysRegClass(Reg);
 
-  const SIRegisterInfo *TRI =
-      static_cast<const SIRegisterInfo*>(MRI.getTargetRegisterInfo());
-  RC = TRI->getSubRegClass(RC, MO.getSubReg());
+  const TargetRegisterClass *DRC = RI.getRegClass(OpInfo.RegClass);
+  if (MO.getSubReg()) {
+    const MachineFunction *MF = MO.getParent()->getParent()->getParent();
+    const TargetRegisterClass *SuperRC = RI.getLargestLegalSuperClass(RC, *MF);
+    if (!SuperRC)
+      return false;
 
-  // In order to be legal, the common sub-class must be equal to the
-  // class of the current operand.  For example:
-  //
-  // v_mov_b32 s0 ; Operand defined as vsrc_b32
-  //              ; RI.getCommonSubClass(s0,vsrc_b32) = sgpr ; LEGAL
-  //
-  // s_sendmsg 0, s0 ; Operand defined as m0reg
-  //                 ; RI.getCommonSubClass(s0,m0reg) = m0reg ; NOT LEGAL
-
-  return RI.getCommonSubClass(RC, RI.getRegClass(OpInfo.RegClass)) == RC;
+    DRC = RI.getMatchingSuperRegClass(SuperRC, DRC, MO.getSubReg());
+    if (!DRC)
+      return false;
+  }
+  return RC->hasSuperClassEq(DRC);
 }
 
 bool SIInstrInfo::isLegalVSrcOperand(const MachineRegisterInfo &MRI,
@@ -4462,12 +4451,12 @@ static void loadSRsrcFromVGPR(const SIInstrInfo &TII, MachineInstr &MI,
   // Update dominators. We know that MBB immediately dominates LoopBB, that
   // LoopBB immediately dominates RemainderBB, and that RemainderBB immediately
   // dominates all of the successors transferred to it from MBB that MBB used
-  // to dominate.
+  // to properly dominate.
   if (MDT) {
     MDT->addNewBlock(LoopBB, &MBB);
     MDT->addNewBlock(RemainderBB, LoopBB);
     for (auto &Succ : RemainderBB->successors()) {
-      if (MDT->dominates(&MBB, Succ)) {
+      if (MDT->properlyDominates(&MBB, Succ)) {
         MDT->changeImmediateDominator(Succ, RemainderBB);
       }
     }
@@ -4576,6 +4565,10 @@ void SIInstrInfo::legalizeOperands(MachineInstr &MI,
           VRC = RI.hasAGPRs(getOpRegClass(MI, 0))
                     ? RI.getEquivalentAGPRClass(SRC)
                     : RI.getEquivalentVGPRClass(SRC);
+      } else {
+          VRC = RI.hasAGPRs(getOpRegClass(MI, 0))
+                    ? RI.getEquivalentAGPRClass(VRC)
+                    : RI.getEquivalentVGPRClass(VRC);
       }
       RC = VRC;
     } else {
@@ -5201,8 +5194,8 @@ void SIInstrInfo::lowerScalarXnor(SetVectorType &Worklist,
     bool Src1IsSGPR = Src1.isReg() &&
                       RI.isSGPRClass(MRI.getRegClass(Src1.getReg()));
     MachineInstr *Xor;
-    Register Temp = MRI.createVirtualRegister(&AMDGPU::SReg_32_XM0RegClass);
-    Register NewDest = MRI.createVirtualRegister(&AMDGPU::SReg_32_XM0RegClass);
+    Register Temp = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
+    Register NewDest = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
 
     // Build a pair of scalar instructions and add them to the work list.
     // The next iteration over the work list will lower these to the vector
@@ -5246,8 +5239,8 @@ void SIInstrInfo::splitScalarNotBinop(SetVectorType &Worklist,
   MachineOperand &Src0 = Inst.getOperand(1);
   MachineOperand &Src1 = Inst.getOperand(2);
 
-  Register NewDest = MRI.createVirtualRegister(&AMDGPU::SReg_32_XM0RegClass);
-  Register Interm = MRI.createVirtualRegister(&AMDGPU::SReg_32_XM0RegClass);
+  Register NewDest = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
+  Register Interm = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
 
   MachineInstr &Op = *BuildMI(MBB, MII, DL, get(Opcode), Interm)
     .add(Src0)
@@ -6275,6 +6268,20 @@ bool SIInstrInfo::isBufferSMRD(const MachineInstr &MI) const {
   return RI.getRegClass(RCID)->hasSubClassEq(&AMDGPU::SGPR_128RegClass);
 }
 
+unsigned SIInstrInfo::getNumFlatOffsetBits(unsigned AddrSpace,
+                                           bool Signed) const {
+  if (!ST.hasFlatInstOffsets())
+    return 0;
+
+  if (ST.hasFlatSegmentOffsetBug() && AddrSpace == AMDGPUAS::FLAT_ADDRESS)
+    return 0;
+
+  if (ST.getGeneration() >= AMDGPUSubtarget::GFX10)
+    return Signed ? 12 : 11;
+
+  return Signed ? 13 : 12;
+}
+
 bool SIInstrInfo::isLegalFLATOffset(int64_t Offset, unsigned AddrSpace,
                                     bool Signed) const {
   // TODO: Should 0 be special cased?
@@ -6553,3 +6560,36 @@ MachineInstr *SIInstrInfo::createPHISourceCopy(
 }
 
 bool llvm::SIInstrInfo::isWave32() const { return ST.isWave32(); }
+
+MachineInstr *SIInstrInfo::foldMemoryOperandImpl(
+    MachineFunction &MF, MachineInstr &MI, ArrayRef<unsigned> Ops,
+    MachineBasicBlock::iterator InsertPt, int FrameIndex, LiveIntervals *LIS,
+    VirtRegMap *VRM) const {
+  // This is a bit of a hack (copied from AArch64). Consider this instruction:
+  //
+  //   %0:sreg_32 = COPY $m0
+  //
+  // We explicitly chose SReg_32 for the virtual register so such a copy might
+  // be eliminated by RegisterCoalescer. However, that may not be possible, and
+  // %0 may even spill. We can't spill $m0 normally (it would require copying to
+  // a numbered SGPR anyway), and since it is in the SReg_32 register class,
+  // TargetInstrInfo::foldMemoryOperand() is going to try.
+  //
+  // To prevent that, constrain the %0 register class here.
+  if (MI.isFullCopy()) {
+    Register DstReg = MI.getOperand(0).getReg();
+    Register SrcReg = MI.getOperand(1).getReg();
+
+    if (DstReg == AMDGPU::M0 && SrcReg.isVirtual()) {
+      MF.getRegInfo().constrainRegClass(SrcReg, &AMDGPU::SReg_32_XM0RegClass);
+      return nullptr;
+    }
+
+    if (SrcReg == AMDGPU::M0 && DstReg.isVirtual()) {
+      MF.getRegInfo().constrainRegClass(DstReg, &AMDGPU::SReg_32_XM0RegClass);
+      return nullptr;
+    }
+  }
+
+  return nullptr;
+}

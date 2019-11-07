@@ -136,6 +136,8 @@ struct OutgoingArgHandler : public CallLowering::ValueHandler {
         AssignFnVarArg(AssignFnVarArg), IsTailCall(IsTailCall), FPDiff(FPDiff),
         StackSize(0) {}
 
+  bool isIncomingArgumentHandler() const override { return false; }
+
   Register getStackAddress(uint64_t Size, int64_t Offset,
                            MachinePointerInfo &MPO) override {
     MachineFunction &MF = MIRBuilder.getMF();
@@ -158,7 +160,7 @@ struct OutgoingArgHandler : public CallLowering::ValueHandler {
     MIRBuilder.buildConstant(OffsetReg, Offset);
 
     Register AddrReg = MRI.createGenericVirtualRegister(p0);
-    MIRBuilder.buildGEP(AddrReg, SPReg, OffsetReg);
+    MIRBuilder.buildPtrAdd(AddrReg, SPReg, OffsetReg);
 
     MPO = MachinePointerInfo::getStack(MF, Offset);
     return AddrReg;

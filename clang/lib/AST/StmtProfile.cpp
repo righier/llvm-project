@@ -932,8 +932,18 @@ void StmtProfiler::VisitOMPMasterTaskLoopDirective(
   VisitOMPLoopDirective(S);
 }
 
+void StmtProfiler::VisitOMPMasterTaskLoopSimdDirective(
+    const OMPMasterTaskLoopSimdDirective *S) {
+  VisitOMPLoopDirective(S);
+}
+
 void StmtProfiler::VisitOMPParallelMasterTaskLoopDirective(
     const OMPParallelMasterTaskLoopDirective *S) {
+  VisitOMPLoopDirective(S);
+}
+
+void StmtProfiler::VisitOMPParallelMasterTaskLoopSimdDirective(
+    const OMPParallelMasterTaskLoopSimdDirective *S) {
   VisitOMPLoopDirective(S);
 }
 
@@ -1555,6 +1565,16 @@ void StmtProfiler::VisitCXXOperatorCallExpr(const CXXOperatorCallExpr *S) {
 
   VisitCallExpr(S);
   ID.AddInteger(S->getOperator());
+}
+
+void StmtProfiler::VisitCXXRewrittenBinaryOperator(
+    const CXXRewrittenBinaryOperator *S) {
+  // If a rewritten operator were ever to be type-dependent, we should profile
+  // it following its syntactic operator.
+  assert(!S->isTypeDependent() &&
+         "resolved rewritten operator should never be type-dependent");
+  ID.AddBoolean(S->isReversed());
+  VisitExpr(S->getSemanticForm());
 }
 
 #if defined(_MSC_VER) && !defined(__clang__)

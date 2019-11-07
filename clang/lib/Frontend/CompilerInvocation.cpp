@@ -758,6 +758,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.CodeViewGHash = Args.hasArg(OPT_gcodeview_ghash);
   Opts.MacroDebugInfo = Args.hasArg(OPT_debug_info_macro);
   Opts.WholeProgramVTables = Args.hasArg(OPT_fwhole_program_vtables);
+  Opts.VirtualFunctionElimination =
+      Args.hasArg(OPT_fvirtual_function_elimination);
   Opts.LTOVisibilityPublicStd = Args.hasArg(OPT_flto_visibility_public_std);
   Opts.SplitDwarfFile = Args.getLastArgValue(OPT_split_dwarf_file);
   Opts.SplitDwarfOutput = Args.getLastArgValue(OPT_split_dwarf_output);
@@ -766,6 +768,9 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.DebugExplicitImport = Args.hasArg(OPT_dwarf_explicit_import);
   Opts.DebugFwdTemplateParams = Args.hasArg(OPT_debug_forward_template_params);
   Opts.EmbedSource = Args.hasArg(OPT_gembed_source);
+
+  Opts.ForceDwarfFrameSection =
+      Args.hasFlag(OPT_fforce_dwarf_frame, OPT_fno_force_dwarf_frame, false);
 
   for (const auto &Arg : Args.getAllArgValues(OPT_fdebug_prefix_map_EQ))
     Opts.DebugPrefixMap.insert(StringRef(Arg).split('='));
@@ -804,6 +809,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.RecordCommandLine = Args.getLastArgValue(OPT_record_command_line);
   Opts.MergeAllConstants = Args.hasArg(OPT_fmerge_all_constants);
   Opts.NoCommon = Args.hasArg(OPT_fno_common);
+  Opts.NoInlineLineTables = Args.hasArg(OPT_gno_inline_line_tables);
   Opts.NoImplicitFloat = Args.hasArg(OPT_no_implicit_float);
   Opts.OptimizeSize = getOptimizationLevelSize(Args);
   Opts.SimplifyLibCalls = !(Args.hasArg(OPT_fno_builtin) ||
@@ -1001,6 +1007,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
 
+  Opts.ControlFlowGuardNoChecks = Args.hasArg(OPT_cfguard_no_checks);
   Opts.ControlFlowGuard = Args.hasArg(OPT_cfguard);
 
   Opts.DisableGCov = Args.hasArg(OPT_test_coverage);
@@ -1096,6 +1103,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.InstrumentForProfiling = Args.hasArg(OPT_pg);
   Opts.CallFEntry = Args.hasArg(OPT_mfentry);
+  Opts.MNopMCount = Args.hasArg(OPT_mnop_mcount);
   Opts.EmitOpenCLArgMetadata = Args.hasArg(OPT_cl_kernel_arg_info);
 
   if (const Arg *A = Args.getLastArg(OPT_fcf_protection_EQ)) {
@@ -2065,6 +2073,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args,
     Opts.AddPrebuiltModulePath(A->getValue());
   Opts.DisableModuleHash = Args.hasArg(OPT_fdisable_module_hash);
   Opts.ModulesHashContent = Args.hasArg(OPT_fmodules_hash_content);
+  Opts.ModulesStrictContextHash = Args.hasArg(OPT_fmodules_strict_context_hash);
   Opts.ModulesValidateDiagnosticOptions =
       !Args.hasArg(OPT_fmodules_disable_diagnostic_validation);
   Opts.ImplicitModuleMaps = Args.hasArg(OPT_fimplicit_module_maps);
@@ -2525,6 +2534,13 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     Opts.CUDADeviceApproxTranscendentals = 1;
 
   Opts.GPURelocatableDeviceCode = Args.hasArg(OPT_fgpu_rdc);
+  if (Args.hasArg(OPT_fgpu_allow_device_init)) {
+    if (Opts.HIP)
+      Opts.GPUAllowDeviceInit = 1;
+    else
+      Diags.Report(diag::warn_ignored_hip_only_option)
+          << Args.getLastArg(OPT_fgpu_allow_device_init)->getAsString(Args);
+  }
   Opts.HIPUseNewLaunchAPI = Args.hasArg(OPT_fhip_new_launch_api);
 
   if (Opts.ObjC) {
@@ -3213,6 +3229,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.CompleteMemberPointers = Args.hasArg(OPT_fcomplete_member_pointers);
   Opts.BuildingPCHWithObjectFile = Args.hasArg(OPT_building_pch_with_obj);
+
+  // Enable or disable support for #pragma clang transform.
+  Opts.ExperimentalTransformPragma =
+      Args.hasFlag(options::OPT_fexperimental_transform_pragma,
+                   options::OPT_fno_experimental_transform_pragma, false);
 }
 
 static bool isStrictlyPreprocessorAction(frontend::ActionKind Action) {
@@ -3544,6 +3565,7 @@ std::string CompilerInvocation::getModuleHash() const {
   using llvm::hash_code;
   using llvm::hash_value;
   using llvm::hash_combine;
+  using llvm::hash_combine_range;
 
   // Start the signature with the compiler version.
   // FIXME: We'd rather use something more cryptographically sound than
@@ -3597,6 +3619,24 @@ std::string CompilerInvocation::getModuleHash() const {
                       hsOpts.UseLibcxx,
                       hsOpts.ModulesValidateDiagnosticOptions);
   code = hash_combine(code, hsOpts.ResourceDir);
+
+  if (hsOpts.ModulesStrictContextHash) {
+    hash_code SHPC = hash_combine_range(hsOpts.SystemHeaderPrefixes.begin(),
+                                        hsOpts.SystemHeaderPrefixes.end());
+    hash_code UEC = hash_combine_range(hsOpts.UserEntries.begin(),
+                                       hsOpts.UserEntries.end());
+    code = hash_combine(code, hsOpts.SystemHeaderPrefixes.size(), SHPC,
+                        hsOpts.UserEntries.size(), UEC);
+
+    const DiagnosticOptions &diagOpts = getDiagnosticOpts();
+    #define DIAGOPT(Name, Bits, Default) \
+      code = hash_combine(code, diagOpts.Name);
+    #define ENUM_DIAGOPT(Name, Type, Bits, Default) \
+      code = hash_combine(code, diagOpts.get##Name());
+    #include "clang/Basic/DiagnosticOptions.def"
+    #undef DIAGOPT
+    #undef ENUM_DIAGOPT
+  }
 
   // Extend the signature with the user build path.
   code = hash_combine(code, hsOpts.ModuleUserBuildPath);
