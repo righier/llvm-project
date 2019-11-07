@@ -12,7 +12,7 @@
 
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtTransform.h"
-#include "clang/AST/Transform.h"
+#include "clang/Basic/Transform.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/DenseMap.h"
@@ -20,21 +20,8 @@
 
 using namespace clang;
 
-static bool isTemplateDependent(Expr *E) {
-  return E->isValueDependent() || E->isTypeDependent() ||
-         E->isInstantiationDependent() || E->containsUnexpandedParameterPack();
-}
-
-Sema::TransformResult
-Sema::ActOnTransform(Transform::Kind Kind,
-                     llvm::ArrayRef<TransformClause *> Clauses,
-                     SourceRange Loc) {
-  // TOOD: implement
-  return TransformError();
-}
-
 StmtResult
-Sema::ActOnLoopTransformDirective(Transform::Kind Kind, Transform *Trans,
+Sema::ActOnLoopTransformDirective(Transform::Kind Kind,
                                   llvm::ArrayRef<TransformClause *> Clauses,
                                   Stmt *AStmt, SourceRange Loc) {
   // TOOD: implement
