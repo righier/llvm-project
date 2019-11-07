@@ -342,10 +342,11 @@ void CGTransformedTreeBuilder::applyVectorizeInterleave(
   }
 
   if (Trans->getWidth() > 0) {
+#if 0
     if (Trans->isLegacy() && !VecEnabled.hasValue())
       MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.enable",
                              true);
-
+#endif
     MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.width",
                            Trans->getWidth());
   }

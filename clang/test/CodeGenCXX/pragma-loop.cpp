@@ -215,6 +215,3 @@ void template_test(double *List, int Length) {
 
 // CHECK: ![[LOOP_14]] = distinct !{![[LOOP_14]], ![[WIDTH_10:.*]]}
 // CHECK: ![[WIDTH_10]] = !{!"llvm.loop.vectorize.width", i32 10}
-
-// !7, !19
- // !19, !7

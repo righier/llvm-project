@@ -25,12 +25,15 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, CGTransformedTree *TreeNode)
 LoopInfoStack::~LoopInfoStack() {
   for (auto N : AllNodes)
     delete N;
+  for (auto T : AllTransforms)
+    delete T;
 }
 
 void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
                               clang::Stmt *Body) {
-  CGTransformedTreeBuilder Builder(ASTCtx, LLVMCtx, AllNodes, DbgInfo);
+  CGTransformedTreeBuilder Builder(ASTCtx, LLVMCtx, AllNodes, AllTransforms,
+                                   DbgInfo);
   TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
 }
 

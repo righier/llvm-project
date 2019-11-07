@@ -13,7 +13,7 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGTRANSFORM_H
 #define LLVM_CLANG_LIB_CODEGEN_CGTRANSFORM_H
 
-#include "clang/Analysis/AnalysisTransform.h"
+#include "clang/Analysis/TransformedTree.h"
 #include "llvm/IR/DebugLoc.h"
 
 namespace clang {
@@ -38,8 +38,8 @@ class CGTransformedTree : public TransformedTree<CGTransformedTree> {
 
 public:
   CGTransformedTree(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
-                    clang::Stmt *Original, int FollowupRole, int Stage)
-      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole, Stage) {}
+                    clang::Stmt *Original, int FollowupRole)
+      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole) {}
 
   bool IsDefault = true;
   bool DisableHeuristic = false;
@@ -94,11 +94,15 @@ class CGTransformedTreeBuilder
 public:
   CGTransformedTreeBuilder(ASTContext &ASTCtx, llvm::LLVMContext &LLVMCtx,
                            llvm::SmallVectorImpl<NodeTy *> &AllNodes,
+                           llvm::SmallVectorImpl<Transform *> &AllTransforms,
                            CGDebugInfo *DbgInfo)
-      : TransformedTreeBuilder(ASTCtx, AllNodes), LLVMCtx(LLVMCtx),
-        DbgInfo(DbgInfo) {}
+      : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms),
+        LLVMCtx(LLVMCtx), DbgInfo(DbgInfo) {}
 
-  struct DummyDiag {};
+  // Ignore any diagnostic and its arguments.
+  struct DummyDiag {
+    template <typename T> DummyDiag operator<<(const T &) const { return {}; }
+  };
   DummyDiag Diag(SourceLocation Loc, unsigned DiagID) { return {}; }
 
   void applyOriginal(CGTransformedTree *L);

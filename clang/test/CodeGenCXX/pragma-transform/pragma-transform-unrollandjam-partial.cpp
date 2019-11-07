@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc -std=c++11 -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc -std=c++11 -fexperimental-transform-pragma -emit-llvm -o - %s | FileCheck %s
 
 extern "C" void pragma_transform_unrollandjam(int *List, int Length) {
 #pragma clang transform unrollandjam partial(4)
