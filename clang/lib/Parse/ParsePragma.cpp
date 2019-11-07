@@ -242,17 +242,10 @@ struct PragmaMSOptimizeHandler : public PragmaHandler {
 };
 
 struct PragmaForceCUDAHostDeviceHandler : public PragmaHandler {
-  PragmaForceCUDAHostDeviceHandler(Sema &Actions)
-      : PragmaHandler("force_cuda_host_device"), Actions(Actions) {}
-  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
-                    Token &FirstToken) override;
-
-struct PragmaTransformHandler : public PragmaHandler {
-  PragmaTransformHandler() : PragmaHandler("transform") {}
-  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
-                    Token &FirstToken) override;
-};
-
+  PragmaForceCUDAHostDeviceHandler(Sema& Actions)
+    : PragmaHandler("force_cuda_host_device"), Actions(Actions) {}
+  void HandlePragma(Preprocessor& PP, PragmaIntroducer Introducer,
+    Token& FirstToken) override;
 private:
   Sema &Actions;
 };
@@ -266,6 +259,12 @@ struct PragmaAttributeHandler : public PragmaHandler {
 
   /// A pool of attributes that were parsed in \#pragma clang attribute.
   ParsedAttributes AttributesForPragmaAttribute;
+};
+
+struct PragmaTransformHandler : public PragmaHandler {
+  PragmaTransformHandler() : PragmaHandler("transform") {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &FirstToken) override;
 };
 
 }  // end namespace
