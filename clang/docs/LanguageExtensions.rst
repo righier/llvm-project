@@ -3038,6 +3038,8 @@ transformation pragma (e.g. ``vectorize(enable)``). If the transformation is
 disabled  (e.g. ``vectorize(disable)``), that takes precedence over
 transformations option pragmas implying that transformation.
 
+.. _langext-loopvectorize:
+
 Vectorization, Interleaving, and Predication
 --------------------------------------------
 
@@ -3096,6 +3098,8 @@ This predicates (masks) all instructions in the loop, which allows the scalar
 remainder loop (the tail) to be folded into the main vectorized loop. This
 might be more efficient when vector predication is efficiently supported by the
 target platform.
+
+.. _langext-unroll:
 
 Loop Unrolling
 --------------
