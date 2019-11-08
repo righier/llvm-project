@@ -15,6 +15,7 @@
 
 #include "clang/AST/StmtTransform.h"
 #include "clang/Basic/Transform.h"
+#include "clang/Basic/DiagnosticSema.h"
 
 namespace clang {
 
