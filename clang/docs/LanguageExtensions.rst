@@ -3021,6 +3021,8 @@ it causes the instantiation of ``twice`` and ``thrice`` with an ``int`` type; of
 these two instantiations, ``twice`` will be optimized (because its definition
 was outside the region) and ``thrice`` will not be optimized.
 
+.. _langref-loophint:
+
 Extensions for loop hint optimizations
 ======================================
 
@@ -3037,6 +3039,8 @@ imply the transformation is enabled, as if it was enabled via the corresponding
 transformation pragma (e.g. ``vectorize(enable)``). If the transformation is
 disabled  (e.g. ``vectorize(disable)``), that takes precedence over
 transformations option pragmas implying that transformation.
+
+.. _langext-loopvectorize:
 
 Vectorization, Interleaving, and Predication
 --------------------------------------------
@@ -3096,6 +3100,8 @@ This predicates (masks) all instructions in the loop, which allows the scalar
 remainder loop (the tail) to be folded into the main vectorized loop. This
 might be more efficient when vector predication is efficiently supported by the
 target platform.
+
+.. _langext-unroll:
 
 Loop Unrolling
 --------------
@@ -3195,6 +3201,13 @@ For example, the hint ``vectorize_width(4)`` is ignored if the loop is not
 proven safe to vectorize. To identify and diagnose optimization issues use
 `-Rpass`, `-Rpass-missed`, and `-Rpass-analysis` command line options. See the
 user guide for details.
+
+User-directed loop transformations
+----------------------------------
+
+In addition to the `#pragma clang loop` hints, Clang also has experimental support for `#pragma clang transform` annotations. While the hints specified by `#pragma clang loop` are unordered relative to each othder, `#pragma clang transform` allows specifying a sequence of transformations to be applied.
+
+More information can be found at :ref:`PragmaClangLoop`.
 
 Extensions to specify floating-point flags
 ====================================================
