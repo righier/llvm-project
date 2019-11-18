@@ -55,6 +55,7 @@
 #include "llvm/IR/ProfileSummary.h"
 #include "llvm/ProfileData/InstrProfReader.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MD5.h"
@@ -1514,16 +1515,15 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
       !CodeGenOpts.DisableO0ImplyOptNone && CodeGenOpts.OptimizationLevel == 0;
   // We can't add optnone in the following cases, it won't pass the verifier.
   ShouldAddOptNone &= !D->hasAttr<MinSizeAttr>();
-  ShouldAddOptNone &= !F->hasFnAttribute(llvm::Attribute::AlwaysInline);
   ShouldAddOptNone &= !D->hasAttr<AlwaysInlineAttr>();
 
-  if (ShouldAddOptNone || D->hasAttr<OptimizeNoneAttr>()) {
+  // Add optnone, but do so only if the function isn't always_inline.
+  if ((ShouldAddOptNone || D->hasAttr<OptimizeNoneAttr>()) &&
+      !F->hasFnAttribute(llvm::Attribute::AlwaysInline)) {
     B.addAttribute(llvm::Attribute::OptimizeNone);
 
     // OptimizeNone implies noinline; we should not be inlining such functions.
     B.addAttribute(llvm::Attribute::NoInline);
-    assert(!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
-           "OptimizeNone and AlwaysInline on same function!");
 
     // We still need to handle naked functions even though optnone subsumes
     // much of their semantics.
@@ -1539,7 +1539,8 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     B.addAttribute(llvm::Attribute::NoInline);
   } else if (D->hasAttr<NoDuplicateAttr>()) {
     B.addAttribute(llvm::Attribute::NoDuplicate);
-  } else if (D->hasAttr<NoInlineAttr>()) {
+  } else if (D->hasAttr<NoInlineAttr>() && !F->hasFnAttribute(llvm::Attribute::AlwaysInline)) {
+    // Add noinline if the function isn't always_inline.
     B.addAttribute(llvm::Attribute::NoInline);
   } else if (D->hasAttr<AlwaysInlineAttr>() &&
              !F->hasFnAttribute(llvm::Attribute::NoInline)) {
@@ -5116,11 +5117,12 @@ void CodeGenModule::EmitObjCPropertyImplementations(const
       // we want, that just indicates if the decl came from a
       // property. What we want to know is if the method is defined in
       // this implementation.
-      if (!D->getInstanceMethod(PD->getGetterName()))
+      auto *Getter = PID->getGetterMethodDecl();
+      if (!Getter || Getter->isSynthesizedAccessorStub())
         CodeGenFunction(*this).GenerateObjCGetter(
-                                 const_cast<ObjCImplementationDecl *>(D), PID);
-      if (!PD->isReadOnly() &&
-          !D->getInstanceMethod(PD->getSetterName()))
+            const_cast<ObjCImplementationDecl *>(D), PID);
+      auto *Setter = PID->getSetterMethodDecl();
+      if (!PD->isReadOnly() && (!Setter || Setter->isSynthesizedAccessorStub()))
         CodeGenFunction(*this).GenerateObjCSetter(
                                  const_cast<ObjCImplementationDecl *>(D), PID);
     }
@@ -5157,12 +5159,13 @@ void CodeGenModule::EmitObjCIvarInitializations(ObjCImplementationDecl *D) {
   if (needsDestructMethod(D)) {
     IdentifierInfo *II = &getContext().Idents.get(".cxx_destruct");
     Selector cxxSelector = getContext().Selectors.getSelector(0, &II);
-    ObjCMethodDecl *DTORMethod =
-      ObjCMethodDecl::Create(getContext(), D->getLocation(), D->getLocation(),
-                             cxxSelector, getContext().VoidTy, nullptr, D,
-                             /*isInstance=*/true, /*isVariadic=*/false,
-                          /*isPropertyAccessor=*/true, /*isImplicitlyDeclared=*/true,
-                             /*isDefined=*/false, ObjCMethodDecl::Required);
+    ObjCMethodDecl *DTORMethod = ObjCMethodDecl::Create(
+        getContext(), D->getLocation(), D->getLocation(), cxxSelector,
+        getContext().VoidTy, nullptr, D,
+        /*isInstance=*/true, /*isVariadic=*/false,
+        /*isPropertyAccessor=*/true, /*isSynthesizedAccessorStub=*/false,
+        /*isImplicitlyDeclared=*/true,
+        /*isDefined=*/false, ObjCMethodDecl::Required);
     D->addInstanceMethod(DTORMethod);
     CodeGenFunction(*this).GenerateObjCCtorDtorMethod(D, DTORMethod, false);
     D->setHasDestructors(true);
@@ -5177,17 +5180,13 @@ void CodeGenModule::EmitObjCIvarInitializations(ObjCImplementationDecl *D) {
   IdentifierInfo *II = &getContext().Idents.get(".cxx_construct");
   Selector cxxSelector = getContext().Selectors.getSelector(0, &II);
   // The constructor returns 'self'.
-  ObjCMethodDecl *CTORMethod = ObjCMethodDecl::Create(getContext(),
-                                                D->getLocation(),
-                                                D->getLocation(),
-                                                cxxSelector,
-                                                getContext().getObjCIdType(),
-                                                nullptr, D, /*isInstance=*/true,
-                                                /*isVariadic=*/false,
-                                                /*isPropertyAccessor=*/true,
-                                                /*isImplicitlyDeclared=*/true,
-                                                /*isDefined=*/false,
-                                                ObjCMethodDecl::Required);
+  ObjCMethodDecl *CTORMethod = ObjCMethodDecl::Create(
+      getContext(), D->getLocation(), D->getLocation(), cxxSelector,
+      getContext().getObjCIdType(), nullptr, D, /*isInstance=*/true,
+      /*isVariadic=*/false,
+      /*isPropertyAccessor=*/true, /*isSynthesizedAccessorStub=*/false,
+      /*isImplicitlyDeclared=*/true,
+      /*isDefined=*/false, ObjCMethodDecl::Required);
   D->addInstanceMethod(CTORMethod);
   CodeGenFunction(*this).GenerateObjCCtorDtorMethod(D, CTORMethod, true);
   D->setHasNonZeroConstructors(true);

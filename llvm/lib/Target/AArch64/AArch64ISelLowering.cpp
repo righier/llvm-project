@@ -532,6 +532,12 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
   }
 
+  if (Subtarget->getTargetTriple().isOSMSVCRT()) {
+    // MSVCRT doesn't have powi; fall back to pow
+    setLibcallName(RTLIB::POWI_F32, nullptr);
+    setLibcallName(RTLIB::POWI_F64, nullptr);
+  }
+
   // Make floating-point constants legal for the large code model, so they don't
   // become loads from the constant pool.
   if (Subtarget->isTargetMachO() && TM.getCodeModel() == CodeModel::Large) {
@@ -3111,6 +3117,9 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
                                                      bool IsVarArg) const {
   switch (CC) {
   default:
+    report_fatal_error("Unsupported calling convention.");
+  case CallingConv::AArch64_SVE_VectorCall:
+    // Calling SVE functions is currently not yet supported.
     report_fatal_error("Unsupported calling convention.");
   case CallingConv::WebKit_JS:
     return CC_AArch64_WebKit_JS;
@@ -9928,7 +9937,7 @@ static SDValue performBitcastCombine(SDNode *N,
 
   // Only interested in 64-bit vectors as the ultimate result.
   EVT VT = N->getValueType(0);
-  if (!VT.isVector())
+  if (!VT.isVector() || VT.isScalableVector())
     return SDValue();
   if (VT.getSimpleVT().getSizeInBits() != 64)
     return SDValue();

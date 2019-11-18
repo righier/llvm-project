@@ -872,6 +872,33 @@ TEST(CompletionTest, Documentation) {
               Contains(AllOf(Named("baz"), Doc("Multi-line\nblock comment"))));
 }
 
+TEST(CompletionTest, CommentsFromSystemHeaders) {
+  MockFSProvider FS;
+  MockCompilationDatabase CDB;
+  IgnoreDiagnostics DiagConsumer;
+
+  auto Opts = ClangdServer::optsForTest();
+  Opts.BuildDynamicSymbolIndex = true;
+
+  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+
+  FS.Files[testPath("foo.h")] = R"cpp(
+    #pragma GCC system_header
+
+    // This comment should be retained!
+    int foo();
+  )cpp";
+
+  auto Results = completions(Server,
+                             R"cpp(
+#include "foo.h"
+int x = foo^
+     )cpp");
+  EXPECT_THAT(
+      Results.Completions,
+      Contains(AllOf(Named("foo"), Doc("This comment should be retained!"))));
+}
+
 TEST(CompletionTest, GlobalCompletionFiltering) {
 
   Symbol Class = cls("XYZ");
@@ -1166,8 +1193,10 @@ public:
   void lookup(const LookupRequest &,
               llvm::function_ref<void(const Symbol &)>) const override {}
 
-  void refs(const RefsRequest &,
-            llvm::function_ref<void(const Ref &)>) const override {}
+  bool refs(const RefsRequest &,
+            llvm::function_ref<void(const Ref &)>) const override {
+    return false;
+  }
 
   void relations(const RelationsRequest &,
                  llvm::function_ref<void(const SymbolID &, const Symbol &)>)

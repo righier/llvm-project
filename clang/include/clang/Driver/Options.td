@@ -975,6 +975,9 @@ def fno_sanitize_EQ : CommaJoined<["-"], "fno-sanitize=">, Group<f_clang_Group>,
 def fsanitize_blacklist : Joined<["-"], "fsanitize-blacklist=">,
                           Group<f_clang_Group>,
                           HelpText<"Path to blacklist file for sanitizers">;
+def fsanitize_system_blacklist : Joined<["-"], "fsanitize-system-blacklist=">,
+  HelpText<"Path to system blacklist file for sanitizers">,
+  Flags<[CC1Option]>;
 def fno_sanitize_blacklist : Flag<["-"], "fno-sanitize-blacklist">,
                              Group<f_clang_Group>,
                              HelpText<"Don't use blacklist file for sanitizers">;
@@ -1956,6 +1959,8 @@ def fsplit_dwarf_inlining: Flag <["-"], "fsplit-dwarf-inlining">, Group<f_Group>
   Flags<[CC1Option]>, HelpText<"Provide minimal debug info in the object/executable to facilitate online symbolication/stack traces in the absence of .dwo/.dwp files when using Split DWARF">;
 def fno_split_dwarf_inlining: Flag<["-"], "fno-split-dwarf-inlining">, Group<f_Group>,
   Flags<[CC1Option]>;
+def fdebug_default_version: Joined<["-"], "fdebug-default-version=">, Group<f_Group>,
+  HelpText<"Default DWARF version to use, if a -g option caused DWARF debug info to be produced">;
 def fdebug_prefix_map_EQ
   : Joined<["-"], "fdebug-prefix-map=">, Group<f_Group>,
     Flags<[CC1Option,CC1AsOption]>,
@@ -2259,8 +2264,9 @@ def mrestrict_it: Flag<["-"], "mrestrict-it">, Group<m_arm_Features_Group>,
 def mno_restrict_it: Flag<["-"], "mno-restrict-it">, Group<m_arm_Features_Group>,
   HelpText<"Allow generation of deprecated IT blocks for ARMv8. It is off by default for ARMv8 Thumb mode">;
 def marm : Flag<["-"], "marm">, Alias<mno_thumb>;
-def ffixed_r9 : Flag<["-"], "ffixed-r9">, Group<m_arm_Features_Group>,
-  HelpText<"Reserve the r9 register (ARM only)">;
+foreach i = {6-11} in
+  def ffixed_r#i : Flag<["-"], "ffixed-r"#i>, Group<m_arm_Features_Group>,
+    HelpText<"Reserve the r"#i#" register (ARM only)">;
 def mno_movt : Flag<["-"], "mno-movt">, Group<m_arm_Features_Group>,
   HelpText<"Disallow use of movt/movw pairs (ARM only)">;
 def mcrc : Flag<["-"], "mcrc">, Group<m_Group>,
@@ -2315,6 +2321,8 @@ def mmultivalue : Flag<["-"], "mmultivalue">, Group<m_wasm_Features_Group>;
 def mno_multivalue : Flag<["-"], "mno-multivalue">, Group<m_wasm_Features_Group>;
 def mtail_call : Flag<["-"], "mtail-call">, Group<m_wasm_Features_Group>;
 def mno_tail_call : Flag<["-"], "mno-tail-call">, Group<m_wasm_Features_Group>;
+def mreference_types : Flag<["-"], "mreference-types">, Group<m_wasm_Features_Group>;
+def mno_reference_types : Flag<["-"], "mno-reference-types">, Group<m_wasm_Features_Group>;
 
 def mamdgpu_debugger_abi : Joined<["-"], "mamdgpu-debugger-abi=">,
   Flags<[HelpHidden]>,

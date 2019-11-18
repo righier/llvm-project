@@ -451,9 +451,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   for (int I = 0; I < RTLIB::UNKNOWN_LIBCALL; ++I)
     setLibcallName(static_cast<RTLIB::Libcall>(I), nullptr);
 
-  setBooleanContents(ZeroOrNegativeOneBooleanContent);
-  setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
-
   setSchedulingPreference(Sched::RegPressure);
   setJumpIsExpensive(true);
 
@@ -4343,7 +4340,6 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(BUFFER_ATOMIC_CMPSWAP)
   NODE_NAME_CASE(BUFFER_ATOMIC_FADD)
   NODE_NAME_CASE(BUFFER_ATOMIC_PK_FADD)
-  NODE_NAME_CASE(ATOMIC_FADD)
   NODE_NAME_CASE(ATOMIC_PK_FADD)
 
   case AMDGPUISD::LAST_AMDGPU_ISD_NUMBER: break;

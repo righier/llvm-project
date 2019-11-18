@@ -154,6 +154,12 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setLibcallCallingConv(RTLIB::MUL_I64, CallingConv::X86_StdCall);
   }
 
+  if (Subtarget.getTargetTriple().isOSMSVCRT()) {
+    // MSVCRT doesn't have powi; fall back to pow
+    setLibcallName(RTLIB::POWI_F32, nullptr);
+    setLibcallName(RTLIB::POWI_F64, nullptr);
+  }
+
   if (Subtarget.isTargetDarwin()) {
     // Darwin should use _setjmp/_longjmp instead of setjmp/longjmp.
     setUseUnderscoreSetJmp(false);
@@ -217,69 +223,43 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
       setOperationAction(ShiftOp           , MVT::i64  , Custom);
   }
 
-  // Promote all UINT_TO_FP to larger SINT_TO_FP's, as X86 doesn't have this
-  // operation.
-  setOperationAction(ISD::UINT_TO_FP       , MVT::i1   , Promote);
-  setOperationAction(ISD::UINT_TO_FP       , MVT::i8   , Promote);
-  setOperationAction(ISD::UINT_TO_FP       , MVT::i16  , Promote);
-
   if (!Subtarget.useSoftFloat()) {
-    // We have an algorithm for SSE2->double, and we turn this into a
-    // 64-bit FILD followed by conditional FADD for other targets.
-    setOperationAction(ISD::UINT_TO_FP     , MVT::i64  , Custom);
+    // Promote all UINT_TO_FP to larger SINT_TO_FP's, as X86 doesn't have this
+    // operation.
+    setOperationAction(ISD::UINT_TO_FP, MVT::i8,  Promote);
+    setOperationAction(ISD::UINT_TO_FP, MVT::i16, Promote);
     // We have an algorithm for SSE2, and we turn this into a 64-bit
     // FILD or VCVTUSI2SS/SD for other targets.
-    setOperationAction(ISD::UINT_TO_FP     , MVT::i32  , Custom);
-  } else {
-    setOperationAction(ISD::UINT_TO_FP     , MVT::i32  , Expand);
-  }
+    setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
+    // We have an algorithm for SSE2->double, and we turn this into a
+    // 64-bit FILD followed by conditional FADD for other targets.
+    setOperationAction(ISD::UINT_TO_FP, MVT::i64, Custom);
 
-  // Promote i1/i8 SINT_TO_FP to larger SINT_TO_FP's, as X86 doesn't have
-  // this operation.
-  setOperationAction(ISD::SINT_TO_FP       , MVT::i1   , Promote);
-  setOperationAction(ISD::SINT_TO_FP       , MVT::i8   , Promote);
-
-  if (!Subtarget.useSoftFloat()) {
-    // SSE has no i16 to fp conversion, only i32.
-    if (X86ScalarSSEf32) {
-      setOperationAction(ISD::SINT_TO_FP     , MVT::i16  , Promote);
-      // f32 and f64 cases are Legal, f80 case is not
-      setOperationAction(ISD::SINT_TO_FP     , MVT::i32  , Custom);
-    } else {
-      setOperationAction(ISD::SINT_TO_FP     , MVT::i16  , Custom);
-      setOperationAction(ISD::SINT_TO_FP     , MVT::i32  , Custom);
-    }
-  } else {
-    setOperationAction(ISD::SINT_TO_FP     , MVT::i16  , Promote);
-    setOperationAction(ISD::SINT_TO_FP     , MVT::i32  , Expand);
-  }
-
-  // Promote i1/i8 FP_TO_SINT to larger FP_TO_SINTS's, as X86 doesn't have
-  // this operation.
-  setOperationAction(ISD::FP_TO_SINT       , MVT::i1   , Promote);
-  setOperationAction(ISD::FP_TO_SINT       , MVT::i8   , Promote);
-
-  if (!Subtarget.useSoftFloat()) {
+    // Promote i8 SINT_TO_FP to larger SINT_TO_FP's, as X86 doesn't have
+    // this operation.
+    setOperationAction(ISD::SINT_TO_FP, MVT::i8,  Promote);
+    // SSE has no i16 to fp conversion, only i32. We promote in the handler
+    // to allow f80 to use i16 and f64 to use i16 with sse1 only
+    setOperationAction(ISD::SINT_TO_FP, MVT::i16, Custom);
+    // f32 and f64 cases are Legal with SSE1/SSE2, f80 case is not
+    setOperationAction(ISD::SINT_TO_FP, MVT::i32, Custom);
     // In 32-bit mode these are custom lowered.  In 64-bit mode F32 and F64
     // are Legal, f80 is custom lowered.
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i64  , Custom);
-    setOperationAction(ISD::SINT_TO_FP     , MVT::i64  , Custom);
+    setOperationAction(ISD::SINT_TO_FP, MVT::i64, Custom);
 
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i16  , Custom);
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i32  , Custom);
-  } else {
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i16  , Promote);
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i32  , Expand);
-    setOperationAction(ISD::FP_TO_SINT     , MVT::i64  , Expand);
-  }
+    // Promote i8 FP_TO_SINT to larger FP_TO_SINTS's, as X86 doesn't have
+    // this operation.
+    setOperationAction(ISD::FP_TO_SINT, MVT::i8,  Promote);
+    setOperationAction(ISD::FP_TO_SINT, MVT::i16, Custom);
+    setOperationAction(ISD::FP_TO_SINT, MVT::i32, Custom);
+    // In 32-bit mode these are custom lowered.  In 64-bit mode F32 and F64
+    // are Legal, f80 is custom lowered.
+    setOperationAction(ISD::FP_TO_SINT, MVT::i64, Custom);
 
-  // Handle FP_TO_UINT by promoting the destination to a larger signed
-  // conversion.
-  setOperationAction(ISD::FP_TO_UINT       , MVT::i1   , Promote);
-  setOperationAction(ISD::FP_TO_UINT       , MVT::i8   , Promote);
-  setOperationAction(ISD::FP_TO_UINT       , MVT::i16  , Promote);
-
-  if (!Subtarget.useSoftFloat()) {
+    // Handle FP_TO_UINT by promoting the destination to a larger signed
+    // conversion.
+    setOperationAction(ISD::FP_TO_UINT, MVT::i8,  Promote);
+    setOperationAction(ISD::FP_TO_UINT, MVT::i16, Promote);
     setOperationAction(ISD::FP_TO_UINT, MVT::i32, Custom);
     setOperationAction(ISD::FP_TO_UINT, MVT::i64, Custom);
   }
@@ -409,8 +389,6 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
   if (!Subtarget.hasMOVBE())
     setOperationAction(ISD::BSWAP          , MVT::i16  , Expand);
 
-  // These should be promoted to a larger select which is supported.
-  setOperationAction(ISD::SELECT          , MVT::i1   , Promote);
   // X86 wants to expand cmov itself.
   for (auto VT : { MVT::f32, MVT::f64, MVT::f80, MVT::f128 }) {
     setOperationAction(ISD::SELECT, VT, Custom);
@@ -945,14 +923,6 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setOperationAction(ISD::FP_TO_UINT,         MVT::v8i8,  Custom);
     setOperationAction(ISD::FP_TO_UINT,         MVT::v2i16, Custom);
     setOperationAction(ISD::FP_TO_UINT,         MVT::v4i16, Custom);
-
-    // By marking FP_TO_SINT v8i16 as Custom, will trick type legalization into
-    // promoting v8i8 FP_TO_UINT into FP_TO_SINT. When the v8i16 FP_TO_SINT is
-    // split again based on the input type, this will cause an AssertSExt i16 to
-    // be emitted instead of an AssertZExt. This will allow packssdw followed by
-    // packuswb to be used to truncate to v8i8. This is necessary since packusdw
-    // isn't available until sse4.1.
-    setOperationAction(ISD::FP_TO_SINT,         MVT::v8i16, Custom);
 
     setOperationAction(ISD::SINT_TO_FP,         MVT::v4i32, Legal);
     setOperationAction(ISD::SINT_TO_FP,         MVT::v2i32, Custom);
@@ -1584,38 +1554,32 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     }
   }
 
-  // This block control legalization of v32i1/v64i1 which are available with
+  // This block control legalization of v32i1 which is available with
   // AVX512BW. 512-bit v32i16 and v64i8 vector legalization is controlled with
-  // useBWIRegs.
+  // useBWIRegs. v64i1 is also controled with useBWIRegs.
   if (!Subtarget.useSoftFloat() && Subtarget.hasBWI()) {
     addRegisterClass(MVT::v32i1,  &X86::VK32RegClass);
-    addRegisterClass(MVT::v64i1,  &X86::VK64RegClass);
 
-    for (auto VT : { MVT::v32i1, MVT::v64i1 }) {
-      setOperationAction(ISD::ADD,                VT, Custom);
-      setOperationAction(ISD::SUB,                VT, Custom);
-      setOperationAction(ISD::MUL,                VT, Custom);
-      setOperationAction(ISD::VSELECT,            VT, Expand);
-      setOperationAction(ISD::UADDSAT,            VT, Custom);
-      setOperationAction(ISD::SADDSAT,            VT, Custom);
-      setOperationAction(ISD::USUBSAT,            VT, Custom);
-      setOperationAction(ISD::SSUBSAT,            VT, Custom);
+    setOperationAction(ISD::ADD,                MVT::v32i1, Custom);
+    setOperationAction(ISD::SUB,                MVT::v32i1, Custom);
+    setOperationAction(ISD::MUL,                MVT::v32i1, Custom);
+    setOperationAction(ISD::VSELECT,            MVT::v32i1, Expand);
+    setOperationAction(ISD::UADDSAT,            MVT::v32i1, Custom);
+    setOperationAction(ISD::SADDSAT,            MVT::v32i1, Custom);
+    setOperationAction(ISD::USUBSAT,            MVT::v32i1, Custom);
+    setOperationAction(ISD::SSUBSAT,            MVT::v32i1, Custom);
 
-      setOperationAction(ISD::TRUNCATE,           VT, Custom);
-      setOperationAction(ISD::SETCC,              VT, Custom);
-      setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
-      setOperationAction(ISD::INSERT_VECTOR_ELT,  VT, Custom);
-      setOperationAction(ISD::SELECT,             VT, Custom);
-      setOperationAction(ISD::BUILD_VECTOR,       VT, Custom);
-      setOperationAction(ISD::VECTOR_SHUFFLE,     VT, Custom);
-    }
+    setOperationAction(ISD::TRUNCATE,           MVT::v32i1, Custom);
+    setOperationAction(ISD::SETCC,              MVT::v32i1, Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v32i1, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT,  MVT::v32i1, Custom);
+    setOperationAction(ISD::SELECT,             MVT::v32i1, Custom);
+    setOperationAction(ISD::BUILD_VECTOR,       MVT::v32i1, Custom);
+    setOperationAction(ISD::VECTOR_SHUFFLE,     MVT::v32i1, Custom);
 
     setOperationAction(ISD::CONCAT_VECTORS,     MVT::v32i1, Custom);
-    setOperationAction(ISD::CONCAT_VECTORS,     MVT::v64i1, Custom);
     setOperationAction(ISD::INSERT_SUBVECTOR,   MVT::v32i1, Custom);
-    setOperationAction(ISD::INSERT_SUBVECTOR,   MVT::v64i1, Custom);
-    for (auto VT : { MVT::v16i1, MVT::v32i1 })
-      setOperationAction(ISD::EXTRACT_SUBVECTOR, VT, Custom);
+    setOperationAction(ISD::EXTRACT_SUBVECTOR,  MVT::v16i1, Custom);
 
     // Extends from v32i1 masks to 256-bit vectors.
     setOperationAction(ISD::SIGN_EXTEND,        MVT::v32i8, Custom);
@@ -1705,6 +1669,34 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
       setOperationAction(ISD::FSHL, MVT::v32i16, Custom);
       setOperationAction(ISD::FSHR, MVT::v32i16, Custom);
     }
+
+    // Only support v64i1 if we support v64i8. Without 64i8 we won't have any
+    // operations that can produce these values other than concatenating
+    // v32i1 vectors together. And we don't have any masked operations that
+    // need a v64i1. By making it legal we avoid needing to lower arbitrary
+    // shuffles of v64i1 which need v64i8 to be legal.
+    addRegisterClass(MVT::v64i1,  &X86::VK64RegClass);
+
+    setOperationAction(ISD::ADD,                MVT::v64i1, Custom);
+    setOperationAction(ISD::SUB,                MVT::v64i1, Custom);
+    setOperationAction(ISD::MUL,                MVT::v64i1, Custom);
+    setOperationAction(ISD::VSELECT,            MVT::v64i1, Expand);
+    setOperationAction(ISD::UADDSAT,            MVT::v64i1, Custom);
+    setOperationAction(ISD::SADDSAT,            MVT::v64i1, Custom);
+    setOperationAction(ISD::USUBSAT,            MVT::v64i1, Custom);
+    setOperationAction(ISD::SSUBSAT,            MVT::v64i1, Custom);
+
+    setOperationAction(ISD::TRUNCATE,           MVT::v64i1, Custom);
+    setOperationAction(ISD::SETCC,              MVT::v64i1, Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v64i1, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT,  MVT::v64i1, Custom);
+    setOperationAction(ISD::SELECT,             MVT::v64i1, Custom);
+    setOperationAction(ISD::BUILD_VECTOR,       MVT::v64i1, Custom);
+    setOperationAction(ISD::VECTOR_SHUFFLE,     MVT::v64i1, Custom);
+
+    setOperationAction(ISD::CONCAT_VECTORS,     MVT::v64i1, Custom);
+    setOperationAction(ISD::INSERT_SUBVECTOR,   MVT::v64i1, Custom);
+    setOperationAction(ISD::EXTRACT_SUBVECTOR,  MVT::v32i1, Custom);
   }
 
   if (!Subtarget.useSoftFloat() && Subtarget.hasBWI()) {
@@ -1947,8 +1939,8 @@ MVT X86TargetLowering::getRegisterTypeForCallingConv(LLVMContext &Context,
        (VT.getVectorNumElements() > 64 && Subtarget.hasBWI())))
     return MVT::i8;
   // FIXME: Should we just make these types legal and custom split operations?
-  if ((VT == MVT::v32i16 || VT == MVT::v64i8) &&
-      Subtarget.hasAVX512() && !Subtarget.hasBWI() && !EnableOldKNLABI)
+  if ((VT == MVT::v32i16 || VT == MVT::v64i8) && !EnableOldKNLABI &&
+      Subtarget.useAVX512Regs() && !Subtarget.hasBWI())
     return MVT::v16i32;
   return TargetLowering::getRegisterTypeForCallingConv(Context, CC, VT);
 }
@@ -1967,8 +1959,8 @@ unsigned X86TargetLowering::getNumRegistersForCallingConv(LLVMContext &Context,
        (VT.getVectorNumElements() > 64 && Subtarget.hasBWI())))
     return VT.getVectorNumElements();
   // FIXME: Should we just make these types legal and custom split operations?
-  if ((VT == MVT::v32i16 || VT == MVT::v64i8) &&
-      Subtarget.hasAVX512() && !Subtarget.hasBWI() && !EnableOldKNLABI)
+  if ((VT == MVT::v32i16 || VT == MVT::v64i8) && !EnableOldKNLABI &&
+      Subtarget.useAVX512Regs() && !Subtarget.hasBWI())
     return 1;
   return TargetLowering::getNumRegistersForCallingConv(Context, CC, VT);
 }
@@ -5843,7 +5835,7 @@ static SDValue getExtendInVec(unsigned Opcode, const SDLoc &DL, EVT VT,
            "Expected VTs to be the same size!");
     unsigned Scale = VT.getScalarSizeInBits() / InVT.getScalarSizeInBits();
     In = extractSubVector(In, 0, DAG, DL,
-                          std::max(128U, VT.getSizeInBits() / Scale));
+                          std::max(128U, (unsigned)VT.getSizeInBits() / Scale));
     InVT = In.getValueType();
   }
 
@@ -8634,7 +8626,7 @@ static SDValue LowerBUILD_VECTORvXi1(SDValue Op, SelectionDAG &DAG,
       ImmH = DAG.getBitcast(MVT::v32i1, ImmH);
       DstVec = DAG.getNode(ISD::CONCAT_VECTORS, dl, MVT::v64i1, ImmL, ImmH);
     } else {
-      MVT ImmVT = MVT::getIntegerVT(std::max(VT.getSizeInBits(), 8U));
+      MVT ImmVT = MVT::getIntegerVT(std::max((unsigned)VT.getSizeInBits(), 8U));
       SDValue Imm = DAG.getConstant(Immediate, dl, ImmVT);
       MVT VecVT = VT.getSizeInBits() >= 8 ? VT : MVT::v8i1;
       DstVec = DAG.getBitcast(VecVT, Imm);
@@ -18449,6 +18441,12 @@ SDValue X86TargetLowering::LowerSINT_TO_FP(SDValue Op,
   if (SDValue V = LowerI64IntToFP_AVX512DQ(Op, DAG, Subtarget))
     return V;
 
+  // SSE doesn't have an i16 conversion so we need to promote.
+  if (SrcVT == MVT::i16 && isScalarFPTypeInSSEReg(VT)) {
+    SDValue Ext = DAG.getNode(ISD::SIGN_EXTEND, dl, MVT::i32, Src);
+    return DAG.getNode(ISD::SINT_TO_FP, dl, VT, Ext);
+  }
+
   SDValue ValueToStore = Op.getOperand(0);
   if (SrcVT == MVT::i64 && isScalarFPTypeInSSEReg(VT) &&
       !Subtarget.is64Bit())
@@ -19592,7 +19590,7 @@ SDValue X86TargetLowering::LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const {
     return DAG.getNode(ISD::TRUNCATE, dl, VT, Res);
   }
 
-  // If this is a SINT_TO_FP using SSEReg we're done.
+  // If this is a FP_TO_SINT using SSEReg we're done.
   if (UseSSEReg && IsSigned)
     return Op;
 
@@ -32851,7 +32849,8 @@ static SDValue combineX86ShuffleChainWithExtract(
       Offset += Src.getConstantOperandVal(1);
       Src = Src.getOperand(0);
     }
-    WideSizeInBits = std::max(WideSizeInBits, Src.getValueSizeInBits());
+    WideSizeInBits = std::max(WideSizeInBits,
+                              (unsigned)Src.getValueSizeInBits());
     assert((Offset % BaseVT.getVectorNumElements()) == 0 &&
            "Unexpected subvector extraction");
     Offset /= BaseVT.getVectorNumElements();
@@ -35788,7 +35787,7 @@ static SDValue createPSADBW(SelectionDAG &DAG, const SDValue &Zext0,
                             const X86Subtarget &Subtarget) {
   // Find the appropriate width for the PSADBW.
   EVT InVT = Zext0.getOperand(0).getValueType();
-  unsigned RegSize = std::max(128u, InVT.getSizeInBits());
+  unsigned RegSize = std::max(128u, (unsigned)InVT.getSizeInBits());
 
   // "Zero-extend" the i8 vectors. This is not a per-element zext, rather we
   // fill in the missing vector elements with 0.
@@ -40763,59 +40762,24 @@ static SDValue combineStore(SDNode *N, SelectionDAG &DAG,
       cast<LoadSDNode>(St->getValue())->isSimple() &&
       St->getChain().hasOneUse() && St->isSimple()) {
     LoadSDNode *Ld = cast<LoadSDNode>(St->getValue().getNode());
-    SmallVector<SDValue, 8> Ops;
 
     if (!ISD::isNormalLoad(Ld))
       return SDValue();
 
-    // If this is not the MMX case, i.e. we are just turning i64 load/store
-    // into f64 load/store, avoid the transformation if there are multiple
-    // uses of the loaded value.
-    if (!VT.isVector() && !Ld->hasNUsesOfValue(1, 0))
+    // Avoid the transformation if there are multiple uses of the loaded value.
+    if (!Ld->hasNUsesOfValue(1, 0))
       return SDValue();
 
     SDLoc LdDL(Ld);
     SDLoc StDL(N);
-    // If we are a 64-bit capable x86, lower to a single movq load/store pair.
-    // Otherwise, if it's legal to use f64 SSE instructions, use f64 load/store
-    // pair instead.
-    if (Subtarget.is64Bit() || F64IsLegal) {
-      MVT LdVT = Subtarget.is64Bit() ? MVT::i64 : MVT::f64;
-      SDValue NewLd = DAG.getLoad(LdVT, LdDL, Ld->getChain(), Ld->getBasePtr(),
-                                  Ld->getMemOperand());
+    // Lower to a single movq load/store pair.
+    SDValue NewLd = DAG.getLoad(MVT::f64, LdDL, Ld->getChain(),
+                                Ld->getBasePtr(), Ld->getMemOperand());
 
-      // Make sure new load is placed in same chain order.
-      DAG.makeEquivalentMemoryOrdering(Ld, NewLd);
-      return DAG.getStore(St->getChain(), StDL, NewLd, St->getBasePtr(),
-                          St->getMemOperand());
-    }
-
-    // Otherwise, lower to two pairs of 32-bit loads / stores.
-    SDValue LoAddr = Ld->getBasePtr();
-    SDValue HiAddr = DAG.getMemBasePlusOffset(LoAddr, 4, LdDL);
-
-    SDValue LoLd = DAG.getLoad(MVT::i32, LdDL, Ld->getChain(), LoAddr,
-                               Ld->getPointerInfo(), Ld->getAlignment(),
-                               Ld->getMemOperand()->getFlags());
-    SDValue HiLd = DAG.getLoad(MVT::i32, LdDL, Ld->getChain(), HiAddr,
-                               Ld->getPointerInfo().getWithOffset(4),
-                               MinAlign(Ld->getAlignment(), 4),
-                               Ld->getMemOperand()->getFlags());
-    // Make sure new loads are placed in same chain order.
-    DAG.makeEquivalentMemoryOrdering(Ld, LoLd);
-    DAG.makeEquivalentMemoryOrdering(Ld, HiLd);
-
-    LoAddr = St->getBasePtr();
-    HiAddr = DAG.getMemBasePlusOffset(LoAddr, 4, StDL);
-
-    SDValue LoSt =
-        DAG.getStore(St->getChain(), StDL, LoLd, LoAddr, St->getPointerInfo(),
-                     St->getAlignment(), St->getMemOperand()->getFlags());
-    SDValue HiSt = DAG.getStore(St->getChain(), StDL, HiLd, HiAddr,
-                                St->getPointerInfo().getWithOffset(4),
-                                MinAlign(St->getAlignment(), 4),
-                                St->getMemOperand()->getFlags());
-    return DAG.getNode(ISD::TokenFactor, StDL, MVT::Other, LoSt, HiSt);
+    // Make sure new load is placed in same chain order.
+    DAG.makeEquivalentMemoryOrdering(Ld, NewLd);
+    return DAG.getStore(St->getChain(), StDL, NewLd, St->getBasePtr(),
+                        St->getMemOperand());
   }
 
   // This is similar to the above case, but here we handle a scalar 64-bit

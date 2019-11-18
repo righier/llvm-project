@@ -843,6 +843,7 @@ def Most : DiagGroup<"most", [
     SizeofArrayArgument,
     SizeofArrayDecay,
     StringPlusInt,
+    TautologicalCompare,
     Trigraphs,
     Uninitialized,
     UnknownPragmas,
@@ -1115,4 +1116,8 @@ def CTADMaybeUnsupported : DiagGroup<"ctad-maybe-unsupported">;
 
 def FortifySource : DiagGroup<"fortify-source">;
 
+// Register reservation.
+def FixedRegs : DiagGroup<"fixed-registers">;
+
+// Warings for #pragma clang transform
 def ClangTransform : DiagGroup<"pragma-transform">;

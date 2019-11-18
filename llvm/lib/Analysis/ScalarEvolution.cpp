@@ -112,6 +112,7 @@
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -7075,6 +7076,17 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
   // Do a union of all the predicates here.
   for (unsigned i = 0, e = ExitingBlocks.size(); i != e; ++i) {
     BasicBlock *ExitBB = ExitingBlocks[i];
+
+    // We canonicalize untaken exits to br (constant), ignore them so that
+    // proving an exit untaken doesn't negatively impact our ability to reason
+    // about the loop as whole.
+    if (auto *BI = dyn_cast<BranchInst>(ExitBB->getTerminator()))
+      if (auto *CI = dyn_cast<ConstantInt>(BI->getCondition())) {
+        bool ExitIfTrue = !L->contains(BI->getSuccessor(0));
+        if ((ExitIfTrue && CI->isZero()) || (!ExitIfTrue && CI->isOne()))
+          continue;
+      }
+
     ExitLimit EL = computeExitLimit(L, ExitBB, AllowPredicates);
 
     assert((AllowPredicates || EL.Predicates.empty()) &&

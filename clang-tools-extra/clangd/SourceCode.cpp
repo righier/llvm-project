@@ -17,6 +17,7 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TokenKinds.h"
+#include "clang/Driver/Types.h"
 #include "clang/Format/Format.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/Preprocessor.h"
@@ -719,9 +720,10 @@ cleanupAndFormat(StringRef Code, const tooling::Replacements &Replaces,
   return formatReplacements(Code, std::move(*CleanReplaces), Style);
 }
 
-void lex(llvm::StringRef Code, const LangOptions &LangOpts,
-         llvm::function_ref<void(const clang::Token &, const SourceManager &SM)>
-             Action) {
+static void
+lex(llvm::StringRef Code, const LangOptions &LangOpts,
+    llvm::function_ref<void(const clang::Token &, const SourceManager &SM)>
+        Action) {
   // FIXME: InMemoryFileAdapter crashes unless the buffer is null terminated!
   std::string NullTerminatedCode = Code.str();
   SourceManagerForFile FileSM("dummy.cpp", NullTerminatedCode);
@@ -1119,6 +1121,18 @@ EligibleRegion getEligiblePoints(llvm::StringRef Code,
     ER.EligiblePoints.emplace_back(offsetToPosition(Code, Code.size()));
   }
   return ER;
+}
+
+bool isHeaderFile(llvm::StringRef FileName,
+                  llvm::Optional<LangOptions> LangOpts) {
+  // Respect the langOpts, for non-file-extension cases, e.g. standard library
+  // files.
+  if (LangOpts && LangOpts->IsHeaderFile)
+    return true;
+  namespace types = clang::driver::types;
+  auto Lang = types::lookupTypeForExtension(
+      llvm::sys::path::extension(FileName).substr(1));
+  return Lang != types::TY_INVALID && types::onlyPrecompileType(Lang);
 }
 
 } // namespace clangd

@@ -220,11 +220,13 @@ namespace {
       ForCodeSize = DAG.getMachineFunction().getFunction().hasOptSize();
 
       MaximumLegalStoreInBits = 0;
+      // We use the minimum store size here, since that's all we can guarantee
+      // for the scalable vector types.
       for (MVT VT : MVT::all_valuetypes())
         if (EVT(VT).isSimple() && VT != MVT::Other &&
             TLI.isTypeLegal(EVT(VT)) &&
-            VT.getSizeInBits() >= MaximumLegalStoreInBits)
-          MaximumLegalStoreInBits = VT.getSizeInBits();
+            VT.getSizeInBits().getKnownMinSize() >= MaximumLegalStoreInBits)
+          MaximumLegalStoreInBits = VT.getSizeInBits().getKnownMinSize();
     }
 
     void ConsiderForPruning(SDNode *N) {
@@ -622,7 +624,7 @@ namespace {
                            ConstantSDNode *Mask, SDNode *&NodeToMask);
     /// Attempt to propagate a given AND node back to load leaves so that they
     /// can be combined into narrow loads.
-    bool BackwardsPropagateMask(SDNode *N, SelectionDAG &DAG);
+    bool BackwardsPropagateMask(SDNode *N);
 
     /// Helper function for MergeConsecutiveStores which merges the
     /// component store chains.
@@ -4225,7 +4227,6 @@ SDValue DAGCombiner::visitIMINMAX(SDNode *N) {
   // Is sign bits are zero, flip between UMIN/UMAX and SMIN/SMAX.
   // Only do this if the current op isn't legal and the flipped is.
   unsigned Opcode = N->getOpcode();
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (!TLI.isOperationLegal(Opcode, VT) &&
       (N0.isUndef() || DAG.SignBitIsZero(N0)) &&
       (N1.isUndef() || DAG.SignBitIsZero(N1))) {
@@ -4856,7 +4857,7 @@ bool DAGCombiner::SearchForAndLoads(SDNode *N,
   return true;
 }
 
-bool DAGCombiner::BackwardsPropagateMask(SDNode *N, SelectionDAG &DAG) {
+bool DAGCombiner::BackwardsPropagateMask(SDNode *N) {
   auto *Mask = dyn_cast<ConstantSDNode>(N->getOperand(1));
   if (!Mask)
     return false;
@@ -5243,9 +5244,8 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
     // loads, can be combined to narrow loads and the AND node can be removed.
     // Perform after legalization so that extend nodes will already be
     // combined into the loads.
-    if (BackwardsPropagateMask(N, DAG)) {
+    if (BackwardsPropagateMask(N))
       return SDValue(N, 0);
-    }
   }
 
   if (SDValue Combined = visitANDLike(N0, N1, N))
@@ -6491,7 +6491,6 @@ SDValue DAGCombiner::MatchStoreCombine(StoreSDNode *N) {
   if (VT != MVT::i16 && VT != MVT::i32 && VT != MVT::i64)
     return SDValue();
 
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (LegalOperations && !TLI.isOperationLegal(ISD::STORE, VT))
     return SDValue();
 
@@ -6655,7 +6654,6 @@ SDValue DAGCombiner::MatchLoadCombine(SDNode *N) {
     return SDValue();
   unsigned ByteWidth = VT.getSizeInBits() / 8;
 
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   // Before legalize we can introduce too wide illegal loads which will be later
   // split into legal sized loads. This enables us to combine i64 load by i8
   // patterns to a couple of i32 loads on 32 bit targets.
@@ -9401,7 +9399,7 @@ static SDValue foldExtendedSignBitTest(SDNode *N, SelectionDAG &DAG,
     SDLoc DL(N);
     unsigned ShCt = VT.getSizeInBits() - 1;
     const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-    if (ShCt <= TLI.getShiftAmountThreshold(VT)) {
+    if (!TLI.shouldAvoidTransformToShift(VT, ShCt)) {
       SDValue NotX = DAG.getNOT(DL, X, VT);
       SDValue ShiftAmount = DAG.getConstant(ShCt, DL, VT);
       auto ShiftOpcode =
@@ -13973,8 +13971,8 @@ SDValue DAGCombiner::ForwardStoreValueToDirectLoad(LoadSDNode *LD) {
   // the stored value). With Offset=n (for n > 0) the loaded value starts at the
   // n:th least significant byte of the stored value.
   if (DAG.getDataLayout().isBigEndian())
-    Offset = (STMemType.getStoreSizeInBits() -
-              LDMemType.getStoreSizeInBits()) / 8 - Offset;
+    Offset = ((int64_t)STMemType.getStoreSizeInBits() -
+              (int64_t)LDMemType.getStoreSizeInBits()) / 8 - Offset;
 
   // Check that the stored value cover all bits that are loaded.
   bool STCoversLD =
@@ -15131,7 +15129,7 @@ bool DAGCombiner::MergeStoresOfConstantsOrVecElts(
   // The latest Node in the DAG.
   SDLoc DL(StoreNodes[0].MemNode);
 
-  int64_t ElementSizeBits = MemVT.getStoreSizeInBits();
+  TypeSize ElementSizeBits = MemVT.getStoreSizeInBits();
   unsigned SizeInBits = NumStores * ElementSizeBits;
   unsigned NumMemElts = MemVT.isVector() ? MemVT.getVectorNumElements() : 1;
 
@@ -15516,7 +15514,7 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode *St) {
       Attribute::NoImplicitFloat);
 
   // This function cannot currently deal with non-byte-sized memory sizes.
-  if (ElementSizeBytes * 8 != MemVT.getSizeInBits())
+  if (ElementSizeBytes * 8 != (int64_t)MemVT.getSizeInBits())
     return false;
 
   if (!MemVT.isSimple())
@@ -19958,7 +19956,7 @@ SDValue DAGCombiner::foldSelectCCToShiftAnd(const SDLoc &DL, SDValue N0,
   auto *N2C = dyn_cast<ConstantSDNode>(N2.getNode());
   if (N2C && ((N2C->getAPIntValue() & (N2C->getAPIntValue() - 1)) == 0)) {
     unsigned ShCt = XType.getSizeInBits() - N2C->getAPIntValue().logBase2() - 1;
-    if (ShCt <= TLI.getShiftAmountThreshold(XType)) {
+    if (!TLI.shouldAvoidTransformToShift(XType, ShCt)) {
       SDValue ShiftAmt = DAG.getConstant(ShCt, DL, ShiftAmtTy);
       SDValue Shift = DAG.getNode(ISD::SRL, DL, XType, N0, ShiftAmt);
       AddToWorklist(Shift.getNode());
@@ -19976,7 +19974,7 @@ SDValue DAGCombiner::foldSelectCCToShiftAnd(const SDLoc &DL, SDValue N0,
   }
 
   unsigned ShCt = XType.getSizeInBits() - 1;
-  if (ShCt > TLI.getShiftAmountThreshold(XType))
+  if (TLI.shouldAvoidTransformToShift(XType, ShCt))
     return SDValue();
 
   SDValue ShiftAmt = DAG.getConstant(ShCt, DL, ShiftAmtTy);
@@ -20097,7 +20095,7 @@ SDValue DAGCombiner::SimplifySelectCC(const SDLoc &DL, SDValue N0, SDValue N1,
       // Shift the tested bit over the sign bit.
       const APInt &AndMask = ConstAndRHS->getAPIntValue();
       unsigned ShCt = AndMask.getBitWidth() - 1;
-      if (ShCt <= TLI.getShiftAmountThreshold(VT)) {
+      if (!TLI.shouldAvoidTransformToShift(VT, ShCt)) {
         SDValue ShlAmt =
           DAG.getConstant(AndMask.countLeadingZeros(), SDLoc(AndLHS),
                           getShiftAmountTy(AndLHS.getValueType()));
@@ -20154,7 +20152,7 @@ SDValue DAGCombiner::SimplifySelectCC(const SDLoc &DL, SDValue N0, SDValue N1,
       return Temp;
 
     unsigned ShCt = N2C->getAPIntValue().logBase2();
-    if (ShCt > TLI.getShiftAmountThreshold(VT))
+    if (TLI.shouldAvoidTransformToShift(VT, ShCt))
       return SDValue();
 
     // shl setcc result by log2 n2c
