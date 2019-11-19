@@ -210,8 +210,6 @@ TEST(RenameTest, WithinFileRename) {
           [[Foo]] foo;
           const Baz &BazReference = foo;
           const Baz *BazPointer = &foo;
-          dynamic_cast<const [[^Foo]] &>(BazReference).getValue();
-          dynamic_cast<const [[^Foo]] *>(BazPointer)->getValue();
           reinterpret_cast<const [[^Foo]] *>(BazPointer)->getValue();
           static_cast<const [[^Foo]] &>(BazReference).getValue();
           static_cast<const [[^Foo]] *>(BazPointer)->getValue();
@@ -360,10 +358,8 @@ TEST(RenameTest, WithinFileRename) {
   for (const auto T : Tests) {
     Annotations Code(T);
     auto TU = TestTU::withCode(Code.code());
+    TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
     auto AST = TU.build();
-    EXPECT_TRUE(AST.getDiagnostics().empty())
-        << AST.getDiagnostics().front() << Code.code();
-
     llvm::StringRef NewName = "abcde";
     for (const auto &RenamePos : Code.points()) {
       auto RenameResult =
@@ -475,6 +471,7 @@ TEST(RenameTest, Renameable) {
     Annotations T(Case.Code);
     TestTU TU = TestTU::withCode(T.code());
     TU.HeaderCode = CommonHeader;
+    TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
     if (Case.IsHeaderFile) {
       // We open the .h file as the main file.
       TU.Filename = "test.h";
@@ -482,8 +479,6 @@ TEST(RenameTest, Renameable) {
       TU.ExtraArgs.push_back("-xobjective-c++-header");
     }
     auto AST = TU.build();
-    EXPECT_TRUE(AST.getDiagnostics().empty())
-      << AST.getDiagnostics().front() << T.code();
     llvm::StringRef NewName = "dummyNewName";
     auto Results = renameWithinFile(AST, testPath(TU.Filename), T.point(),
                                     NewName, Case.Index);
@@ -524,8 +519,6 @@ TEST(RenameTest, MainFileReferencesOnly) {
       &foo;
     )cpp";
   auto AST = TU.build();
-  EXPECT_TRUE(AST.getDiagnostics().empty())
-      << AST.getDiagnostics().front() << Code.code();
   llvm::StringRef NewName = "abcde";
 
   auto RenameResult =
