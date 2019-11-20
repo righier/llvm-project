@@ -771,9 +771,43 @@ void OMPClauseProfiler::VisitOMPIsDevicePtrClause(
 }
 }
 
-void StmtProfiler::VisitTransformExecutableDirective(
-    const TransformExecutableDirective *S) {
+namespace {
+  class TransformClauseProfiler : public ConstTransformClauseVisitor<TransformClauseProfiler> {
+  StmtProfiler *Profiler;
+
+public:
+  TransformClauseProfiler(StmtProfiler *P) : Profiler(P) { }
+
+#define TRANSFORM_CLAUSE(Keyword,Name) \
+  void Visit##Name##Clause(const Name ##Clause *);
+#include "clang/AST/TransformClauseKinds.def"
+};
+
+void TransformClauseProfiler::VisitFullClause   (const FullClause* C) {
+  // The full clause has no arguments.
+}
+
+void TransformClauseProfiler::VisitPartialClause(const PartialClause* C) {
+  Profiler->VisitExpr(C->getFactor());
+}
+
+void TransformClauseProfiler::VisitWidthClause(const WidthClause* C) {
+    Profiler->VisitExpr(C->getWidth());
+}
+
+void TransformClauseProfiler::VisitFactorClause(const FactorClause* C) {
+   Profiler->VisitExpr(C->getFactor());
+}
+}
+
+void StmtProfiler::VisitTransformExecutableDirective(const TransformExecutableDirective *S) {
   VisitStmt(S);
+  TransformClauseProfiler P(this);
+  for (TransformClause *C : S->clauses()) {
+    if (!C)
+      continue;
+    P.Visit(C);
+  }
 }
 
 void

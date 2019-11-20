@@ -244,10 +244,9 @@ return  getDerived(). Visit##Name ##Clause(static_cast<PTR(Name##Clause)>(C));
 template<class ImplClass, typename RetTy = void>
 class TransformClauseVisitor :      public TransformClauseVisitorBase <ImplClass, std::add_pointer, RetTy> {};
 
-template <typename T>
-using const_ptr = typename std::add_pointer<typename std::add_const<T>::type>;
+
 template<class ImplClass, typename RetTy = void>
-class ConstTransformClauseVisitor :      public TransformClauseVisitorBase <ImplClass, const_ptr, RetTy> {};
+class ConstTransformClauseVisitor :      public TransformClauseVisitorBase <ImplClass, llvm::make_const_ptr, RetTy> {};
 
 
 
