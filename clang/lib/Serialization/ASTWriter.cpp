@@ -7127,3 +7127,35 @@ void OMPClauseWriter::VisitOMPAtomicDefaultMemOrderClause(
   Record.AddSourceLocation(C->getLParenLoc());
   Record.AddSourceLocation(C->getAtomicDefaultMemOrderKindKwLoc());
 }
+
+
+
+
+
+void TransformClauseWriter::writeClause(const TransformClause *C) {
+  Record.push_back(C->getKind());
+  Record.AddSourceRange(C->getRange());
+  Visit(C);
+}
+
+
+//===----------------------------------------------------------------------===//
+// TransformClause Serialization
+//===----------------------------------------------------------------------===//
+
+
+void TransformClauseWriter::VisitFullClause   (const FullClause* C) {
+  // The full clause has no arguments.
+}
+
+void TransformClauseWriter::VisitPartialClause(const PartialClause* C) {
+  Record. AddStmt(C->getFactor());
+}
+
+void TransformClauseWriter::VisitWidthClause(const WidthClause* C) {
+  Record. AddStmt(C->getWidth());
+}
+
+void TransformClauseWriter::VisitFactorClause(const FactorClause* C) {
+  Record. AddStmt(C->getFactor());
+}

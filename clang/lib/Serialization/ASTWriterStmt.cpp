@@ -1958,14 +1958,18 @@ void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
 // Transformation Directives.
 //===----------------------------------------------------------------------===//
 
-void ASTStmtWriter::VisitTransformExecutableDirective(
-    TransformExecutableDirective *D) {
+void ASTStmtWriter::VisitTransformExecutableDirective(TransformExecutableDirective *D) {
+  Code = serialization::STMT_TRANSFORM_EXECUTABLE_DIRECTIVE;
   VisitStmt(D);
-  Record.push_back(D->getNumClauses());
-
   Record.AddSourceRange(D->getRange());
-  Record.push_back(D->clauses().size());
-  for (auto C : D->clauses()) {
+
+  Record.push_back(D->getNumClauses());
+  TransformClauseWriter ClauseWriter(Record);
+  for (auto C : D->clauses()) 
+    ClauseWriter.writeClause(C);
+  
+#if 0
+  {
     Record.push_back(C->getKind());
     Record.AddSourceRange(C->getRange());
     switch (C->getKind()) {
@@ -1984,9 +1988,12 @@ void ASTStmtWriter::VisitTransformExecutableDirective(
       break;
     }
   }
+#endif
+
   Record.AddStmt(D->getAssociated());
-  Code = serialization::STMT_TRANSFORM_EXECUTABLE_DIRECTIVE;
 }
+
+
 
 //===----------------------------------------------------------------------===//
 // OpenMP Directives.

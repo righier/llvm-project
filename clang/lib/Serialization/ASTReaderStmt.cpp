@@ -2012,12 +2012,17 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 // Transformation Directives.
 //===----------------------------------------------------------------------===//
 
-void ASTStmtReader::VisitTransformExecutableDirective(
-    TransformExecutableDirective *D) {
+void ASTStmtReader::VisitTransformExecutableDirective(TransformExecutableDirective *D) {
   VisitStmt(D);
   D->setRange(ReadSourceRange());
+
   uint64_t NumClauses = Record.readInt();
   SmallVector<TransformClause *, 8> Clauses;
+  TransformClauseReader ClauseReader(Record);
+  for (uint64_t i = 0; i < NumClauses; ++i)
+    Clauses.push_back(  ClauseReader.readClause()  );
+
+#if 0
   for (uint64_t i = 0; i < NumClauses; ++i) {
     auto ClauseKind = Record.readInt();
     auto ClauseLoc = Record.readSourceRange();
@@ -2039,7 +2044,9 @@ void ASTStmtReader::VisitTransformExecutableDirective(
     }
     Clauses.push_back(Clause);
   }
+#endif
   D->setClauses(Clauses);
+
   D->setAssociated(Record.readSubStmt());
 }
 

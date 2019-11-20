@@ -26,6 +26,7 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Sema/SemaConsumer.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/Serialization/ASTBitCodes.h"
 #include "clang/Serialization/ASTDeserializationListener.h"
 #include "clang/Serialization/PCHContainerOperations.h"
@@ -1011,6 +1012,25 @@ public:
   void writeClause(OMPClause *C);
   void VisitOMPClauseWithPreInit(OMPClauseWithPreInit *C);
   void VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C);
+};
+
+
+
+class TransformClauseWriter : public ConstTransformClauseVisitor<TransformClauseWriter> {
+  ASTRecordWriter &Record;
+
+public:
+  TransformClauseWriter(ASTRecordWriter &Record) : Record(Record) {}
+
+    void writeClause(const TransformClause *C);
+
+#define TRANSFORM_CLAUSE(Keyword,Name) \
+  void Visit##Name##Clause(const Name ##Clause *);
+#include "clang/AST/TransformClauseKinds.def"
+
+    void VisitTransformClause(const TransformClause * C) {
+      llvm_unreachable("Serialization of this clause not implemented");
+    }
 };
 
 } // namespace clang
