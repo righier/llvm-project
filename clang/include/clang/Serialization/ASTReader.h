@@ -2719,23 +2719,20 @@ public:
   void VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C);
 };
 
-
-
 class TransformClauseReader {
-  ASTRecordReader& Record;
-  ASTContext& Context;
+  ASTRecordReader &Record;
+  ASTContext &Context;
 
 public:
-   TransformClauseReader(ASTRecordReader &Record) : Record(Record), Context(Record.getContext()) {}
+  TransformClauseReader(ASTRecordReader &Record)
+      : Record(Record), Context(Record.getContext()) {}
 
-   TransformClause* readClause();
+  TransformClause *readClause();
 
-     #define TRANSFORM_CLAUSE(Keyword,Name) \
-      Name##Clause * read##Name##Clause(SourceRange );
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  Name##Clause *read##Name##Clause(SourceRange);
 #include "clang/AST/TransformClauseKinds.def"
 };
-
-
 
 #if 0
 
@@ -2751,22 +2748,19 @@ public:
 SourceRange Range =   Record.readSourceRange();
 
 switch (Kind) {
-#define TRANSFORM_CLAUSE(Keyword,Name) \
-  case TransformClause::
+#define TRANSFORM_CLAUSE(Keyword, Name) case TransformClause::
 #include "clang/AST/TransformClauseKinds.def"
 }
   }
 
-
-  #define TRANSFORM_CLAUSE(Keyword,Name) \
-  void Visit##Name##Clause(Name ##Clause *);
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  void Visit##Name##Clause(Name##Clause *);
 #include "clang/AST/TransformClauseKinds.def"
 
     void VisitTransformClause( TransformClause * C) {
       llvm_unreachable("Serialization of this clause not implemented");
     }
 };
-
 
 #endif
 

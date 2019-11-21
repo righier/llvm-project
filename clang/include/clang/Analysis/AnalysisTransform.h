@@ -14,8 +14,8 @@
 #define LLVM_CLANG_ANALYSIS_ANALYSISTRANSFORM_H
 
 #include "clang/AST/StmtTransform.h"
-#include "clang/Basic/Transform.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/Transform.h"
 
 namespace clang {
 

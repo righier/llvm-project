@@ -11628,7 +11628,7 @@ public:
   };
 
   StmtResult
-  ActOnLoopTransformDirective(Transform::Kind Kind, 
+  ActOnLoopTransformDirective(Transform::Kind Kind,
                               llvm::ArrayRef<TransformClause *> Clauses,
                               Stmt *AStmt, SourceRange Loc);
 

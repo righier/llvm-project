@@ -19,6 +19,7 @@
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/OpenMPClause.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
@@ -26,7 +27,6 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Sema/SemaConsumer.h"
-#include "clang/AST/StmtTransform.h"
 #include "clang/Serialization/ASTBitCodes.h"
 #include "clang/Serialization/ASTDeserializationListener.h"
 #include "clang/Serialization/PCHContainerOperations.h"
@@ -1014,23 +1014,22 @@ public:
   void VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C);
 };
 
-
-
-class TransformClauseWriter : public ConstTransformClauseVisitor<TransformClauseWriter> {
+class TransformClauseWriter
+    : public ConstTransformClauseVisitor<TransformClauseWriter> {
   ASTRecordWriter &Record;
 
 public:
   TransformClauseWriter(ASTRecordWriter &Record) : Record(Record) {}
 
-    void writeClause(const TransformClause *C);
+  void writeClause(const TransformClause *C);
 
-#define TRANSFORM_CLAUSE(Keyword,Name) \
-  void Visit##Name##Clause(const Name ##Clause *);
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  void Visit##Name##Clause(const Name##Clause *);
 #include "clang/AST/TransformClauseKinds.def"
 
-    void VisitTransformClause(const TransformClause * C) {
-      llvm_unreachable("Serialization of this clause not implemented");
-    }
+  void VisitTransformClause(const TransformClause *C) {
+    llvm_unreachable("Serialization of this clause not implemented");
+  }
 };
 
 } // namespace clang

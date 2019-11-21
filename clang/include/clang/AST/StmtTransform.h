@@ -15,8 +15,8 @@
 
 #include "clang/AST/Expr.h"
 #include "clang/AST/Stmt.h"
-#include "llvm/Support/raw_ostream.h"
 #include "clang/Basic/Transform.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace clang {
 
@@ -201,33 +201,33 @@ public:
   void print(llvm::raw_ostream &OS, const PrintingPolicy &Policy) const;
 };
 
-
-
 /// Visitor pattern for transform clauses.
-template<class ImplClass, template <typename> class Ptr, typename RetTy>
+template <class ImplClass, template <typename> class Ptr, typename RetTy>
 class TransformClauseVisitorBase {
 protected:
-  ImplClass& getDerived() { return * static_cast<ImplClass*>(this); }
-  const  ImplClass& getDerived() const { return * static_cast<const ImplClass*>(this); }
+  ImplClass &getDerived() { return *static_cast<ImplClass *>(this); }
+  const ImplClass &getDerived() const {
+    return *static_cast<const ImplClass *>(this);
+  }
 
 public:
 #define PTR(CLASS) typename Ptr<CLASS>::type
 
-#define TRANSFORM_CLAUSE(Keyword, Name) \
-  RetTy Visit ## Name  ## Clause (PTR(Name ## Clause) S) { \
-return getDerived().VisitTransformClause(S);\
-}
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  RetTy Visit##Name##Clause(PTR(Name##Clause) S) {                             \
+    return getDerived().VisitTransformClause(S);                               \
+  }
 #include "clang/AST/TransformClauseKinds.def"
 
   RetTy Visit(PTR(TransformClause) C) {
     switch (C->getKind()) {
-#define TRANSFORM_CLAUSE(Keyword, Name)                              \
-    case TransformClause::Kind::  Name  ## Kind  : \
-return  getDerived(). Visit##Name ##Clause(static_cast<PTR(Name##Clause)>(C));
-     // return Visit ##  Name  ## Clause(static_cast<PTR(Name ## Clause)>(C));
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    return getDerived().Visit##Name##Clause(static_cast<PTR(Name##Clause)>(C));
+      // return Visit ##  Name  ## Clause(static_cast<PTR(Name ## Clause)>(C));
 #include "clang/AST/TransformClauseKinds.def"
-          default:
-            llvm_unreachable("Unknown transform clause kind!");
+    default:
+      llvm_unreachable("Unknown transform clause kind!");
     }
   }
 
@@ -237,21 +237,14 @@ return  getDerived(). Visit##Name ##Clause(static_cast<PTR(Name##Clause)>(C));
 #undef PTR
 };
 
+template <class ImplClass, typename RetTy = void>
+class TransformClauseVisitor
+    : public TransformClauseVisitorBase<ImplClass, std::add_pointer, RetTy> {};
 
-
-
-
-template<class ImplClass, typename RetTy = void>
-class TransformClauseVisitor :      public TransformClauseVisitorBase <ImplClass, std::add_pointer, RetTy> {};
-
-
-template<class ImplClass, typename RetTy = void>
-class ConstTransformClauseVisitor :      public TransformClauseVisitorBase <ImplClass, llvm::make_const_ptr, RetTy> {};
-
-
-
-
-
+template <class ImplClass, typename RetTy = void>
+class ConstTransformClauseVisitor
+    : public TransformClauseVisitorBase<ImplClass, llvm::make_const_ptr,
+                                        RetTy> {};
 
 /// Represents
 ///
@@ -296,7 +289,8 @@ public:
   }
 
   static TransformExecutableDirective *
-  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
+  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated,
+         ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
   static TransformExecutableDirective *createEmpty(ASTContext &Ctx,
                                                    unsigned NumClauses);
 
@@ -357,10 +351,6 @@ public:
     return *Range.begin();
   }
 };
-
-
-
-
 
 const Stmt *getAssociatedLoop(const Stmt *S);
 } // namespace clang

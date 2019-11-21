@@ -1550,10 +1550,11 @@ public:
   }
 
   StmtResult
-  RebuildTransformExecutableDirective(Transform::Kind Kind,                                       llvm::ArrayRef<TransformClause *> Clauses,
+  RebuildTransformExecutableDirective(Transform::Kind Kind,
+                                      llvm::ArrayRef<TransformClause *> Clauses,
                                       Stmt *AStmt, SourceRange Loc) {
     StmtResult Result =
-        getSema().ActOnLoopTransformDirective(Kind,  Clauses, AStmt, Loc);
+        getSema().ActOnLoopTransformDirective(Kind, Clauses, AStmt, Loc);
     assert(!Result.isUsable() ||
            isa<TransformExecutableDirective>(Result.get()));
     return Result;

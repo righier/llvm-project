@@ -84,8 +84,9 @@ StmtResult Parser::ParsePragmaTransform(ParsedStmtContext StmtCtx) {
     return StmtError(
         Diag(PreStmtLoc, diag::err_pragma_transform_expected_loop));
 
-  return Actions.ActOnLoopTransformDirective(
-      DirectiveKind, DirectiveClauses, AssociatedStmt.get(), {BeginLoc, EndLoc});
+  return Actions.ActOnLoopTransformDirective(DirectiveKind, DirectiveClauses,
+                                             AssociatedStmt.get(),
+                                             {BeginLoc, EndLoc});
 }
 
 Parser::TransformClauseResult

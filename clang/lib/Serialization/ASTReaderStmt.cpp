@@ -2012,20 +2012,21 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 // Transformation Directives.
 //===----------------------------------------------------------------------===//
 
-void ASTStmtReader::VisitTransformExecutableDirective(TransformExecutableDirective *D) {
-    VisitStmt(D);
-    unsigned NumClauses = Record.readInt();
-     assert(D->getNumClauses() == NumClauses);
-     // The binary layout up to here is also assumed by ASTReader::ReadStmtFromStream and must be kept in-sync.
+void ASTStmtReader::VisitTransformExecutableDirective(
+    TransformExecutableDirective *D) {
+  VisitStmt(D);
+  unsigned NumClauses = Record.readInt();
+  assert(D->getNumClauses() == NumClauses);
+  // The binary layout up to here is also assumed by
+  // ASTReader::ReadStmtFromStream and must be kept in-sync.
 
   D->setRange(ReadSourceRange());
 
-     
   SmallVector<TransformClause *, 8> Clauses;
   Clauses.reserve(NumClauses);
   TransformClauseReader ClauseReader(Record);
   for (unsigned i = 0; i < NumClauses; ++i)
-    Clauses.push_back(  ClauseReader.readClause()  );
+    Clauses.push_back(ClauseReader.readClause());
 
 #if 0
   for (uint64_t i = 0; i < NumClauses; ++i) {
@@ -2533,7 +2534,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       return nullptr;
     }
     switch ((StmtCode)MaybeStmtCode.get()) {
-          default:
+    default:
       llvm_unreachable("Unexpected statement type");
       break;
 
@@ -2985,7 +2986,8 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
 
     case STMT_TRANSFORM_EXECUTABLE_DIRECTIVE:
-      S = TransformExecutableDirective::createEmpty(Context, Record[ASTStmtReader::NumStmtFields]);
+      S = TransformExecutableDirective::createEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields]);
       break;
 
     case STMT_OMP_PARALLEL_DIRECTIVE:
@@ -3318,8 +3320,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     }
 
-
-                                                        case EXPR_CXX_OPERATOR_CALL:
+    case EXPR_CXX_OPERATOR_CALL:
       S = CXXOperatorCallExpr::CreateEmpty(
           Context, /*NumArgs=*/Record[ASTStmtReader::NumExprFields], Empty);
       break;
@@ -3603,7 +3604,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) DependentCoawaitExpr(Empty);
       break;
 
-    case EXPR_CONCEPT_SPECIALIZATION: 
+    case EXPR_CONCEPT_SPECIALIZATION:
       unsigned numTemplateArgs = Record[ASTStmtReader::NumExprFields];
       S = ConceptSpecializationExpr::Create(Context, Empty, numTemplateArgs);
       break;

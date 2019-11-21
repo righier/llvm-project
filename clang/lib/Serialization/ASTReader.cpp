@@ -13245,21 +13245,18 @@ void OMPClauseReader::VisitOMPIsDevicePtrClause(OMPIsDevicePtrClause *C) {
   C->setComponents(Components, ListSizes);
 }
 
-
-
 //===----------------------------------------------------------------------===//
 // TransformClauseReader implementation
 //===----------------------------------------------------------------------===//
 
 TransformClause *TransformClauseReader::readClause() {
   uint64_t Kind = Record.readInt();
-SourceRange Range =   Record.readSourceRange();
-
+  SourceRange Range = Record.readSourceRange();
 
   switch (Kind) {
-#define TRANSFORM_CLAUSE(Keyword,Name) \
-    case TransformClause::Kind::Name ##Kind: \
-      return read ## Name ## Clause (Range);
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    return read##Name##Clause(Range);
 #include "clang/AST/TransformClauseKinds.def"
 #if 0
   case TransformClause::Kind::FullKind:
@@ -13276,30 +13273,26 @@ SourceRange Range =   Record.readSourceRange();
     C = FactorClause::createEmpty(Context);
     break;
 #endif
- default:
+  default:
     llvm_unreachable("Unknown transform clause kind");
   }
 }
 
-
-FullClause* TransformClauseReader::readFullClause(SourceRange Range) {
+FullClause *TransformClauseReader::readFullClause(SourceRange Range) {
   return FullClause::create(Context, Range);
 }
 
-
-
-PartialClause* TransformClauseReader::readPartialClause(SourceRange Range) {
-  Expr* Factor = Record.readExpr();
+PartialClause *TransformClauseReader::readPartialClause(SourceRange Range) {
+  Expr *Factor = Record.readExpr();
   return PartialClause::create(Context, Range, Factor);
 }
 
-WidthClause* TransformClauseReader::readWidthClause(SourceRange Range) {
-  Expr* Width = Record.readExpr();
+WidthClause *TransformClauseReader::readWidthClause(SourceRange Range) {
+  Expr *Width = Record.readExpr();
   return WidthClause::create(Context, Range, Width);
 }
 
-FactorClause* TransformClauseReader::readFactorClause(SourceRange Range) {
-  Expr* Factor = Record.readExpr();
+FactorClause *TransformClauseReader::readFactorClause(SourceRange Range) {
+  Expr *Factor = Record.readExpr();
   return FactorClause::create(Context, Range, Factor);
 }
-

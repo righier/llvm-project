@@ -542,9 +542,6 @@ private:
   bool Visit##Name##Clause(Name##Clause *C);
 #include "clang/AST/TransformClauseKinds.def"
 
-
-
-
   bool dataTraverseNode(Stmt *S, DataRecursionQueue *Queue);
   bool PostVisitStmt(Stmt *S);
 };
@@ -2886,8 +2883,6 @@ DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeParallelForSimdDirective,
 DEF_TRAVERSE_STMT(OMPTargetTeamsDistributeSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
-
-
 template <typename Derived>
 bool RecursiveASTVisitor<Derived>::TraverseTransformClause(TransformClause *C) {
   if (!C)
@@ -3423,8 +3418,6 @@ bool RecursiveASTVisitor<Derived>::VisitFactorClause(FactorClause *C) {
   TRY_TO(TraverseStmt(C->getFactor()));
   return true;
 }
-
-
 
 // FIXME: look at the following tricky-seeming exprs to see if we
 // need to recurse on anything.  These are ones that have methods
