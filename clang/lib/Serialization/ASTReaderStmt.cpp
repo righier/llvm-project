@@ -2014,7 +2014,22 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 
 void ASTStmtReader::VisitTransformExecutableDirective(
     TransformExecutableDirective *D) {
-  llvm_unreachable("not implemented");
+  VisitStmt(D);
+  unsigned NumClauses = Record.readInt();
+  assert(D->getNumClauses() == NumClauses);
+  // The binary layout up to here is also assumed by
+  // ASTReader::ReadStmtFromStream and must be kept in-sync.
+
+  D->setRange(ReadSourceRange());
+
+  SmallVector<TransformClause *, 8> Clauses;
+  Clauses.reserve(NumClauses);
+  TransformClauseReader ClauseReader(Record);
+  for (unsigned i = 0; i < NumClauses; ++i)
+    Clauses.push_back(ClauseReader.readClause());
+  D->setClauses(Clauses);
+
+  D->setAssociated(Record.readSubStmt());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2495,6 +2510,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       return nullptr;
     }
     switch ((StmtCode)MaybeStmtCode.get()) {
+    default:
+      llvm_unreachable("Unexpected statement type");
+      break;
+
     case STMT_STOP:
       Finished = true;
       break;
@@ -2940,6 +2959,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
                                               NestedNameSpecifierLoc(),
                                               DeclarationNameInfo(),
                                               nullptr);
+      break;
+
+    case STMT_TRANSFORM_EXECUTABLE_DIRECTIVE:
+      S = TransformExecutableDirective::createEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields]);
       break;
 
     case STMT_OMP_PARALLEL_DIRECTIVE:
@@ -3560,7 +3584,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       unsigned numTemplateArgs = Record[ASTStmtReader::NumExprFields];
       S = ConceptSpecializationExpr::Create(Context, Empty, numTemplateArgs);
       break;
-      
     }
 
     // We hit a STMT_STOP, so we're done with this expression.

@@ -19,6 +19,7 @@
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/OpenMPClause.h"
+#include "clang/AST/StmtTransform.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
@@ -1011,6 +1012,24 @@ public:
   void writeClause(OMPClause *C);
   void VisitOMPClauseWithPreInit(OMPClauseWithPreInit *C);
   void VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C);
+};
+
+class TransformClauseWriter
+    : public ConstTransformClauseVisitor<TransformClauseWriter> {
+  ASTRecordWriter &Record;
+
+public:
+  TransformClauseWriter(ASTRecordWriter &Record) : Record(Record) {}
+
+  void writeClause(const TransformClause *C);
+
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  void Visit##Name##Clause(const Name##Clause *);
+#include "clang/AST/TransformClauseKinds.def"
+
+  void VisitTransformClause(const TransformClause *C) {
+    llvm_unreachable("Serialization of this clause not implemented");
+  }
 };
 
 } // namespace clang
