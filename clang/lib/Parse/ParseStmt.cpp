@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/PrettyDeclStackTrace.h"
-#include "clang/Basic/Transform.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/Transform.h"
 #include "clang/Parse/LoopHint.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
