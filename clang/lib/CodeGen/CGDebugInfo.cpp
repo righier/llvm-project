@@ -18,7 +18,6 @@
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "ConstantEmitter.h"
-#include "clang/Analysis/Analyses/ExprMutationAnalyzer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclObjC.h"
@@ -2600,8 +2599,8 @@ llvm::DIType *CGDebugInfo::CreateTypeDefinition(const ObjCInterfaceType *Ty,
           SourceLocation Loc = PD->getLocation();
           llvm::DIFile *PUnit = getOrCreateFile(Loc);
           unsigned PLine = getLineNumber(Loc);
-          ObjCMethodDecl *Getter = PD->getGetterMethodDecl();
-          ObjCMethodDecl *Setter = PD->getSetterMethodDecl();
+          ObjCMethodDecl *Getter = PImpD->getGetterMethodDecl();
+          ObjCMethodDecl *Setter = PImpD->getSetterMethodDecl();
           PropertyNode = DBuilder.createObjCProperty(
               PD->getName(), PUnit, PLine,
               hasDefaultGetterName(PD, Getter)
@@ -3490,6 +3489,38 @@ llvm::DISubprogram *CGDebugInfo::getFunctionDeclaration(const Decl *D) {
   return nullptr;
 }
 
+llvm::DISubprogram *CGDebugInfo::getObjCMethodDeclaration(
+    const Decl *D, llvm::DISubroutineType *FnType, unsigned LineNo,
+    llvm::DINode::DIFlags Flags, llvm::DISubprogram::DISPFlags SPFlags) {
+  if (!D || DebugKind <= codegenoptions::DebugLineTablesOnly)
+    return nullptr;
+
+  if (CGM.getCodeGenOpts().DwarfVersion < 5)
+    return nullptr;
+
+  // Starting with DWARF V5 method declarations are emitted as children of
+  // the interface type.
+  const auto *OMD = dyn_cast<ObjCMethodDecl>(D);
+  if (!OMD)
+    return nullptr;
+  auto *ID = dyn_cast_or_null<ObjCInterfaceDecl>(D->getDeclContext());
+  if (!ID)
+    ID = OMD->getClassInterface();
+  if (!ID)
+    return nullptr;
+  QualType QTy(ID->getTypeForDecl(), 0);
+  auto It = TypeCache.find(QTy.getAsOpaquePtr());
+  if (It == TypeCache.end())
+    return nullptr;
+  auto *InterfaceType = cast<llvm::DICompositeType>(It->second);
+  llvm::DISubprogram *FD = DBuilder.createFunction(
+      InterfaceType, getObjCMethodName(OMD), StringRef(),
+      InterfaceType->getFile(), LineNo, FnType, LineNo, Flags, SPFlags);
+  DBuilder.finalizeSubprogram(FD);
+  ObjCMethodCache[ID].push_back(FD);
+  return FD;
+}
+
 // getOrCreateFunctionType - Construct type. If it is a c++ method, include
 // implicit parameter "this".
 llvm::DISubroutineType *CGDebugInfo::getOrCreateFunctionType(const Decl *D,
@@ -3632,6 +3663,12 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
 
   unsigned LineNo = getLineNumber(Loc);
   unsigned ScopeLine = getLineNumber(ScopeLoc);
+  llvm::DISubroutineType *DIFnType = getOrCreateFunctionType(D, FnType, Unit);
+  llvm::DISubprogram *Decl = nullptr;
+  if (D)
+    Decl = isa<ObjCMethodDecl>(D)
+               ? getObjCMethodDeclaration(D, DIFnType, LineNo, Flags, SPFlags)
+               : getFunctionDeclaration(D);
 
   // FIXME: The function declaration we're constructing here is mostly reusing
   // declarations from CXXMethodDecl and not constructing new ones for arbitrary
@@ -3639,44 +3676,14 @@ void CGDebugInfo::EmitFunctionStart(GlobalDecl GD, SourceLocation Loc,
   // all subprograms instead of the actual context since subprogram definitions
   // are emitted as CU level entities by the backend.
   llvm::DISubprogram *SP = DBuilder.createFunction(
-      FDContext, Name, LinkageName, Unit, LineNo,
-      getOrCreateFunctionType(D, FnType, Unit), ScopeLine, FlagsForDef,
-      SPFlagsForDef, TParamsArray.get(), getFunctionDeclaration(D));
+      FDContext, Name, LinkageName, Unit, LineNo, DIFnType, ScopeLine,
+      FlagsForDef, SPFlagsForDef, TParamsArray.get(), Decl);
   Fn->setSubprogram(SP);
   // We might get here with a VarDecl in the case we're generating
   // code for the initialization of globals. Do not record these decls
   // as they will overwrite the actual VarDecl Decl in the cache.
   if (HasDecl && isa<FunctionDecl>(D))
     DeclCache[D->getCanonicalDecl()].reset(SP);
-
-  // We use the SPDefCache only in the case when the debug entry values option
-  // is set, in order to speed up parameters modification analysis.
-  //
-  // FIXME: Use AbstractCallee here to support ObjCMethodDecl.
-  if (CGM.getCodeGenOpts().EnableDebugEntryValues && HasDecl)
-    if (auto *FD = dyn_cast<FunctionDecl>(D))
-      if (FD->hasBody() && !FD->param_empty())
-        SPDefCache[FD].reset(SP);
-
-  if (CGM.getCodeGenOpts().DwarfVersion >= 5) {
-    // Starting with DWARF V5 method declarations are emitted as children of
-    // the interface type.
-    if (const auto *OMD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
-      const ObjCInterfaceDecl *ID = OMD->getClassInterface();
-      QualType QTy(ID->getTypeForDecl(), 0);
-      auto It = TypeCache.find(QTy.getAsOpaquePtr());
-      if (It != TypeCache.end()) {
-        llvm::DICompositeType *InterfaceDecl =
-            cast<llvm::DICompositeType>(It->second);
-        llvm::DISubprogram *FD = DBuilder.createFunction(
-            InterfaceDecl, Name, LinkageName, Unit, LineNo,
-            getOrCreateFunctionType(D, FnType, Unit), ScopeLine, Flags, SPFlags,
-            TParamsArray.get());
-        DBuilder.finalizeSubprogram(FD);
-        ObjCMethodCache[ID].push_back(FD);
-      }
-    }
-  }
 
   // Push the function onto the lexical block stack.
   LexicalBlockStack.emplace_back(SP);
@@ -3748,19 +3755,29 @@ void CGDebugInfo::EmitFunctionDecl(GlobalDecl GD, SourceLocation Loc,
 void CGDebugInfo::EmitFuncDeclForCallSite(llvm::CallBase *CallOrInvoke,
                                           QualType CalleeType,
                                           const FunctionDecl *CalleeDecl) {
-  if (!CallOrInvoke || getCallSiteRelatedAttrs() == llvm::DINode::FlagZero)
+  if (!CallOrInvoke)
     return;
-
   auto *Func = CallOrInvoke->getCalledFunction();
   if (!Func)
     return;
+  if (Func->getSubprogram())
+    return;
+
+  // Do not emit a declaration subprogram for a builtin or if call site info
+  // isn't required. Also, elide declarations for functions with reserved names,
+  // as call site-related features aren't interesting in this case (& also, the
+  // compiler may emit calls to these functions without debug locations, which
+  // makes the verifier complain).
+  if (CalleeDecl->getBuiltinID() != 0 ||
+      getCallSiteRelatedAttrs() == llvm::DINode::FlagZero)
+    return;
+  if (const auto *Id = CalleeDecl->getIdentifier())
+    if (Id->isReservedName())
+      return;
 
   // If there is no DISubprogram attached to the function being called,
   // create the one describing the function in order to have complete
   // call site debug info.
-  if (Func->getSubprogram())
-    return;
-
   if (!CalleeDecl->isStatic() && !CalleeDecl->isInlined())
     EmitFunctionDecl(CalleeDecl, CalleeDecl->getLocation(), CalleeType, Func);
 }
@@ -4069,11 +4086,6 @@ llvm::DILocalVariable *CGDebugInfo::EmitDeclare(const VarDecl *VD,
   DBuilder.insertDeclare(Storage, D, DBuilder.createExpression(Expr),
                          llvm::DebugLoc::get(Line, Column, Scope, CurInlinedAt),
                          Builder.GetInsertBlock());
-
-  if (CGM.getCodeGenOpts().EnableDebugEntryValues && ArgNo) {
-    if (auto *PD = dyn_cast<ParmVarDecl>(VD))
-      ParamCache[PD].reset(D);
-  }
 
   return D;
 }
@@ -4690,29 +4702,6 @@ void CGDebugInfo::setDwoId(uint64_t Signature) {
   TheCU->setDWOId(Signature);
 }
 
-/// Analyzes each function parameter to determine whether it is constant
-/// throughout the function body.
-static void analyzeParametersModification(
-    ASTContext &Ctx,
-    llvm::DenseMap<const FunctionDecl *, llvm::TrackingMDRef> &SPDefCache,
-    llvm::DenseMap<const ParmVarDecl *, llvm::TrackingMDRef> &ParamCache) {
-  for (auto &SP : SPDefCache) {
-    auto *FD = SP.first;
-    assert(FD->hasBody() && "Functions must have body here");
-    const Stmt *FuncBody = (*FD).getBody();
-    for (auto Parm : FD->parameters()) {
-      ExprMutationAnalyzer FuncAnalyzer(*FuncBody, Ctx);
-      if (FuncAnalyzer.isMutated(Parm))
-        continue;
-
-      auto I = ParamCache.find(Parm);
-      assert(I != ParamCache.end() && "Parameters should be already cached");
-      auto *DIParm = cast<llvm::DILocalVariable>(I->second);
-      DIParm->setIsNotModified();
-    }
-  }
-}
-
 void CGDebugInfo::finalize() {
   // Creating types might create further types - invalidating the current
   // element and the size(), so don't cache/reference them.
@@ -4784,10 +4773,6 @@ void CGDebugInfo::finalize() {
   for (auto &RT : RetainedTypes)
     if (auto MD = TypeCache[RT])
       DBuilder.retainType(cast<llvm::DIType>(MD));
-
-  if (CGM.getCodeGenOpts().EnableDebugEntryValues)
-    // This will be used to emit debug entry values.
-    analyzeParametersModification(CGM.getContext(), SPDefCache, ParamCache);
 
   DBuilder.finalize();
 }

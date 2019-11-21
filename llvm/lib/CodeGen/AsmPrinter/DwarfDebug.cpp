@@ -615,7 +615,7 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
     ++NumCSParams;
   };
 
-  // Search for a loading value in forwaring registers.
+  // Search for a loading value in forwarding registers.
   for (; I != MBB->rend(); ++I) {
     // If the next instruction is a call we can not interpret parameter's
     // forwarding registers or we finished the interpretation of all parameters.
@@ -714,6 +714,12 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
   // Emit call site entries for each call or tail call in the function.
   for (const MachineBasicBlock &MBB : MF) {
     for (const MachineInstr &MI : MBB.instrs()) {
+      // Bundles with call in them will pass the isCall() test below but do not
+      // have callee operand information so skip them here. Iterator will
+      // eventually reach the call MI.
+      if (MI.isBundle())
+        continue;
+
       // Skip instructions which aren't calls. Both calls and tail-calling jump
       // instructions (e.g TAILJMPd64) are classified correctly here.
       if (!MI.isCall())
@@ -748,19 +754,28 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
 
       bool IsTail = TII->isTailCall(MI);
 
+      // If MI is in a bundle, the label was created after the bundle since
+      // EmitFunctionBody iterates over top-level MIs. Get that top-level MI
+      // to search for that label below.
+      const MachineInstr *TopLevelCallMI =
+          MI.isInsideBundle() ? &*getBundleStart(MI.getIterator()) : &MI;
+
       // For tail calls, for non-gdb tuning, no return PC information is needed.
       // For regular calls (and tail calls in GDB tuning), the return PC
       // is needed to disambiguate paths in the call graph which could lead to
       // some target function.
       const MCExpr *PCOffset =
-          (IsTail && !tuneForGDB()) ? nullptr
-                                    : getFunctionLocalOffsetAfterInsn(&MI);
+          (IsTail && !tuneForGDB())
+              ? nullptr
+              : getFunctionLocalOffsetAfterInsn(TopLevelCallMI);
 
-      // Address of a call-like instruction for a normal call or a jump-like
-      // instruction for a tail call. This is needed for GDB + DWARF 4 tuning.
+      // Return address of a call-like instruction for a normal call or a
+      // jump-like instruction for a tail call. This is needed for
+      // GDB + DWARF 4 tuning.
       const MCSymbol *PCAddr =
-          ApplyGNUExtensions ? const_cast<MCSymbol*>(getLabelAfterInsn(&MI))
-                             : nullptr;
+          ApplyGNUExtensions
+              ? const_cast<MCSymbol *>(getLabelAfterInsn(TopLevelCallMI))
+              : nullptr;
 
       assert((IsTail || PCOffset || PCAddr) &&
              "Call without return PC information");
@@ -2323,8 +2338,11 @@ static MCSymbol *emitLoclistsTableHeader(AsmPrinter *Asm,
   // FIXME: Generate the offsets table and use DW_FORM_loclistx with the
   // DW_AT_loclists_base attribute. Until then set the number of offsets to 0.
   Asm->OutStreamer->AddComment("Offset entry count");
-  Asm->emitInt32(0);
+  Asm->emitInt32(DebugLocs.getLists().size());
   Asm->OutStreamer->EmitLabel(DebugLocs.getSym());
+
+  for (const auto &List : DebugLocs.getLists())
+    Asm->EmitLabelDifference(List.Label, DebugLocs.getSym(), 4);
 
   return TableEnd;
 }
@@ -2729,33 +2747,21 @@ void DwarfDebug::emitMacroFile(DIMacroFile &F, DwarfCompileUnit &U) {
 
 /// Emit macros into a debug macinfo section.
 void DwarfDebug::emitDebugMacinfo() {
-  if (CUMap.empty())
-    return;
-
-  if (llvm::all_of(CUMap, [](const decltype(CUMap)::value_type &Pair) {
-        return Pair.second->getCUNode()->isDebugDirectivesOnly();
-      }))
-    return;
-
-  // Start the dwarf macinfo section.
-  Asm->OutStreamer->SwitchSection(
-      Asm->getObjFileLowering().getDwarfMacinfoSection());
-
   for (const auto &P : CUMap) {
     auto &TheCU = *P.second;
-    if (TheCU.getCUNode()->isDebugDirectivesOnly())
-      continue;
     auto *SkCU = TheCU.getSkeleton();
     DwarfCompileUnit &U = SkCU ? *SkCU : TheCU;
     auto *CUNode = cast<DICompileUnit>(P.first);
     DIMacroNodeArray Macros = CUNode->getMacros();
-    if (!Macros.empty()) {
-      Asm->OutStreamer->EmitLabel(U.getMacroLabelBegin());
-      handleMacroNodes(Macros, U);
-    }
+    if (Macros.empty())
+      continue;
+    Asm->OutStreamer->SwitchSection(
+        Asm->getObjFileLowering().getDwarfMacinfoSection());
+    Asm->OutStreamer->EmitLabel(U.getMacroLabelBegin());
+    handleMacroNodes(Macros, U);
+    Asm->OutStreamer->AddComment("End Of Macro List Mark");
+    Asm->emitInt8(0);
   }
-  Asm->OutStreamer->AddComment("End Of Macro List Mark");
-  Asm->emitInt8(0);
 }
 
 // DWARF5 Experimental Separate Dwarf emitters.
