@@ -146,10 +146,6 @@ class CGDebugInfo {
 
   llvm::DenseMap<const char *, llvm::TrackingMDRef> DIFileCache;
   llvm::DenseMap<const FunctionDecl *, llvm::TrackingMDRef> SPCache;
-  /// Cache function definitions relevant to use for parameters mutation
-  /// analysis.
-  llvm::DenseMap<const FunctionDecl *, llvm::TrackingMDRef> SPDefCache;
-  llvm::DenseMap<const ParmVarDecl *, llvm::TrackingMDRef> ParamCache;
   /// Cache declarations relevant to DW_TAG_imported_declarations (C++
   /// using declarations) that aren't covered by other more specific caches.
   llvm::DenseMap<const Decl *, llvm::TrackingMDRef> DeclCache;
@@ -612,6 +608,17 @@ private:
   /// \return debug info descriptor to describe method
   /// declaration for the given method definition.
   llvm::DISubprogram *getFunctionDeclaration(const Decl *D);
+
+  /// \return          debug info descriptor to the describe method declaration
+  ///                  for the given method definition.
+  /// \param FnType    For Objective-C methods, their type.
+  /// \param LineNo    The declaration's line number.
+  /// \param Flags     The DIFlags for the method declaration.
+  /// \param SPFlags   The subprogram-spcific flags for the method declaration.
+  llvm::DISubprogram *
+  getObjCMethodDeclaration(const Decl *D, llvm::DISubroutineType *FnType,
+                           unsigned LineNo, llvm::DINode::DIFlags Flags,
+                           llvm::DISubprogram::DISPFlags SPFlags);
 
   /// \return debug info descriptor to describe in-class static data
   /// member declaration for the given out-of-class definition.  If D

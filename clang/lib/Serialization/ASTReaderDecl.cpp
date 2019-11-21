@@ -405,6 +405,7 @@ namespace clang {
     void VisitBlockDecl(BlockDecl *BD);
     void VisitCapturedDecl(CapturedDecl *CD);
     void VisitEmptyDecl(EmptyDecl *D);
+    void VisitLifetimeExtendedTemporaryDecl(LifetimeExtendedTemporaryDecl *D);
 
     std::pair<uint64_t, uint64_t> VisitDeclContext(DeclContext *DC);
 
@@ -1019,6 +1020,7 @@ void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
   MD->setInstanceMethod(Record.readInt());
   MD->setVariadic(Record.readInt());
   MD->setPropertyAccessor(Record.readInt());
+  MD->setSynthesizedAccessorStub(Record.readInt());
   MD->setDefined(Record.readInt());
   MD->setOverriding(Record.readInt());
   MD->setHasSkippedBody(Record.readInt());
@@ -1313,6 +1315,8 @@ void ASTDeclReader::VisitObjCPropertyImplDecl(ObjCPropertyImplDecl *D) {
   D->setPropertyDecl(ReadDeclAs<ObjCPropertyDecl>());
   D->PropertyIvarDecl = ReadDeclAs<ObjCIvarDecl>();
   D->IvarLoc = ReadSourceLocation();
+  D->setGetterMethodDecl(ReadDeclAs<ObjCMethodDecl>());
+  D->setSetterMethodDecl(ReadDeclAs<ObjCMethodDecl>());
   D->setGetterCXXConstructor(Record.readExpr());
   D->setSetterCXXAssignment(Record.readExpr());
 }
@@ -2344,6 +2348,16 @@ void ASTDeclReader::VisitStaticAssertDecl(StaticAssertDecl *D) {
 
 void ASTDeclReader::VisitEmptyDecl(EmptyDecl *D) {
   VisitDecl(D);
+}
+
+void ASTDeclReader::VisitLifetimeExtendedTemporaryDecl(
+    LifetimeExtendedTemporaryDecl *D) {
+  VisitDecl(D);
+  D->ExtendingDecl = ReadDeclAs<ValueDecl>();
+  D->ExprWithTemporary = Record.readStmt();
+  if (Record.readInt())
+    D->Value = new (D->getASTContext()) APValue(Record.readAPValue());
+  D->ManglingNumber = Record.readInt();
 }
 
 std::pair<uint64_t, uint64_t>
@@ -3883,6 +3897,9 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
     break;
   case DECL_EMPTY:
     D = EmptyDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_LIFETIME_EXTENDED_TEMPORARY:
+    D = LifetimeExtendedTemporaryDecl::CreateDeserialized(Context, ID);
     break;
   case DECL_OBJC_TYPE_PARAM:
     D = ObjCTypeParamDecl::CreateDeserialized(Context, ID);

@@ -75,14 +75,17 @@ LinkerDriver *driver;
 static void setConfigs(opt::InputArgList &args);
 static void readConfigs(opt::InputArgList &args);
 
-bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &error) {
+bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &stdoutOS,
+          raw_ostream &stderrOS) {
   errorHandler().logName = args::getFilenameWithoutExe(args[0]);
   errorHandler().errorLimitExceededMsg =
       "too many errors emitted, stopping now (use "
       "-error-limit=0 to see all errors)";
-  errorHandler().errorOS = &error;
   errorHandler().exitEarly = canExitEarly;
-  enableColors(error.has_colors());
+  enableColors(stderrOS.has_colors());
+
+  lld::stdoutOS = &stdoutOS;
+  lld::stderrOS = &stderrOS;
 
   inputSections.clear();
   outputSections.clear();
@@ -1781,6 +1784,12 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   // Handle the `--undefined-glob <pattern>` options.
   for (StringRef pat : args::getStrings(args, OPT_undefined_glob))
     handleUndefinedGlob(pat);
+
+  // Mark -init and -fini symbols so that the LTO doesn't eliminate them.
+  if (Symbol *sym = symtab->find(config->init))
+    sym->isUsedInRegularObj = true;
+  if (Symbol *sym = symtab->find(config->fini))
+    sym->isUsedInRegularObj = true;
 
   // If any of our inputs are bitcode files, the LTO code generator may create
   // references to certain library functions that might not be explicit in the

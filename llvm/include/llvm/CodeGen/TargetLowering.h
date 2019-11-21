@@ -472,6 +472,10 @@ public:
     return false;
   }
 
+  /// Return true if instruction generated for equality comparison is folded
+  /// with instruction generated for signed comparison.
+  virtual bool isEqualityCmpFoldedWithSignedCmp() const { return true; }
+
   /// Return true if it is safe to transform an integer-domain bitwise operation
   /// into the equivalent floating-point operation. This should be set to true
   /// if the target has IEEE-754-compliant fabs/fneg operations for the input
@@ -940,38 +944,9 @@ public:
     unsigned EqOpc;
     switch (Op) {
       default: llvm_unreachable("Unexpected FP pseudo-opcode");
-      case ISD::STRICT_FADD: EqOpc = ISD::FADD; break;
-      case ISD::STRICT_FSUB: EqOpc = ISD::FSUB; break;
-      case ISD::STRICT_FMUL: EqOpc = ISD::FMUL; break;
-      case ISD::STRICT_FDIV: EqOpc = ISD::FDIV; break;
-      case ISD::STRICT_FREM: EqOpc = ISD::FREM; break;
-      case ISD::STRICT_FSQRT: EqOpc = ISD::FSQRT; break;
-      case ISD::STRICT_FPOW: EqOpc = ISD::FPOW; break;
-      case ISD::STRICT_FPOWI: EqOpc = ISD::FPOWI; break;
-      case ISD::STRICT_FMA: EqOpc = ISD::FMA; break;
-      case ISD::STRICT_FSIN: EqOpc = ISD::FSIN; break;
-      case ISD::STRICT_FCOS: EqOpc = ISD::FCOS; break;
-      case ISD::STRICT_FEXP: EqOpc = ISD::FEXP; break;
-      case ISD::STRICT_FEXP2: EqOpc = ISD::FEXP2; break;
-      case ISD::STRICT_FLOG: EqOpc = ISD::FLOG; break;
-      case ISD::STRICT_FLOG10: EqOpc = ISD::FLOG10; break;
-      case ISD::STRICT_FLOG2: EqOpc = ISD::FLOG2; break;
-      case ISD::STRICT_LRINT: EqOpc = ISD::LRINT; break;
-      case ISD::STRICT_LLRINT: EqOpc = ISD::LLRINT; break;
-      case ISD::STRICT_FRINT: EqOpc = ISD::FRINT; break;
-      case ISD::STRICT_FNEARBYINT: EqOpc = ISD::FNEARBYINT; break;
-      case ISD::STRICT_FMAXNUM: EqOpc = ISD::FMAXNUM; break;
-      case ISD::STRICT_FMINNUM: EqOpc = ISD::FMINNUM; break;
-      case ISD::STRICT_FCEIL: EqOpc = ISD::FCEIL; break;
-      case ISD::STRICT_FFLOOR: EqOpc = ISD::FFLOOR; break;
-      case ISD::STRICT_LROUND: EqOpc = ISD::LROUND; break;
-      case ISD::STRICT_LLROUND: EqOpc = ISD::LLROUND; break;
-      case ISD::STRICT_FROUND: EqOpc = ISD::FROUND; break;
-      case ISD::STRICT_FTRUNC: EqOpc = ISD::FTRUNC; break;
-      case ISD::STRICT_FP_TO_SINT: EqOpc = ISD::FP_TO_SINT; break;
-      case ISD::STRICT_FP_TO_UINT: EqOpc = ISD::FP_TO_UINT; break;
-      case ISD::STRICT_FP_ROUND: EqOpc = ISD::FP_ROUND; break;
-      case ISD::STRICT_FP_EXTEND: EqOpc = ISD::FP_EXTEND; break;
+#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
+      case ISD::STRICT_##DAGN: EqOpc = ISD::DAGN; break;
+#include "llvm/IR/ConstrainedOps.def"
     }
 
     return getOperationAction(EqOpc, VT);
@@ -2524,7 +2499,13 @@ public:
   /// not legal, but should return true if those types will eventually legalize
   /// to types that support FMAs. After legalization, it will only be called on
   /// types that support FMAs (via Legal or Custom actions)
-  virtual bool isFMAFasterThanFMulAndFAdd(EVT) const {
+  virtual bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                          EVT) const {
+    return false;
+  }
+
+  /// IR version
+  virtual bool isFMAFasterThanFMulAndFAdd(const Function &F, Type *) const {
     return false;
   }
 
@@ -2604,10 +2585,10 @@ public:
   // same blocks of its users.
   virtual bool shouldConsiderGEPOffsetSplit() const { return false; }
 
-  // Return the shift amount threshold for profitable transforms into shifts.
-  // Transforms creating shifts above the returned value will be avoided.
-  virtual unsigned getShiftAmountThreshold(EVT VT) const {
-    return VT.getScalarSizeInBits();
+  /// Return true if creating a shift of the type by the given
+  /// amount is not profitable.
+  virtual bool shouldAvoidTransformToShift(EVT VT, unsigned Amount) const {
+    return false;
   }
 
   //===--------------------------------------------------------------------===//
@@ -2737,7 +2718,7 @@ private:
   /// This indicates the default register class to use for each ValueType the
   /// target supports natively.
   const TargetRegisterClass *RegClassForVT[MVT::LAST_VALUETYPE];
-  unsigned char NumRegistersForVT[MVT::LAST_VALUETYPE];
+  uint16_t NumRegistersForVT[MVT::LAST_VALUETYPE];
   MVT RegisterTypeForVT[MVT::LAST_VALUETYPE];
 
   /// This indicates the "representative" register class to use for each
@@ -3026,6 +3007,11 @@ public:
                                           EVT RetVT, ArrayRef<SDValue> Ops,
                                           MakeLibCallOptions CallOptions,
                                           const SDLoc &dl) const;
+
+  std::pair<SDValue, SDValue> ExpandChainLibCall(SelectionDAG &DAG,
+                                                 RTLIB::Libcall LC,
+                                                 SDNode *Node,
+                                                 bool isSigned) const;
 
   /// Check whether parameters to a call that are passed in callee saved
   /// registers are the same as from the calling function.  This needs to be
@@ -3754,7 +3740,7 @@ public:
   /// Should SelectionDAG lower an atomic store of the given kind as a normal
   /// StoreSDNode (as opposed to an AtomicSDNode)?  NOTE: The intention is to
   /// eventually migrate all targets to the using StoreSDNodes, but porting is
-  /// being done target at a time.  
+  /// being done target at a time.
   virtual bool lowerAtomicStoreAsStoreSDNode(const StoreInst &SI) const {
     assert(SI.isAtomic() && "violated precondition");
     return false;

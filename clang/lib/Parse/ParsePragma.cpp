@@ -242,10 +242,11 @@ struct PragmaMSOptimizeHandler : public PragmaHandler {
 };
 
 struct PragmaForceCUDAHostDeviceHandler : public PragmaHandler {
-  PragmaForceCUDAHostDeviceHandler(Sema& Actions)
-    : PragmaHandler("force_cuda_host_device"), Actions(Actions) {}
-  void HandlePragma(Preprocessor& PP, PragmaIntroducer Introducer,
-    Token& FirstToken) override;
+  PragmaForceCUDAHostDeviceHandler(Sema &Actions)
+      : PragmaHandler("force_cuda_host_device"), Actions(Actions) {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &FirstToken) override;
+
 private:
   Sema &Actions;
 };
@@ -3056,14 +3057,8 @@ void PragmaTransformHandler::HandlePragma(Preprocessor &PP,
   while (true) {
     Token Tok;
     PP.Lex(Tok);
-
-    // TODO: Handle nested pragmas as in r325369.
-    assert(!Tok.isAnnotation());
-    assert(Tok.isNot(tok::annot_pragma_transform));
-    assert(Tok.isNot(tok::annot_pragma_transform_end));
-    assert(Tok.isNot(tok::annot_pragma_openmp));
-    assert(Tok.isNot(tok::annot_pragma_openmp_end));
-    assert(Tok.isNot(tok::annot_pragma_loop_hint));
+    assert(!Tok.isAnnotation() &&
+           "It should not be possible to nest annotations");
 
     if (Tok.is(tok::eod) || Tok.is(tok::eof)) {
       EodLoc = Tok.getLocation();

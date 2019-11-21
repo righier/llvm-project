@@ -220,11 +220,13 @@ namespace {
       ForCodeSize = DAG.getMachineFunction().getFunction().hasOptSize();
 
       MaximumLegalStoreInBits = 0;
+      // We use the minimum store size here, since that's all we can guarantee
+      // for the scalable vector types.
       for (MVT VT : MVT::all_valuetypes())
         if (EVT(VT).isSimple() && VT != MVT::Other &&
             TLI.isTypeLegal(EVT(VT)) &&
-            VT.getSizeInBits() >= MaximumLegalStoreInBits)
-          MaximumLegalStoreInBits = VT.getSizeInBits();
+            VT.getSizeInBits().getKnownMinSize() >= MaximumLegalStoreInBits)
+          MaximumLegalStoreInBits = VT.getSizeInBits().getKnownMinSize();
     }
 
     void ConsiderForPruning(SDNode *N) {
@@ -622,7 +624,7 @@ namespace {
                            ConstantSDNode *Mask, SDNode *&NodeToMask);
     /// Attempt to propagate a given AND node back to load leaves so that they
     /// can be combined into narrow loads.
-    bool BackwardsPropagateMask(SDNode *N, SelectionDAG &DAG);
+    bool BackwardsPropagateMask(SDNode *N);
 
     /// Helper function for MergeConsecutiveStores which merges the
     /// component store chains.
@@ -2800,6 +2802,96 @@ static SDValue combineADDCARRYDiamond(DAGCombiner &Combiner, SelectionDAG &DAG,
   return SDValue();
 }
 
+// If we are facing some sort of diamond carry/borrow in/out pattern try to
+// match patterns like:
+//
+//          (uaddo A, B)            CarryIn
+//            |  \                     |
+//            |   \                    |
+//    PartialSum   PartialCarryOutX   /
+//            |        |             /
+//            |    ____|____________/
+//            |   /    |
+//     (uaddo *, *)    \________
+//       |  \                   \
+//       |   \                   |
+//       |    PartialCarryOutY   |
+//       |        \              |
+//       |         \            /
+//   AddCarrySum    |    ______/
+//                  |   /
+//   CarryOut = (or *, *)
+//
+// And generate ADDCARRY (or SUBCARRY) with two result values:
+//
+//    {AddCarrySum, CarryOut} = (addcarry A, B, CarryIn)
+//
+// Our goal is to identify A, B, and CarryIn and produce ADDCARRY/SUBCARRY with
+// a single path for carry/borrow out propagation:
+static SDValue combineCarryDiamond(DAGCombiner &Combiner, SelectionDAG &DAG,
+                                   const TargetLowering &TLI, SDValue Carry0,
+                                   SDValue Carry1, SDNode *N) {
+  if (Carry0.getResNo() != 1 || Carry1.getResNo() != 1)
+    return SDValue();
+  unsigned Opcode = Carry0.getOpcode();
+  if (Opcode != Carry1.getOpcode())
+    return SDValue();
+  if (Opcode != ISD::UADDO && Opcode != ISD::USUBO)
+    return SDValue();
+
+  // Canonicalize the add/sub of A and B as Carry0 and the add/sub of the
+  // carry/borrow in as Carry1. (The top and middle uaddo nodes respectively in
+  // the above ASCII art.)
+  if (Carry1.getOperand(0) != Carry0.getValue(0) &&
+      Carry1.getOperand(1) != Carry0.getValue(0))
+    std::swap(Carry0, Carry1);
+  if (Carry1.getOperand(0) != Carry0.getValue(0) &&
+      Carry1.getOperand(1) != Carry0.getValue(0))
+    return SDValue();
+
+  // The carry in value must be on the righthand side for subtraction.
+  unsigned CarryInOperandNum =
+      Carry1.getOperand(0) == Carry0.getValue(0) ? 1 : 0;
+  if (Opcode == ISD::USUBO && CarryInOperandNum != 1)
+    return SDValue();
+  SDValue CarryIn = Carry1.getOperand(CarryInOperandNum);
+
+  unsigned NewOp = Opcode == ISD::UADDO ? ISD::ADDCARRY : ISD::SUBCARRY;
+  if (!TLI.isOperationLegalOrCustom(NewOp, Carry0.getValue(0).getValueType()))
+    return SDValue();
+
+  // Verify that the carry/borrow in is plausibly a carry/borrow bit.
+  // TODO: make getAsCarry() aware of how partial carries are merged.
+  if (CarryIn.getOpcode() != ISD::ZERO_EXTEND)
+    return SDValue();
+  CarryIn = CarryIn.getOperand(0);
+  if (CarryIn.getValueType() != MVT::i1)
+    return SDValue();
+
+  SDLoc DL(N);
+  SDValue Merged =
+      DAG.getNode(NewOp, DL, Carry1->getVTList(), Carry0.getOperand(0),
+                  Carry0.getOperand(1), CarryIn);
+
+  // Please note that because we have proven that the result of the UADDO/USUBO
+  // of A and B feeds into the UADDO/USUBO that does the carry/borrow in, we can
+  // therefore prove that if the first UADDO/USUBO overflows, the second
+  // UADDO/USUBO cannot. For example consider 8-bit numbers where 0xFF is the
+  // maximum value.
+  //
+  //   0xFF + 0xFF == 0xFE with carry but 0xFE + 1 does not carry
+  //   0x00 - 0xFF == 1 with a carry/borrow but 1 - 1 == 0 (no carry/borrow)
+  //
+  // This is important because it means that OR and XOR can be used to merge
+  // carry flags; and that AND can return a constant zero.
+  //
+  // TODO: match other operations that can merge flags (ADD, etc)
+  DAG.ReplaceAllUsesOfValueWith(Carry1.getValue(0), Merged.getValue(0));
+  if (N->getOpcode() == ISD::AND)
+    return DAG.getConstant(0, DL, MVT::i1);
+  return Merged.getValue(1);
+}
+
 SDValue DAGCombiner::visitADDCARRYLike(SDValue N0, SDValue N1, SDValue CarryIn,
                                        SDNode *N) {
   // fold (addcarry (xor a, -1), b, c) -> (subcarry b, a, !c) and flip carry.
@@ -4225,7 +4317,6 @@ SDValue DAGCombiner::visitIMINMAX(SDNode *N) {
   // Is sign bits are zero, flip between UMIN/UMAX and SMIN/SMAX.
   // Only do this if the current op isn't legal and the flipped is.
   unsigned Opcode = N->getOpcode();
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (!TLI.isOperationLegal(Opcode, VT) &&
       (N0.isUndef() || DAG.SignBitIsZero(N0)) &&
       (N1.isUndef() || DAG.SignBitIsZero(N1))) {
@@ -4856,7 +4947,7 @@ bool DAGCombiner::SearchForAndLoads(SDNode *N,
   return true;
 }
 
-bool DAGCombiner::BackwardsPropagateMask(SDNode *N, SelectionDAG &DAG) {
+bool DAGCombiner::BackwardsPropagateMask(SDNode *N) {
   auto *Mask = dyn_cast<ConstantSDNode>(N->getOperand(1));
   if (!Mask)
     return false;
@@ -5092,6 +5183,9 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
     if (SDValue Shuffle = XformToShuffleWithZero(N))
       return Shuffle;
 
+  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
+    return Combined;
+
   // fold (and (or x, C), D) -> D if (C & D) == D
   auto MatchSubset = [](ConstantSDNode *LHS, ConstantSDNode *RHS) {
     return RHS->getAPIntValue().isSubsetOf(LHS->getAPIntValue());
@@ -5243,9 +5337,8 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
     // loads, can be combined to narrow loads and the AND node can be removed.
     // Perform after legalization so that extend nodes will already be
     // combined into the loads.
-    if (BackwardsPropagateMask(N, DAG)) {
+    if (BackwardsPropagateMask(N))
       return SDValue(N, 0);
-    }
   }
 
   if (SDValue Combined = visitANDLike(N0, N1, N))
@@ -5785,6 +5878,9 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
     return N1;
 
   if (SDValue Combined = visitORLike(N0, N1, N))
+    return Combined;
+
+  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
     return Combined;
 
   // Recognize halfword bswaps as (bswap + rotl 16) or (bswap + shl 16)
@@ -6491,7 +6587,6 @@ SDValue DAGCombiner::MatchStoreCombine(StoreSDNode *N) {
   if (VT != MVT::i16 && VT != MVT::i32 && VT != MVT::i64)
     return SDValue();
 
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (LegalOperations && !TLI.isOperationLegal(ISD::STORE, VT))
     return SDValue();
 
@@ -6655,7 +6750,6 @@ SDValue DAGCombiner::MatchLoadCombine(SDNode *N) {
     return SDValue();
   unsigned ByteWidth = VT.getSizeInBits() / 8;
 
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   // Before legalize we can introduce too wide illegal loads which will be later
   // split into legal sized loads. This enables us to combine i64 load by i8
   // patterns to a couple of i32 loads on 32 bit targets.
@@ -7050,6 +7144,9 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
   // Simplify the expression using non-local knowledge.
   if (SimplifyDemandedBits(SDValue(N, 0)))
     return SDValue(N, 0);
+
+  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
+    return Combined;
 
   return SDValue();
 }
@@ -9401,7 +9498,7 @@ static SDValue foldExtendedSignBitTest(SDNode *N, SelectionDAG &DAG,
     SDLoc DL(N);
     unsigned ShCt = VT.getSizeInBits() - 1;
     const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-    if (ShCt <= TLI.getShiftAmountThreshold(VT)) {
+    if (!TLI.shouldAvoidTransformToShift(VT, ShCt)) {
       SDValue NotX = DAG.getNOT(DL, X, VT);
       SDValue ShiftAmount = DAG.getConstant(ShCt, DL, VT);
       auto ShiftOpcode =
@@ -11339,7 +11436,7 @@ SDValue DAGCombiner::visitFADDForFMACombine(SDNode *N) {
 
   // Floating-point multiply-add without intermediate rounding.
   bool HasFMA =
-      TLI.isFMAFasterThanFMulAndFAdd(VT) &&
+      TLI.isFMAFasterThanFMulAndFAdd(DAG.getMachineFunction(), VT) &&
       (!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FMA, VT));
 
   // No valid opcode, do not combine.
@@ -11556,7 +11653,7 @@ SDValue DAGCombiner::visitFSUBForFMACombine(SDNode *N) {
 
   // Floating-point multiply-add without intermediate rounding.
   bool HasFMA =
-      TLI.isFMAFasterThanFMulAndFAdd(VT) &&
+      TLI.isFMAFasterThanFMulAndFAdd(DAG.getMachineFunction(), VT) &&
       (!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FMA, VT));
 
   // No valid opcode, do not combine.
@@ -11862,7 +11959,7 @@ SDValue DAGCombiner::visitFMULForFMADistributiveCombine(SDNode *N) {
   // Floating-point multiply-add without intermediate rounding.
   bool HasFMA =
       (Options.AllowFPOpFusion == FPOpFusion::Fast || Options.UnsafeFPMath) &&
-      TLI.isFMAFasterThanFMulAndFAdd(VT) &&
+      TLI.isFMAFasterThanFMulAndFAdd(DAG.getMachineFunction(), VT) &&
       (!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FMA, VT));
 
   // Floating-point multiply-add with intermediate rounding. This can result
@@ -13973,8 +14070,8 @@ SDValue DAGCombiner::ForwardStoreValueToDirectLoad(LoadSDNode *LD) {
   // the stored value). With Offset=n (for n > 0) the loaded value starts at the
   // n:th least significant byte of the stored value.
   if (DAG.getDataLayout().isBigEndian())
-    Offset = (STMemType.getStoreSizeInBits() -
-              LDMemType.getStoreSizeInBits()) / 8 - Offset;
+    Offset = ((int64_t)STMemType.getStoreSizeInBits() -
+              (int64_t)LDMemType.getStoreSizeInBits()) / 8 - Offset;
 
   // Check that the stored value cover all bits that are loaded.
   bool STCoversLD =
@@ -15131,7 +15228,7 @@ bool DAGCombiner::MergeStoresOfConstantsOrVecElts(
   // The latest Node in the DAG.
   SDLoc DL(StoreNodes[0].MemNode);
 
-  int64_t ElementSizeBits = MemVT.getStoreSizeInBits();
+  TypeSize ElementSizeBits = MemVT.getStoreSizeInBits();
   unsigned SizeInBits = NumStores * ElementSizeBits;
   unsigned NumMemElts = MemVT.isVector() ? MemVT.getVectorNumElements() : 1;
 
@@ -15516,7 +15613,7 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode *St) {
       Attribute::NoImplicitFloat);
 
   // This function cannot currently deal with non-byte-sized memory sizes.
-  if (ElementSizeBytes * 8 != MemVT.getSizeInBits())
+  if (ElementSizeBytes * 8 != (int64_t)MemVT.getSizeInBits())
     return false;
 
   if (!MemVT.isSimple())
@@ -19958,7 +20055,7 @@ SDValue DAGCombiner::foldSelectCCToShiftAnd(const SDLoc &DL, SDValue N0,
   auto *N2C = dyn_cast<ConstantSDNode>(N2.getNode());
   if (N2C && ((N2C->getAPIntValue() & (N2C->getAPIntValue() - 1)) == 0)) {
     unsigned ShCt = XType.getSizeInBits() - N2C->getAPIntValue().logBase2() - 1;
-    if (ShCt <= TLI.getShiftAmountThreshold(XType)) {
+    if (!TLI.shouldAvoidTransformToShift(XType, ShCt)) {
       SDValue ShiftAmt = DAG.getConstant(ShCt, DL, ShiftAmtTy);
       SDValue Shift = DAG.getNode(ISD::SRL, DL, XType, N0, ShiftAmt);
       AddToWorklist(Shift.getNode());
@@ -19976,7 +20073,7 @@ SDValue DAGCombiner::foldSelectCCToShiftAnd(const SDLoc &DL, SDValue N0,
   }
 
   unsigned ShCt = XType.getSizeInBits() - 1;
-  if (ShCt > TLI.getShiftAmountThreshold(XType))
+  if (TLI.shouldAvoidTransformToShift(XType, ShCt))
     return SDValue();
 
   SDValue ShiftAmt = DAG.getConstant(ShCt, DL, ShiftAmtTy);
@@ -20097,7 +20194,7 @@ SDValue DAGCombiner::SimplifySelectCC(const SDLoc &DL, SDValue N0, SDValue N1,
       // Shift the tested bit over the sign bit.
       const APInt &AndMask = ConstAndRHS->getAPIntValue();
       unsigned ShCt = AndMask.getBitWidth() - 1;
-      if (ShCt <= TLI.getShiftAmountThreshold(VT)) {
+      if (!TLI.shouldAvoidTransformToShift(VT, ShCt)) {
         SDValue ShlAmt =
           DAG.getConstant(AndMask.countLeadingZeros(), SDLoc(AndLHS),
                           getShiftAmountTy(AndLHS.getValueType()));
@@ -20154,7 +20251,7 @@ SDValue DAGCombiner::SimplifySelectCC(const SDLoc &DL, SDValue N0, SDValue N1,
       return Temp;
 
     unsigned ShCt = N2C->getAPIntValue().logBase2();
-    if (ShCt > TLI.getShiftAmountThreshold(VT))
+    if (TLI.shouldAvoidTransformToShift(VT, ShCt))
       return SDValue();
 
     // shl setcc result by log2 n2c
@@ -20466,9 +20563,8 @@ SDValue DAGCombiner::buildSqrtEstimateImpl(SDValue Op, SDNodeFlags Flags,
         SDLoc DL(Op);
         EVT CCVT = getSetCCResultType(VT);
         ISD::NodeType SelOpcode = VT.isVector() ? ISD::VSELECT : ISD::SELECT;
-        const Function &F = DAG.getMachineFunction().getFunction();
-        Attribute Denorms = F.getFnAttribute("denormal-fp-math");
-        if (Denorms.getValueAsString().equals("ieee")) {
+        DenormalMode DenormMode = DAG.getDenormalMode(VT);
+        if (DenormMode == DenormalMode::IEEE) {
           // fabs(X) < SmallestNormal ? 0.0 : Est
           const fltSemantics &FltSem = DAG.EVTToAPFloatSemantics(VT);
           APFloat SmallestNorm = APFloat::getSmallestNormalized(FltSem);
