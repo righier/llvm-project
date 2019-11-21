@@ -1961,9 +1961,9 @@ void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
 void ASTStmtWriter::VisitTransformExecutableDirective(TransformExecutableDirective *D) {
   Code = serialization::STMT_TRANSFORM_EXECUTABLE_DIRECTIVE;
   VisitStmt(D);
-  Record.AddSourceRange(D->getRange());
-
   Record.push_back(D->getNumClauses());
+
+  Record.AddSourceRange(D->getRange());
   TransformClauseWriter ClauseWriter(Record);
   for (auto C : D->clauses()) 
     ClauseWriter.writeClause(C);

@@ -2013,13 +2013,18 @@ void ASTStmtReader::VisitAsTypeExpr(AsTypeExpr *E) {
 //===----------------------------------------------------------------------===//
 
 void ASTStmtReader::VisitTransformExecutableDirective(TransformExecutableDirective *D) {
-  VisitStmt(D);
+    VisitStmt(D);
+    unsigned NumClauses = Record.readInt();
+     assert(D->getNumClauses() == NumClauses);
+     // The binary layout up to here is also assumed by ASTReader::ReadStmtFromStream and must be kept in-sync.
+
   D->setRange(ReadSourceRange());
 
-  uint64_t NumClauses = Record.readInt();
+     
   SmallVector<TransformClause *, 8> Clauses;
+  Clauses.reserve(NumClauses);
   TransformClauseReader ClauseReader(Record);
-  for (uint64_t i = 0; i < NumClauses; ++i)
+  for (unsigned i = 0; i < NumClauses; ++i)
     Clauses.push_back(  ClauseReader.readClause()  );
 
 #if 0
