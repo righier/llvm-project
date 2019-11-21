@@ -2600,6 +2600,29 @@ static void handleVisibilityAttr(Sema &S, Decl *D, const ParsedAttr &AL,
     D->addAttr(newAttr);
 }
 
+static void handleObjCDirectAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  // objc_direct cannot be set on methods declared in the context of a protocol
+  if (isa<ObjCProtocolDecl>(D->getDeclContext())) {
+    S.Diag(AL.getLoc(), diag::err_objc_direct_on_protocol) << false;
+    return;
+  }
+
+  if (S.getLangOpts().ObjCRuntime.allowsDirectDispatch()) {
+    handleSimpleAttribute<ObjCDirectAttr>(S, D, AL);
+  } else {
+    S.Diag(AL.getLoc(), diag::warn_objc_direct_ignored) << AL;
+  }
+}
+
+static void handleObjCDirectMembersAttr(Sema &S, Decl *D,
+                                        const ParsedAttr &AL) {
+  if (S.getLangOpts().ObjCRuntime.allowsDirectDispatch()) {
+    handleSimpleAttribute<ObjCDirectMembersAttr>(S, D, AL);
+  } else {
+    S.Diag(AL.getLoc(), diag::warn_objc_direct_ignored) << AL;
+  }
+}
+
 static void handleObjCMethodFamilyAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   const auto *M = cast<ObjCMethodDecl>(D);
   if (!AL.isArgIdent(0)) {
@@ -3039,6 +3062,19 @@ bool Sema::checkTargetAttr(SourceLocation LiteralLoc, StringRef AttrStr) {
     if (!Context.getTargetInfo().isValidFeatureName(CurFeature))
       return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
              << Unsupported << None << CurFeature;
+  }
+
+  TargetInfo::BranchProtectionInfo BPI;
+  StringRef Error;
+  if (!ParsedAttrs.BranchProtection.empty() &&
+      !Context.getTargetInfo().validateBranchProtection(
+          ParsedAttrs.BranchProtection, BPI, Error)) {
+    if (Error.empty())
+      return Diag(LiteralLoc, diag::warn_unsupported_target_attribute)
+             << Unsupported << None << "branch-protection";
+    else
+      return Diag(LiteralLoc, diag::err_invalid_branch_protection_spec)
+             << Error;
   }
 
   return false;
@@ -5700,6 +5736,25 @@ static void handleAVRSignalAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   handleSimpleAttribute<AVRSignalAttr>(S, D, AL);
 }
 
+static void handleBPFPreserveAIRecord(Sema &S, RecordDecl *RD) {
+  // Add preserve_access_index attribute to all fields and inner records.
+  for (auto D : RD->decls()) {
+    if (D->hasAttr<BPFPreserveAccessIndexAttr>())
+      continue;
+
+    D->addAttr(BPFPreserveAccessIndexAttr::CreateImplicit(S.Context));
+    if (auto *Rec = dyn_cast<RecordDecl>(D))
+      handleBPFPreserveAIRecord(S, Rec);
+  }
+}
+
+static void handleBPFPreserveAccessIndexAttr(Sema &S, Decl *D,
+    const ParsedAttr &AL) {
+  auto *Rec = cast<RecordDecl>(D);
+  handleBPFPreserveAIRecord(S, Rec);
+  Rec->addAttr(::new (S.Context) BPFPreserveAccessIndexAttr(S.Context, AL));
+}
+
 static void handleWebAssemblyImportModuleAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!isFunctionOrMethod(D)) {
     S.Diag(D->getLocation(), diag::warn_attribute_wrong_decl_type)
@@ -6576,6 +6631,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_AVRSignal:
     handleAVRSignalAttr(S, D, AL);
     break;
+  case ParsedAttr::AT_BPFPreserveAccessIndex:
+    handleBPFPreserveAccessIndexAttr(S, D, AL);
+    break;
   case ParsedAttr::AT_WebAssemblyImportModule:
     handleWebAssemblyImportModuleAttr(S, D, AL);
     break;
@@ -6908,6 +6966,13 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     break;
   case ParsedAttr::AT_ObjCRootClass:
     handleSimpleAttribute<ObjCRootClassAttr>(S, D, AL);
+    break;
+  case ParsedAttr::AT_ObjCDirect:
+    handleObjCDirectAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_ObjCDirectMembers:
+    handleObjCDirectMembersAttr(S, D, AL);
+    handleSimpleAttribute<ObjCDirectMembersAttr>(S, D, AL);
     break;
   case ParsedAttr::AT_ObjCNonLazyClass:
     handleSimpleAttribute<ObjCNonLazyClassAttr>(S, D, AL);
@@ -7325,7 +7390,8 @@ void Sema::ProcessDeclAttributeList(Scope *S, Decl *D,
   }
 }
 
-// Helper for delayed processing TransparentUnion attribute.
+// Helper for delayed processing TransparentUnion or BPFPreserveAccessIndexAttr
+// attribute.
 void Sema::ProcessDeclAttributeDelayed(Decl *D,
                                        const ParsedAttributesView &AttrList) {
   for (const ParsedAttr &AL : AttrList)
@@ -7333,6 +7399,11 @@ void Sema::ProcessDeclAttributeDelayed(Decl *D,
       handleTransparentUnionAttr(*this, D, AL);
       break;
     }
+
+  // For BPFPreserveAccessIndexAttr, we want to populate the attributes
+  // to fields and inner records as well.
+  if (D && D->hasAttr<BPFPreserveAccessIndexAttr>())
+    handleBPFPreserveAIRecord(*this, cast<RecordDecl>(D));
 }
 
 // Annotation attributes are the only attributes allowed after an access
