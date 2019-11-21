@@ -688,8 +688,12 @@ void JSONNodeDumper::VisitMemberPointerType(const MemberPointerType *MPT) {
 }
 
 void JSONNodeDumper::VisitNamedDecl(const NamedDecl *ND) {
-  if (ND && ND->getDeclName())
+  if (ND && ND->getDeclName()) {
     JOS.attribute("name", ND->getNameAsString());
+    std::string MangledName = ASTNameGen.getName(ND);
+    if (!MangledName.empty())
+      JOS.attribute("mangledName", MangledName);
+  }
 }
 
 void JSONNodeDumper::VisitTypedefDecl(const TypedefDecl *TD) {
@@ -1013,6 +1017,7 @@ void JSONNodeDumper::VisitObjCPropertyDecl(const ObjCPropertyDecl *D) {
     attributeOnlyIfTrue("unsafe_unretained",
                         Attrs & ObjCPropertyDecl::OBJC_PR_unsafe_unretained);
     attributeOnlyIfTrue("class", Attrs & ObjCPropertyDecl::OBJC_PR_class);
+    attributeOnlyIfTrue("direct", Attrs & ObjCPropertyDecl::OBJC_PR_direct);
     attributeOnlyIfTrue("nullability",
                         Attrs & ObjCPropertyDecl::OBJC_PR_nullability);
     attributeOnlyIfTrue("null_resettable",

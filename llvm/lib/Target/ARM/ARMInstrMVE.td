@@ -409,9 +409,12 @@ class MVE_ScalarShiftSingleReg<string iname, dag iops, string asm, string cstr,
   let Inst{19-16} = RdaDest{3-0};
 }
 
-class MVE_ScalarShiftSRegImm<string iname, bits<2> op5_4, list<dag> pattern=[]>
+class MVE_ScalarShiftSRegImm<string iname, bits<2> op5_4>
   : MVE_ScalarShiftSingleReg<iname, (ins rGPR:$RdaSrc, long_shift:$imm),
-                     "$RdaSrc, $imm", "$RdaDest = $RdaSrc", pattern> {
+                     "$RdaSrc, $imm", "$RdaDest = $RdaSrc",
+                     [(set rGPR:$RdaDest,
+                          (i32 (!cast<Intrinsic>("int_arm_mve_" # iname)
+                                    (i32 rGPR:$RdaSrc), (i32 imm:$imm))))]> {
   bits<5> imm;
 
   let Inst{15} = 0b0;
@@ -427,9 +430,12 @@ def MVE_SRSHR : MVE_ScalarShiftSRegImm<"srshr", 0b10>;
 def MVE_UQSHL : MVE_ScalarShiftSRegImm<"uqshl", 0b00>;
 def MVE_URSHR : MVE_ScalarShiftSRegImm<"urshr", 0b01>;
 
-class MVE_ScalarShiftSRegReg<string iname, bits<2> op5_4, list<dag> pattern=[]>
+class MVE_ScalarShiftSRegReg<string iname, bits<2> op5_4>
   : MVE_ScalarShiftSingleReg<iname, (ins rGPR:$RdaSrc, rGPR:$Rm),
-                     "$RdaSrc, $Rm", "$RdaDest = $RdaSrc", pattern> {
+                     "$RdaSrc, $Rm", "$RdaDest = $RdaSrc",
+                     [(set rGPR:$RdaDest,
+                         (i32 (!cast<Intrinsic>("int_arm_mve_" # iname)
+                                   (i32 rGPR:$RdaSrc), (i32 rGPR:$Rm))))]> {
   bits<4> Rm;
 
   let Inst{15-12} = Rm{3-0};
@@ -1515,6 +1521,7 @@ class MVE_VMULt1<string suffix, bits<2> size, list<dag> pattern=[]>
   let Inst{12-8} = 0b01001;
   let Inst{4} = 0b1;
   let Inst{0} = 0b0;
+  let validForTailPredication = 1;
 }
 
 def MVE_VMULt1i8  : MVE_VMULt1<"i8", 0b00>;
@@ -1951,6 +1958,41 @@ def MVE_VQABSs32 : MVE_VQABSNEG<"vqabs", "s32", 0b10, 0b0>;
 def MVE_VQNEGs8  : MVE_VQABSNEG<"vqneg", "s8",  0b00, 0b1>;
 def MVE_VQNEGs16 : MVE_VQABSNEG<"vqneg", "s16", 0b01, 0b1>;
 def MVE_VQNEGs32 : MVE_VQABSNEG<"vqneg", "s32", 0b10, 0b1>;
+
+// int_min/int_max: vector containing INT_MIN/INT_MAX VTI.Size times
+// zero_vec: v4i32-initialized zero vector, potentially wrapped in a bitconvert
+multiclass vqabs_pattern<MVEVectorVTInfo VTI, dag int_min, dag int_max,
+                         dag zero_vec, MVE_VQABSNEG vqabs_instruction> {
+  // The below tree can be replaced by a vqabs instruction, as it represents
+  // the following vectorized expression (r being the value in $reg):
+  // r > 0 ? r : (r == INT_MIN ? INT_MAX : -r)
+  let Predicates = [HasMVEInt] in {
+    def : Pat<(VTI.Vec (vselect
+                      (VTI.Pred (ARMvcmpz (VTI.Vec MQPR:$reg), (i32 12))),
+                      (VTI.Vec MQPR:$reg),
+                      (VTI.Vec (vselect
+                                (VTI.Pred (ARMvcmp (VTI.Vec MQPR:$reg), int_min, (i32 0))),
+                                int_max,
+                                (sub (VTI.Vec zero_vec), (VTI.Vec MQPR:$reg)))))),
+            (VTI.Vec (vqabs_instruction (VTI.Vec MQPR:$reg)))>;
+  }
+}
+
+defm MVE_VQABS_Ps8  : vqabs_pattern<MVE_v16i8,
+                                    (v16i8 (ARMvmovImm (i32 3712))),
+                                    (v16i8 (ARMvmovImm (i32 3711))),
+                                    (bitconvert (v4i32 (ARMvmovImm (i32 0)))),
+                                    MVE_VQABSs8>;
+defm MVE_VQABS_Ps16 : vqabs_pattern<MVE_v8i16,
+                                    (v8i16 (ARMvmovImm (i32 2688))),
+                                    (v8i16 (ARMvmvnImm (i32 2688))),
+                                    (bitconvert (v4i32 (ARMvmovImm (i32 0)))),
+                                    MVE_VQABSs16>;
+defm MVE_VQABS_Ps32 : vqabs_pattern<MVE_v4i32,
+                                    (v4i32 (ARMvmovImm (i32 1664))),
+                                    (v4i32 (ARMvmvnImm (i32 1664))),
+                                    (ARMvmovImm (i32 0)),
+                                    MVE_VQABSs32>;
 
 class MVE_mod_imm<string iname, string suffix, bits<4> cmode, bit op,
                   dag iops, list<dag> pattern=[]>
@@ -3299,6 +3341,31 @@ multiclass unpred_vcmp_r<string suffix, int fc> {
             (v4i1 (!cast<Instruction>("MVE_VCMP"#suffix#"32r") (v4i32 MQPR:$v1), (i32 GPR:$v2), fc, 1, VCCR:$p1))>;
 }
 
+multiclass unpred_vcmp_r_reversible<string suffix, int fc, int fcReversed> {
+  defm "":  unpred_vcmp_r<suffix, fc>;
+
+  // Additional patterns that match the vector/scalar comparisons the
+  // opposite way round, with the ARMvdup in the first operand of the
+  // ARMvcmp. These will usually need a different condition code
+  // (except for the symmetric conditions EQ and NE). They're in a
+  // separate multiclass because the unsigned CS and HI comparisons
+  // don't have reversed forms.
+
+  def : Pat<(v16i1 (ARMvcmp (v16i8 (ARMvdup GPR:$v1)), (v16i8 MQPR:$v2), (i32 fc))),
+            (v16i1 (!cast<Instruction>("MVE_VCMP"#suffix#"8r") (v16i8 MQPR:$v2), (i32 GPR:$v1), fcReversed))>;
+  def : Pat<(v8i1 (ARMvcmp (v8i16 (ARMvdup GPR:$v1)), (v8i16 MQPR:$v2), (i32 fc))),
+            (v8i1 (!cast<Instruction>("MVE_VCMP"#suffix#"16r") (v8i16 MQPR:$v2), (i32 GPR:$v1), fcReversed))>;
+  def : Pat<(v4i1 (ARMvcmp (v4i32 (ARMvdup GPR:$v1)), (v4i32 MQPR:$v2), (i32 fc))),
+            (v4i1 (!cast<Instruction>("MVE_VCMP"#suffix#"32r") (v4i32 MQPR:$v2), (i32 GPR:$v1), fcReversed))>;
+
+  def : Pat<(v16i1 (and (v16i1 VCCR:$p1), (v16i1 (ARMvcmp (v16i8 (ARMvdup GPR:$v1)), (v16i8 MQPR:$v2), (i32 fc))))),
+            (v16i1 (!cast<Instruction>("MVE_VCMP"#suffix#"8r") (v16i8 MQPR:$v2), (i32 GPR:$v1), fcReversed, 1, VCCR:$p1))>;
+  def : Pat<(v8i1 (and (v8i1 VCCR:$p1), (v8i1 (ARMvcmp (v8i16 (ARMvdup GPR:$v1)), (v8i16 MQPR:$v2), (i32 fc))))),
+            (v8i1 (!cast<Instruction>("MVE_VCMP"#suffix#"16r") (v8i16 MQPR:$v2), (i32 GPR:$v1), fcReversed, 1, VCCR:$p1))>;
+  def : Pat<(v4i1 (and (v4i1 VCCR:$p1), (v4i1 (ARMvcmp (v4i32 (ARMvdup GPR:$v1)), (v4i32 MQPR:$v2), (i32 fc))))),
+            (v4i1 (!cast<Instruction>("MVE_VCMP"#suffix#"32r") (v4i32 MQPR:$v2), (i32 GPR:$v1), fcReversed, 1, VCCR:$p1))>;
+}
+
 multiclass unpred_vcmpf_z<int fc> {
   def f16 : Pat<(v8i1 (ARMvcmpz (v8f16 MQPR:$v1), (i32 fc))),
                 (v8i1 (MVE_VCMPf16r (v8f16 MQPR:$v1), ZR, fc))>;
@@ -3311,7 +3378,7 @@ multiclass unpred_vcmpf_z<int fc> {
             (v4i1 (MVE_VCMPf32r (v4f32 MQPR:$v1), ZR, fc, 1, VCCR:$p1))>;
 }
 
-multiclass unpred_vcmpf_r<int fc> {
+multiclass unpred_vcmpf_r<int fc, int fcReversed> {
   def f16 : Pat<(v8i1 (ARMvcmp (v8f16 MQPR:$v1), (v8f16 MQPR:$v2), (i32 fc))),
                 (v8i1 (MVE_VCMPf16 (v8f16 MQPR:$v1), (v8f16 MQPR:$v2), fc))>;
   def f32 : Pat<(v4i1 (ARMvcmp (v4f32 MQPR:$v1), (v4f32 MQPR:$v2), (i32 fc))),
@@ -3322,6 +3389,11 @@ multiclass unpred_vcmpf_r<int fc> {
   def f32r : Pat<(v4i1 (ARMvcmp (v4f32 MQPR:$v1), (v4f32 (ARMvdup SPR:$v2)), (i32 fc))),
                  (v4i1 (MVE_VCMPf32r (v4f32 MQPR:$v1), (i32 (COPY_TO_REGCLASS (f32 SPR:$v2), rGPR)), fc))>;
 
+  def      : Pat<(v8i1 (ARMvcmp (v8f16 (ARMvdup HPR:$v1)), (v8f16 MQPR:$v2), (i32 fc))),
+                 (v8i1 (MVE_VCMPf16r (v8f16 MQPR:$v2), (i32 (COPY_TO_REGCLASS (f16 HPR:$v1), rGPR)), fcReversed))>;
+  def      : Pat<(v4i1 (ARMvcmp (v4f32 (ARMvdup SPR:$v1)), (v4f32 MQPR:$v2), (i32 fc))),
+                 (v4i1 (MVE_VCMPf32r (v4f32 MQPR:$v2), (i32 (COPY_TO_REGCLASS (f32 SPR:$v1), rGPR)), fcReversed))>;
+
   def : Pat<(v8i1 (and (v8i1 VCCR:$p1), (v8i1 (ARMvcmp (v8f16 MQPR:$v1), (v8f16 MQPR:$v2), (i32 fc))))),
             (v8i1 (MVE_VCMPf16 (v8f16 MQPR:$v1), (v8f16 MQPR:$v2), fc, 1, VCCR:$p1))>;
   def : Pat<(v4i1 (and (v4i1 VCCR:$p1), (v4i1 (ARMvcmp (v4f32 MQPR:$v1), (v4f32 MQPR:$v2), (i32 fc))))),
@@ -3331,6 +3403,11 @@ multiclass unpred_vcmpf_r<int fc> {
             (v8i1 (MVE_VCMPf16r (v8f16 MQPR:$v1), (i32 (COPY_TO_REGCLASS (f16 HPR:$v2), rGPR)), fc, 1, VCCR:$p1))>;
   def : Pat<(v4i1 (and (v4i1 VCCR:$p1), (v4i1 (ARMvcmp (v4f32 MQPR:$v1), (v4f32 (ARMvdup SPR:$v2)), (i32 fc))))),
             (v4i1 (MVE_VCMPf32r (v4f32 MQPR:$v1), (i32 (COPY_TO_REGCLASS (f32 SPR:$v2), rGPR)), fc, 1, VCCR:$p1))>;
+
+  def : Pat<(v8i1 (and (v8i1 VCCR:$p1), (v8i1 (ARMvcmp (v8f16 (ARMvdup HPR:$v1)), (v8f16 MQPR:$v2), (i32 fc))))),
+            (v8i1 (MVE_VCMPf16r (v8f16 MQPR:$v2), (i32 (COPY_TO_REGCLASS (f16 HPR:$v1), rGPR)), fcReversed, 1, VCCR:$p1))>;
+  def : Pat<(v4i1 (and (v4i1 VCCR:$p1), (v4i1 (ARMvcmp (v4f32 (ARMvdup SPR:$v1)), (v4f32 MQPR:$v2), (i32 fc))))),
+            (v4i1 (MVE_VCMPf32r (v4f32 MQPR:$v2), (i32 (COPY_TO_REGCLASS (f32 SPR:$v1), rGPR)), fcReversed, 1, VCCR:$p1))>;
 }
 
 let Predicates = [HasMVEInt] in {
@@ -3343,12 +3420,12 @@ let Predicates = [HasMVEInt] in {
   defm MVE_VCGTUZ : unpred_vcmp_z<"u", 8>;
   defm MVE_VCGEUZ : unpred_vcmp_z<"u", 2>;
 
-  defm MVE_VCEQ   : unpred_vcmp_r<"i", 0>;
-  defm MVE_VCNE   : unpred_vcmp_r<"i", 1>;
-  defm MVE_VCGE   : unpred_vcmp_r<"s", 10>;
-  defm MVE_VCLT   : unpred_vcmp_r<"s", 11>;
-  defm MVE_VCGT   : unpred_vcmp_r<"s", 12>;
-  defm MVE_VCLE   : unpred_vcmp_r<"s", 13>;
+  defm MVE_VCEQ   : unpred_vcmp_r_reversible<"i", 0, 0>;
+  defm MVE_VCNE   : unpred_vcmp_r_reversible<"i", 1, 1>;
+  defm MVE_VCGE   : unpred_vcmp_r_reversible<"s", 10, 13>;
+  defm MVE_VCLT   : unpred_vcmp_r_reversible<"s", 11, 12>;
+  defm MVE_VCGT   : unpred_vcmp_r_reversible<"s", 12, 11>;
+  defm MVE_VCLE   : unpred_vcmp_r_reversible<"s", 13, 10>;
   defm MVE_VCGTU  : unpred_vcmp_r<"u", 8>;
   defm MVE_VCGEU  : unpred_vcmp_r<"u", 2>;
 }
@@ -3361,12 +3438,12 @@ let Predicates = [HasMVEFloat] in {
   defm MVE_VFCGTZ  : unpred_vcmpf_z<12>;
   defm MVE_VFCLEZ  : unpred_vcmpf_z<13>;
 
-  defm MVE_VFCEQ   : unpred_vcmpf_r<0>;
-  defm MVE_VFCNE   : unpred_vcmpf_r<1>;
-  defm MVE_VFCGE   : unpred_vcmpf_r<10>;
-  defm MVE_VFCLT   : unpred_vcmpf_r<11>;
-  defm MVE_VFCGT   : unpred_vcmpf_r<12>;
-  defm MVE_VFCLE   : unpred_vcmpf_r<13>;
+  defm MVE_VFCEQ   : unpred_vcmpf_r<0, 0>;
+  defm MVE_VFCNE   : unpred_vcmpf_r<1, 1>;
+  defm MVE_VFCGE   : unpred_vcmpf_r<10, 13>;
+  defm MVE_VFCLT   : unpred_vcmpf_r<11, 12>;
+  defm MVE_VFCGT   : unpred_vcmpf_r<12, 11>;
+  defm MVE_VFCLE   : unpred_vcmpf_r<13, 10>;
 }
 
 
