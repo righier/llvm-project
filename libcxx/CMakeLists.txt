@@ -27,7 +27,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR LIBCXX_STANDALONE_BUIL
   project(libcxx CXX C)
 
   set(PACKAGE_NAME libcxx)
-  set(PACKAGE_VERSION 10.0.0svn)
+  set(PACKAGE_VERSION 10.0.0git)
   set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
   set(PACKAGE_BUGREPORT "llvm-bugs@lists.llvm.org")
 
@@ -877,7 +877,7 @@ function(cxx_add_config_site target)
     if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_SIMULATE_ID}" STREQUAL "MSVC")
       target_compile_options(${target} PUBLIC "/FI\"${site_config_path}\"")
     else()
-      target_compile_options(${target} PUBLIC "-include${site_config_path}")
+      target_compile_options(${target} PUBLIC -include "${site_config_path}")
     endif()
   endif()
 endfunction()

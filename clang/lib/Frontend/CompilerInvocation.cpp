@@ -1266,13 +1266,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   if (Arg *A = Args.getLastArg(OPT_fdenormal_fp_math_EQ)) {
     StringRef Val = A->getValue();
-    if (Val == "ieee")
-      Opts.FPDenormalMode = "ieee";
-    else if (Val == "preserve-sign")
-      Opts.FPDenormalMode = "preserve-sign";
-    else if (Val == "positive-zero")
-      Opts.FPDenormalMode = "positive-zero";
-    else
+    Opts.FPDenormalMode = llvm::parseDenormalFPAttribute(Val);
+    if (Opts.FPDenormalMode == llvm::DenormalMode::Invalid)
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
   }
 
@@ -1447,7 +1442,26 @@ static void ParseDependencyOutputArgs(DependencyOutputOptions &Opts,
   // Add sanitizer blacklists as extra dependencies.
   // They won't be discovered by the regular preprocessor, so
   // we let make / ninja to know about this implicit dependency.
-  Opts.ExtraDeps = Args.getAllArgValues(OPT_fdepfile_entry);
+  if (!Args.hasArg(OPT_fno_sanitize_blacklist)) {
+    for (const auto *A : Args.filtered(OPT_fsanitize_blacklist)) {
+      StringRef Val = A->getValue();
+      if (Val.find('=') == StringRef::npos)
+        Opts.ExtraDeps.push_back(Val);
+    }
+    if (Opts.IncludeSystemHeaders) {
+      for (const auto *A : Args.filtered(OPT_fsanitize_system_blacklist)) {
+        StringRef Val = A->getValue();
+        if (Val.find('=') == StringRef::npos)
+          Opts.ExtraDeps.push_back(Val);
+      }
+    }
+  }
+
+  // Propagate the extra dependencies.
+  for (const auto *A : Args.filtered(OPT_fdepfile_entry)) {
+    Opts.ExtraDeps.push_back(A->getValue());
+  }
+
   // Only the -fmodule-file=<file> form.
   for (const auto *A : Args.filtered(OPT_fmodule_file)) {
     StringRef Val = A->getValue();
@@ -2762,6 +2776,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.Coroutines = Opts.CPlusPlus2a || Args.hasArg(OPT_fcoroutines_ts);
 
+  Opts.ConvergentFunctions = Opts.OpenCL || (Opts.CUDA && Opts.CUDAIsDevice) ||
+    Args.hasArg(OPT_fconvergent_functions);
+
   Opts.DoubleSquareBracketAttributes =
       Args.hasFlag(OPT_fdouble_square_bracket_attributes,
                    OPT_fno_double_square_bracket_attributes,
@@ -3164,6 +3181,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.SanitizeAddressFieldPadding =
       getLastArgIntValue(Args, OPT_fsanitize_address_field_padding, 0, Diags);
   Opts.SanitizerBlacklistFiles = Args.getAllArgValues(OPT_fsanitize_blacklist);
+  std::vector<std::string> systemBlacklists =
+      Args.getAllArgValues(OPT_fsanitize_system_blacklist);
+  Opts.SanitizerBlacklistFiles.insert(Opts.SanitizerBlacklistFiles.end(),
+                                      systemBlacklists.begin(),
+                                      systemBlacklists.end());
 
   // -fxray-instrument
   Opts.XRayInstrument =

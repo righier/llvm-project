@@ -35,7 +35,7 @@ function(add_lldb_library name)
   # only supported parameters to this macro are the optional
   # MODULE;SHARED;STATIC library type and source files
   cmake_parse_arguments(PARAM
-    "MODULE;SHARED;STATIC;OBJECT;PLUGIN"
+    "MODULE;SHARED;STATIC;OBJECT;PLUGIN;FRAMEWORK"
     "INSTALL_PREFIX;ENTITLEMENTS"
     "EXTRA_CXXFLAGS;DEPENDS;LINK_LIBS;LINK_COMPONENTS;CLANG_LIBS"
     ${ARGN})
@@ -97,6 +97,13 @@ function(add_lldb_library name)
     else()
       target_link_libraries(${name} PRIVATE ${PARAM_CLANG_LIBS})
     endif()
+  endif()
+
+  # A target cannot be changed to a FRAMEWORK after calling install() because
+  # this may result in the wrong install DESTINATION. The FRAMEWORK property
+  # must be set earlier.
+  if(PARAM_FRAMEWORK)
+    set_target_properties(liblldb PROPERTIES FRAMEWORK ON)
   endif()
 
   if(PARAM_SHARED)
@@ -227,8 +234,7 @@ endfunction()
 function(lldb_add_to_buildtree_lldb_framework name subdir)
   # Destination for the copy in the build-tree. While the framework target may
   # not exist yet, it will exist when the generator expression gets expanded.
-  get_target_property(framework_build_dir liblldb LIBRARY_OUTPUT_DIRECTORY)
-  set(copy_dest "${framework_build_dir}/${subdir}/$<TARGET_FILE_NAME:${name}>")
+  set(copy_dest "${LLDB_FRAMEWORK_ABSOLUTE_BUILD_DIR}/${subdir}/$<TARGET_FILE_NAME:${name}>")
 
   # Copy into the given subdirectory for testing.
   add_custom_command(TARGET ${name} POST_BUILD

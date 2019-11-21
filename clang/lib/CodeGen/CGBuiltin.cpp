@@ -4238,6 +4238,7 @@ static Value *EmitTargetArchBuiltinExpr(CodeGenFunction *CGF,
   case llvm::Triple::thumbeb:
     return CGF->EmitARMBuiltinExpr(BuiltinID, E, ReturnValue, Arch);
   case llvm::Triple::aarch64:
+  case llvm::Triple::aarch64_32:
   case llvm::Triple::aarch64_be:
     return CGF->EmitAArch64BuiltinExpr(BuiltinID, E, Arch);
   case llvm::Triple::bpfeb:
@@ -5455,6 +5456,11 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
     llvm::Type *Tys[2] = { Ty, GetFloatNeonType(this, Type) };
     return EmitNeonCall(CGM.getIntrinsic(LLVMIntrinsic, Tys), Ops, NameHint);
   }
+  case NEON::BI__builtin_neon_vcvtx_f32_v: {
+    llvm::Type *Tys[2] = { VTy->getTruncatedElementVectorType(VTy), Ty};
+    return EmitNeonCall(CGM.getIntrinsic(LLVMIntrinsic, Tys), Ops, NameHint);
+
+  }
   case NEON::BI__builtin_neon_vext_v:
   case NEON::BI__builtin_neon_vextq_v: {
     int CV = cast<ConstantInt>(Ops[2])->getSExtValue();
@@ -5670,7 +5676,8 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
     llvm::Type *PTy = llvm::PointerType::getUnqual(VTy->getVectorElementType());
     // TODO: Currently in AArch32 mode the pointer operand comes first, whereas
     // in AArch64 it comes last. We may want to stick to one or another.
-    if (Arch == llvm::Triple::aarch64 || Arch == llvm::Triple::aarch64_be) {
+    if (Arch == llvm::Triple::aarch64 || Arch == llvm::Triple::aarch64_be ||
+        Arch == llvm::Triple::aarch64_32) {
       llvm::Type *Tys[2] = { VTy, PTy };
       std::rotate(Ops.begin(), Ops.begin() + 1, Ops.end());
       return EmitNeonCall(CGM.getIntrinsic(LLVMIntrinsic, Tys), Ops, "");
@@ -6784,6 +6791,21 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
     return EmitNeonCall(CGM.getIntrinsic(Intrinsic::arm_neon_vtbx4),
                         Ops, "vtbx4");
   }
+}
+
+static llvm::Value *SignOrZeroExtend(CGBuilderTy &Builder, llvm::Value *V,
+                                     llvm::Type *T, bool Unsigned) {
+  // Helper function called by Tablegen-constructed ARM MVE builtin codegen,
+  // which finds it convenient to specify signed/unsigned as a boolean flag.
+  return Unsigned ? Builder.CreateZExt(V, T) : Builder.CreateSExt(V, T);
+}
+
+static llvm::Value *ARMMVEVectorSplat(CGBuilderTy &Builder, llvm::Value *V) {
+  // MVE-specific helper function for a vector splat, which infers the element
+  // count of the output vector by knowing that MVE vectors are all 128 bits
+  // wide.
+  unsigned Elements = 128 / V->getType()->getPrimitiveSizeInBits();
+  return Builder.CreateVectorSplat(Elements, V);
 }
 
 Value *CodeGenFunction::EmitARMMVEBuiltinExpr(unsigned BuiltinID,

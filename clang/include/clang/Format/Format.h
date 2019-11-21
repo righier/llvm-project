@@ -1161,6 +1161,7 @@ struct FormatStyle {
   /// \endcode
   bool CompactNamespaces;
 
+  // clang-format off
   /// If the constructor initializers don't fit on a line, put each
   /// initializer on its own line.
   /// \code
@@ -1178,6 +1179,7 @@ struct FormatStyle {
   ///   }
   /// \endcode
   bool ConstructorInitializerAllOnOneLineOrOnePerLine;
+  // clang-format on
 
   /// The number of characters to use for indentation of constructor
   /// initializer lists as well as inheritance lists.
@@ -1214,6 +1216,10 @@ struct FormatStyle {
   ///    new int[3]{1, 2, 3};                   new int[3]{ 1, 2, 3 };
   /// \endcode
   bool Cpp11BracedListStyle;
+
+  /// \brief Analyze the formatted file for the most used line ending (``\r\n``
+  /// or ``\n``). ``UseCRLF`` is only used as a fallback if none can be derived.
+  bool DeriveLineEnding;
 
   /// If ``true``, analyze the formatted file for the most common
   /// alignment of ``&`` and ``*``.
@@ -1306,8 +1312,9 @@ struct FormatStyle {
 
   /// Indent case labels one level from the switch statement.
   ///
-  /// When ``false``, use the same indentation level as for the switch statement.
-  /// Switch statement body is always indented one level more than case labels.
+  /// When ``false``, use the same indentation level as for the switch
+  /// statement. Switch statement body is always indented one level more than
+  /// case labels.
   /// \code
   ///    false:                                 true:
   ///    switch (fool) {                vs.     switch (fool) {
@@ -1453,6 +1460,7 @@ struct FormatStyle {
   /// The JavaScriptQuoteStyle to use for JavaScript strings.
   JavaScriptQuoteStyle JavaScriptQuotes;
 
+  // clang-format off
   /// Whether to wrap JavaScript import/export statements.
   /// \code{.js}
   ///    true:
@@ -1466,6 +1474,7 @@ struct FormatStyle {
   ///    import {VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying,} from "some/module.js"
   /// \endcode
   bool JavaScriptWrapImports;
+  // clang-format on
 
   /// If true, the empty line at the start of blocks is kept.
   /// \code
@@ -1747,6 +1756,7 @@ struct FormatStyle {
   /// \endcode
   std::vector<RawStringFormat> RawStringFormats;
 
+  // clang-format off
   /// If ``true``, clang-format will attempt to re-flow comments.
   /// \code
   ///    false:
@@ -1760,6 +1770,7 @@ struct FormatStyle {
   ///     * information */
   /// \endcode
   bool ReflowComments;
+  // clang-format on
 
   /// If ``true``, clang-format will sort ``#includes``.
   /// \code
@@ -1975,6 +1986,15 @@ struct FormatStyle {
   /// \endcode
   bool SpacesInSquareBrackets;
 
+  /// If ``true``, spaces will be before  ``[``.
+  /// Lambdas will not be affected. Only the first ``[`` will get a space added.
+  /// \code
+  ///    true:                                  false:
+  ///    int a [5];                    vs.      int a[5];
+  ///    int a [5][5];                 vs.      int a[5][5];
+  /// \endcode
+  bool SpaceBeforeSquareBrackets;
+
   /// Supported language standards for parsing and formatting C++ constructs.
   /// \code
   ///    Latest:                                vector<set<int>>
@@ -2025,6 +2045,10 @@ struct FormatStyle {
     UT_Always
   };
 
+  /// \brief Use ``\r\n`` instead of ``\n`` for line breaks.
+  /// Also used as fallback if ``DeriveLineEnding`` is true.
+  bool UseCRLF;
+
   /// The way to use tab characters in the resulting file.
   UseTabStyle UseTab;
 
@@ -2072,6 +2096,7 @@ struct FormatStyle {
                R.ConstructorInitializerIndentWidth &&
            ContinuationIndentWidth == R.ContinuationIndentWidth &&
            Cpp11BracedListStyle == R.Cpp11BracedListStyle &&
+           DeriveLineEnding == R.DeriveLineEnding &&
            DerivePointerAlignment == R.DerivePointerAlignment &&
            DisableFormat == R.DisableFormat &&
            ExperimentalAutoDetectBinPacking ==
@@ -2080,6 +2105,10 @@ struct FormatStyle {
            ForEachMacros == R.ForEachMacros &&
            IncludeStyle.IncludeBlocks == R.IncludeStyle.IncludeBlocks &&
            IncludeStyle.IncludeCategories == R.IncludeStyle.IncludeCategories &&
+           IncludeStyle.IncludeIsMainRegex ==
+               R.IncludeStyle.IncludeIsMainRegex &&
+           IncludeStyle.IncludeIsMainSourceRegex ==
+               R.IncludeStyle.IncludeIsMainSourceRegex &&
            IndentCaseLabels == R.IndentCaseLabels &&
            IndentGotoLabels == R.IndentGotoLabels &&
            IndentPPDirectives == R.IndentPPDirectives &&
@@ -2130,9 +2159,10 @@ struct FormatStyle {
            SpacesInCStyleCastParentheses == R.SpacesInCStyleCastParentheses &&
            SpacesInParentheses == R.SpacesInParentheses &&
            SpacesInSquareBrackets == R.SpacesInSquareBrackets &&
+           SpaceBeforeSquareBrackets == R.SpaceBeforeSquareBrackets &&
            Standard == R.Standard && TabWidth == R.TabWidth &&
            StatementMacros == R.StatementMacros && UseTab == R.UseTab &&
-           TypenameMacros == R.TypenameMacros;
+           UseCRLF == R.UseCRLF && TypenameMacros == R.TypenameMacros;
   }
 
   llvm::Optional<FormatStyle> GetLanguageStyle(LanguageKind Language) const;
@@ -2294,8 +2324,7 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
 /// a non-recoverable syntax error.
 tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
                                ArrayRef<tooling::Range> Ranges,
-                               StringRef FileName,
-                               bool *IncompleteFormat);
+                               StringRef FileName, bool *IncompleteFormat);
 
 /// Clean up any erroneous/redundant code in the given \p Ranges in \p
 /// Code.
@@ -2406,6 +2435,6 @@ inline StringRef getLanguageName(FormatStyle::LanguageKind Language) {
 namespace std {
 template <>
 struct is_error_code_enum<clang::format::ParseError> : std::true_type {};
-}
+} // namespace std
 
 #endif // LLVM_CLANG_FORMAT_FORMAT_H
