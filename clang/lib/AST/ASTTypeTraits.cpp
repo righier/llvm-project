@@ -127,8 +127,6 @@ ASTNodeKind ASTNodeKind::getFromNode(const OMPClause &C) {
   llvm_unreachable("invalid stmt kind");
 }
 
-
-
 ASTNodeKind ASTNodeKind::getFromNode(const TransformClause &C) {
   switch (C.getKind()) {
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \

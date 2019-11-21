@@ -34,7 +34,7 @@ struct SemaExtractTransform : ExtractTransform<SemaExtractTransform> {
 };
 
 StmtResult
-Sema::ActOnLoopTransformDirective(Transform::Kind Kind, 
+Sema::ActOnLoopTransformDirective(Transform::Kind Kind,
                                   llvm::ArrayRef<TransformClause *> Clauses,
                                   Stmt *AStmt, SourceRange Loc) {
   const Stmt *Loop = getAssociatedLoop(AStmt);

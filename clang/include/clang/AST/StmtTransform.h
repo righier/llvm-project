@@ -244,7 +244,8 @@ public:
   }
 
   static TransformExecutableDirective *
-  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated, ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
+  create(ASTContext &Ctx, SourceRange Range, Stmt *Associated,
+         ArrayRef<TransformClause *> Clauses, Transform::Kind TransKind);
   static TransformExecutableDirective *createEmpty(ASTContext &Ctx,
                                                    unsigned NumClauses);
 
