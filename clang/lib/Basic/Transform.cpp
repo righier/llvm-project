@@ -46,4 +46,3 @@ llvm::StringRef Transform ::getTransformDirectiveName(Kind K) {
   };
   return Keywords[K];
 }
-

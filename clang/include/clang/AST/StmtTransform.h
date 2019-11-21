@@ -14,8 +14,8 @@
 #define LLVM_CLANG_AST_STMTTRANSFROM_H
 
 #include "clang/AST/Stmt.h"
-#include "llvm/Support/raw_ostream.h"
 #include "clang/Basic/Transform.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace clang {
 
