@@ -2027,30 +2027,6 @@ void ASTStmtReader::VisitTransformExecutableDirective(
   TransformClauseReader ClauseReader(Record);
   for (unsigned i = 0; i < NumClauses; ++i)
     Clauses.push_back(ClauseReader.readClause());
-
-#if 0
-  for (uint64_t i = 0; i < NumClauses; ++i) {
-    auto ClauseKind = Record.readInt();
-    auto ClauseLoc = Record.readSourceRange();
-    TransformClause *Clause;
-    switch (ClauseKind) {
-    case TransformClause::UnknownKind:
-      llvm_unreachable("Cannot read unknown clause");
-    case TransformClause::FullKind:
-      Clause = FullClause::createEmpty(Record.getContext());
-      break;
-    case TransformClause::FactorKind:
-      Clause = FactorClause::createEmpty(Record.getContext());
-      static_cast<FactorClause *>(Clause)->setFactor(Record.readSubExpr());
-      break;
-    case TransformClause::WidthKind:
-      Clause = WidthClause::createEmpty(Record.getContext());
-      static_cast<WidthClause *>(Clause)->setWidth(Record.readSubExpr());
-      break;
-    }
-    Clauses.push_back(Clause);
-  }
-#endif
   D->setClauses(Clauses);
 
   D->setAssociated(Record.readSubStmt());

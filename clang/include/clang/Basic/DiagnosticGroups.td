@@ -1119,5 +1119,5 @@ def FortifySource : DiagGroup<"fortify-source">;
 // Register reservation.
 def FixedRegs : DiagGroup<"fixed-registers">;
 
-// Warings for #pragma clang transform
+// Warnings for #pragma clang transform
 def ClangTransform : DiagGroup<"pragma-transform">;

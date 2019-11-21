@@ -9,7 +9,7 @@ void interleave_heuristic(int n) {
   for (int i = 0; i < n; i+=1)
     ;
 }
-// CHECK-LABEL: FunctionDecl {{.*}} imported vectorize_heuristic
+// CHECK-LABEL: FunctionDecl {{.*}} imported interleave_heuristic
 // CHECK: TransformExecutableDirective
 // CHECK-NEXT: ForStmt
 

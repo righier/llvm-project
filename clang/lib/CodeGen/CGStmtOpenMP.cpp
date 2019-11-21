@@ -1842,7 +1842,9 @@ static void emitOMPSimdRegion(CodeGenFunction &CGF, const OMPLoopDirective &S,
     };
     auto &&ElseGen = [&S, &LoopScope](CodeGenFunction &CGF, PrePostActionTy &) {
       CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
-      //  CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
+
+      // FIXME: Not yet supported with TransformedTree
+      // CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
 
       CGF.EmitOMPInnerLoop(
           S, LoopScope.requiresCleanups(), S.getCond(), S.getInc(),
