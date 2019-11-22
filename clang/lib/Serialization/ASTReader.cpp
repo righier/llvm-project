@@ -13258,21 +13258,6 @@ TransformClause *TransformClauseReader::readClause() {
   case TransformClause::Kind::Name##Kind:                                      \
     return read##Name##Clause(Range);
 #include "clang/AST/TransformClauseKinds.def"
-#if 0
-  case TransformClause::Kind::FullKind:
-    Clause = FullClause::createEmpty(Context);
-    break;
-  case TransformClause::Kind::PartialKind: {
-    auto* C = PartialClause::createEmpty(Context);
-    C->setFactor(Record.readExpr());
-  } break;
-      case TransformClause::Kind::WidthKind:
-    C = WidthClause::createEmpty(Context);
-    break;
-          case TransformClause::Kind::FactorKind:
-    C = FactorClause::createEmpty(Context);
-    break;
-#endif
   default:
     llvm_unreachable("Unknown transform clause kind");
   }

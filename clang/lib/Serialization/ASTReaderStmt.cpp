@@ -2510,10 +2510,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       return nullptr;
     }
     switch ((StmtCode)MaybeStmtCode.get()) {
-    default:
-      llvm_unreachable("Unexpected statement type");
-      break;
-
     case STMT_STOP:
       Finished = true;
       break;
@@ -2961,11 +2957,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
                                               nullptr);
       break;
 
-    case STMT_TRANSFORM_EXECUTABLE_DIRECTIVE:
-      S = TransformExecutableDirective::createEmpty(
-          Context, Record[ASTStmtReader::NumStmtFields]);
-      break;
-
     case STMT_OMP_PARALLEL_DIRECTIVE:
       S =
         OMPParallelDirective::CreateEmpty(Context,
@@ -3296,6 +3287,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     }
 
+    case STMT_TRANSFORM_EXECUTABLE_DIRECTIVE:
+      S = TransformExecutableDirective::createEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields]);
+      break;
+
     case EXPR_CXX_OPERATOR_CALL:
       S = CXXOperatorCallExpr::CreateEmpty(
           Context, /*NumArgs=*/Record[ASTStmtReader::NumExprFields], Empty);
@@ -3584,6 +3580,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       unsigned numTemplateArgs = Record[ASTStmtReader::NumExprFields];
       S = ConceptSpecializationExpr::Create(Context, Empty, numTemplateArgs);
       break;
+      
     }
 
     // We hit a STMT_STOP, so we're done with this expression.

@@ -2734,36 +2734,6 @@ public:
 #include "clang/AST/TransformClauseKinds.def"
 };
 
-#if 0
-
-class TransformClauseReader : public TransformClauseVisitor<TransformClauseReader> {
-  ASTRecordReader &Record;
-  ASTContext &Context;
-
-public:
-  TransformClauseReader(ASTRecordReader &Record) : Record(Record), Context(Record.getContext()) {}
-
-  TransformClause* readClause() {
-      uint64_t Kind = Record.readInt();
-SourceRange Range =   Record.readSourceRange();
-
-switch (Kind) {
-#define TRANSFORM_CLAUSE(Keyword, Name) case TransformClause::
-#include "clang/AST/TransformClauseKinds.def"
-}
-  }
-
-#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
-  void Visit##Name##Clause(Name##Clause *);
-#include "clang/AST/TransformClauseKinds.def"
-
-    void VisitTransformClause( TransformClause * C) {
-      llvm_unreachable("Serialization of this clause not implemented");
-    }
-};
-
-#endif
-
 } // namespace clang
 
 #endif // LLVM_CLANG_SERIALIZATION_ASTREADER_H
