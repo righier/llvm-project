@@ -147,6 +147,7 @@ public:
                                 CGTransformedTree *MainLoop);
   void applyPipelining(LoopPipeliningTransform *Trans,
                        CGTransformedTree *MainLoop);
+  void applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop);
 };
 
 } // namespace CodeGen

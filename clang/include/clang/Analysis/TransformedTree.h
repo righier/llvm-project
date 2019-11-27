@@ -712,6 +712,15 @@ private:
              "taskloop and for are mutually exclusive");
       const Stmt *TopLevel = getAssociatedLoop(Directive);
 
+    auto IfClauses =  Directive->getClausesOfKind < OMPIfClause> ();
+    if (!std::empty(IfClauses)) {
+      // OpenMP specifies loop versioning with the if clause: A "then" loop where the directive is applied and a "else" loop where it is not. Currently, it is only supported in the "simd" construct where vectorization is disabled on the else loop.
+      assert(HasSimd);
+      Transforms.emplace_back(OMPIfClauseVersioningTransform ::create(Directive->getSourceRange()) ,TransformInput::createByStmt(TopLevel) );
+    }
+
+
+
       bool IsMonotonic = true;
       if (HasFor) {
         if (auto *ScheduleClause =
@@ -964,6 +973,8 @@ private:
       case Transform::Kind::LoopAssumeParallelKind:
         return applyAssumeParallel(cast<LoopAssumeParallelTransform>(Trans),
                                    MainLoop);
+      case Transform::Kind::OMPIfClauseVersioningKind:
+        return applyOMPIfClauseVersioning(cast<OMPIfClauseVersioningTransform>(Trans), MainLoop  );
       default:
         llvm_unreachable("unimplemented transformation");
       }
@@ -1138,17 +1149,25 @@ private:
       return MainLoop;
     }
 
+    
+   NodeTy *applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform *Trans,        NodeTy *MainLoop) {
+     NodeTy *Then = Builder.createFollowup(  MainLoop->Subloops, MainLoop,       OMPIfClauseVersioningTransform::FollowupIf);
+     inheritLoopAttributes(Then, MainLoop, true, true);
+
+     NodeTy *Else = Builder.createFollowup(  MainLoop->Subloops, MainLoop,       OMPIfClauseVersioningTransform::FollowupElse);
+     inheritLoopAttributes(Else, MainLoop, true, false);
+
+     MainLoop->applyTransformation(Trans, {Then, Else},  Then);
+     Builder.applyOMPIfClauseVersioning(Trans, MainLoop);
+
+      return Then;
+    }
+
     void applyOne(NodeTy *L, NodeTransform *NT) {
       applyTransform(NT->Trans, L);
     }
 
-#if 0
-    void applyOne(NodeTy *L, const TransformExecutableDirective *D) {
-      Transform *Trans = D->getTransform();
-      assert(Trans);
-      applyTransform(Trans, L);
-    }
-#endif
+
 
     void traverseSubloops(NodeTy *L) {
       // Transform subloops first.
@@ -1272,6 +1291,12 @@ public:
           std::remove_if(TransformList.begin(), TransformList.end(), Pred);
       TransformList.erase(NewEnd, TransformList.end());
     };
+
+    SelectiveApplicator([](NodeTransform& NT) -> bool {
+      if (auto IfVersioning = dyn_cast<OMPIfClauseVersioningTransform>(NT.Trans))
+        return true;
+      return false;
+      });
 
     // Apply full unrolling, loop distribution, vectorization/interleaving.
     SelectiveApplicator([](NodeTransform &NT) -> bool {

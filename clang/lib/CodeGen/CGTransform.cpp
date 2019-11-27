@@ -394,3 +394,7 @@ void CGTransformedTreeBuilder::applyPipelining(LoopPipeliningTransform *Trans,
 
   MainLoop->markNondefault();
 }
+
+void  CGTransformedTreeBuilder:: applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop) {
+  // Is applied by OpenMP's codegen.
+}

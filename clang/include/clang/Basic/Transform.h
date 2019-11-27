@@ -23,9 +23,9 @@ class Transform {
 public:
   enum Kind {
     UnknownKind,
-#define TRANSFORM_DIRECTIVE(Keyword, Name) Name##Kind,
-#define TRANSFORM_DIRECTIVE_LAST(Keyword, Name)                                \
-  TRANSFORM_DIRECTIVE(Keyword, Name)                                           \
+#define TRANSFORM_DIRECTIVE(Name) Name##Kind,
+#define TRANSFORM_DIRECTIVE_LAST(Name)                                \
+  TRANSFORM_DIRECTIVE( Name)                                           \
   LastKind = Name##Kind
 #include "TransformKinds.def"
   };
@@ -405,6 +405,38 @@ public:
 
   int getInitiationInterval() const { return InitiationInterval; }
 };
+
+
+
+class OMPIfClauseVersioningTransform final : public TransformImpl {
+private:
+
+
+  OMPIfClauseVersioningTransform(SourceRange Loc)
+    : TransformImpl(LoopPipeliningKind, Loc, true) {}
+
+public:
+  static bool classof(const OMPIfClauseVersioningTransform *Trans) { return true; }
+  static bool classof(const Transform *Trans) {
+    return Trans->getKind() == OMPIfClauseVersioningKind;
+  }
+
+  static OMPIfClauseVersioningTransform *create(SourceRange Loc) {
+    return new OMPIfClauseVersioningTransform(Loc);
+  }
+
+  int getNumInputs() const { return 1; }
+  int getNumFollowups() const { return 2; }
+  enum Input {
+    InputToPipeline,
+  };
+  enum Output {
+    FollowupIf,
+    FollowupElse
+  };
+};
+
+
 
 class LoopAssumeParallelTransform final : public TransformImpl {
 private:

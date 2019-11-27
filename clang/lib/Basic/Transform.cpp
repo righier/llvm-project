@@ -19,7 +19,7 @@ using namespace clang;
 
 Transform::Kind Transform ::getTransformDirectiveKind(llvm::StringRef Str) {
   return llvm::StringSwitch<Transform::Kind>(Str)
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+#define TRANSFORM_DIRECTIVE_KEYWORD(Keyword, Name)                                     \
   .Case(#Keyword, Transform::Kind::Name##Kind)
 #include "clang/Basic/TransformKinds.def"
       .Default(Transform::UnknownKind);
@@ -30,7 +30,8 @@ llvm::StringRef Transform ::getTransformDirectiveKeyword(Kind K) {
   assert(K <= LastKind);
   const char *Keywords[LastKind + 1] = {
       "<<Unknown>>",
-#define TRANSFORM_DIRECTIVE(Keyword, Name) #Keyword,
+#define TRANSFORM_DIRECTIVE_KEYWORD(Keyword, Name) #Keyword,
+#define TRANSFORM_DIRECTIVE(Name) nullptr,
 #include "clang/Basic/TransformKinds.def"
   };
   return Keywords[K];
@@ -41,7 +42,7 @@ llvm::StringRef Transform ::getTransformDirectiveName(Kind K) {
   assert(K <= LastKind);
   const char *Keywords[LastKind + 1] = {
       "<<Unknown>>",
-#define TRANSFORM_DIRECTIVE(Keyword, Name) #Name,
+#define TRANSFORM_DIRECTIVE(Name) #Name,
 #include "clang/Basic/TransformKinds.def"
   };
   return Keywords[K];
@@ -69,7 +70,7 @@ int Transform::getNumInputs() const {
   assert(getKind() <= LastKind);
   static const decltype(
       &Transform::getNumInputs) GetNumInputFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+#define TRANSFORM_DIRECTIVE( Name)                                     \
   static_cast<decltype(&Transform::getNumInputs)>(                             \
       &Name##Transform ::getNumInputs),
 #include "clang/Basic/TransformKinds.def"
@@ -82,7 +83,7 @@ int Transform::getNumFollowups() const {
   assert(getKind() <= LastKind);
   static const decltype(&Transform::getNumInputs)
       GetNumFollowupFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
+#define TRANSFORM_DIRECTIVE( Name)                                     \
   static_cast<decltype(&Transform::getNumFollowups)>(                          \
       &Name##Transform ::getNumFollowups),
 #include "clang/Basic/TransformKinds.def"

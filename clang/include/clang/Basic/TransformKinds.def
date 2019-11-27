@@ -1,22 +1,27 @@
 
 #ifndef TRANSFORM_DIRECTIVE
-#  define TRANSFORM_DIRECTIVE(Keyword, Name)
+#  define TRANSFORM_DIRECTIVE(Name)
 #endif
 #ifndef TRANSFORM_DIRECTIVE_LAST
-#  define TRANSFORM_DIRECTIVE_LAST(Keyword, Name) TRANSFORM_DIRECTIVE(Keyword, Name)
+#  define TRANSFORM_DIRECTIVE_LAST(Name) TRANSFORM_DIRECTIVE(Name)
+#endif
+#ifndef TRANSFORM_DIRECTIVE_KEYWORD
+#  define TRANSFORM_DIRECTIVE_KEYWORD(Keyword, Name) TRANSFORM_DIRECTIVE(Name)
 #endif
 
-// Loop transformations
-TRANSFORM_DIRECTIVE(distribute,LoopDistribution)
-TRANSFORM_DIRECTIVE(vectorize,LoopVectorization)
-TRANSFORM_DIRECTIVE(interleave,LoopInterleaving)
-TRANSFORM_DIRECTIVE(vectorize_interleave,LoopVectorizationInterleaving)
-TRANSFORM_DIRECTIVE(unrollandjam,LoopUnrollAndJam)
-TRANSFORM_DIRECTIVE(unroll,LoopUnrolling)
-TRANSFORM_DIRECTIVE(pipeline,LoopPipelining)
+// Loop transformations accessible through "#pragma clang transform".
+TRANSFORM_DIRECTIVE_KEYWORD(unroll,LoopUnrolling)
+TRANSFORM_DIRECTIVE_KEYWORD(unrollandjam,LoopUnrollAndJam)
+TRANSFORM_DIRECTIVE_KEYWORD(vectorize,LoopVectorization)
+TRANSFORM_DIRECTIVE_KEYWORD(interleave,LoopInterleaving)
 
-// Assumptions
-TRANSFORM_DIRECTIVE_LAST(assume_parallel,LoopAssumeParallel)
+// Compatibility transformations: "#pragma clang loop" hints and OpenMP.
+TRANSFORM_DIRECTIVE(LoopDistribution)
+TRANSFORM_DIRECTIVE(LoopVectorizationInterleaving)
+TRANSFORM_DIRECTIVE(LoopPipelining)
+TRANSFORM_DIRECTIVE(OMPIfClauseVersioning)
+TRANSFORM_DIRECTIVE_LAST(LoopAssumeParallel)
 
 #undef TRANSFORM_DIRECTIVE
 #undef TRANSFORM_DIRECTIVE_LAST
+#undef TRANSFORM_DIRECTIVE_KEYWORD

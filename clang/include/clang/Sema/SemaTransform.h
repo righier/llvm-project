@@ -71,6 +71,10 @@ public:
                    SemaTransformedTree *OriginalLoop) {}
   void applyPipelining(LoopPipeliningTransform *Trans,
                        SemaTransformedTree *MainLoop) {}
+  void applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform *Trans, SemaTransformedTree *MainLoop) {
+    assert(MainLoop->isOriginal());
+  }
+
 
   void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,
                              bool IsAll, bool IsSuccessor) {}
