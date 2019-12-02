@@ -1777,7 +1777,9 @@ static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
   };
   auto &&ElseGen = [&BodyCodeGen](CodeGenFunction &CGF, PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
-    CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
+    
+    // TODO: Apply to TransformedTree
+    // CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
 
     BodyCodeGen(CGF);
   };
@@ -1962,9 +1964,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
       [&S, IsMonotonic](CodeGenFunction &CGF, PrePostActionTy &) {
         // Generate !llvm.loop.parallel metadata for loads and stores for loops
         // with dynamic/guided scheduling and without ordered clause.
-        if (!isOpenMPSimdDirective(S.getDirectiveKind()))
-          CGF.LoopStack.setParallel(!IsMonotonic);
-        else
+        if (isOpenMPSimdDirective(S.getDirectiveKind()))
           CGF.EmitOMPSimdInit(S, IsMonotonic);
       },
       [&S, &LoopArgs, LoopExit, &CodeGenLoop, IVSize, IVSigned, &CodeGenOrdered,
