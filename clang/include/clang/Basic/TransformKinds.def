@@ -14,12 +14,13 @@ TRANSFORM_DIRECTIVE_KEYWORD(unroll,LoopUnrolling)
 TRANSFORM_DIRECTIVE_KEYWORD(unrollandjam,LoopUnrollAndJam)
 TRANSFORM_DIRECTIVE_KEYWORD(vectorize,LoopVectorization)
 TRANSFORM_DIRECTIVE_KEYWORD(interleave,LoopInterleaving)
+TRANSFORM_DIRECTIVE_KEYWORD(distribute,LoopDistribution)
 
 // Compatibility transformations: "#pragma clang loop" hints and OpenMP.
-TRANSFORM_DIRECTIVE(LoopDistribution)
 TRANSFORM_DIRECTIVE(LoopVectorizationInterleaving)
 TRANSFORM_DIRECTIVE(LoopPipelining)
 TRANSFORM_DIRECTIVE(OMPIfClauseVersioning)
+TRANSFORM_DIRECTIVE(OMPDisableSimd)
 TRANSFORM_DIRECTIVE_LAST(LoopAssumeParallel)
 
 #undef TRANSFORM_DIRECTIVE

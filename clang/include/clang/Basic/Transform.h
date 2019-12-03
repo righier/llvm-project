@@ -39,9 +39,12 @@ private:
   SourceRange LocRange;
   bool IsLegacy;
 
-public:
+protected:
   Transform(Kind K, SourceRange LocRange, bool IsLegacy)
       : TransformKind(K), LocRange(LocRange), IsLegacy(IsLegacy) {}
+
+public:
+  virtual ~Transform() {}
 
   Kind getKind() const { return TransformKind; }
   static bool classof(const Transform *Trans) { return true; }
@@ -72,8 +75,8 @@ public:
   /// loops, such as pointer to the AST node or the loop name. The index in this
   /// array is its "role".
   /// @{
-  int getNumInputs() const;
-  int getNumFollowups() const;
+  virtual int getNumInputs() const { return 1;  }
+  virtual int getNumFollowups() const { return 0; }
   /// @}
 
   /// The "all" follow-up role is a meta output whose' attributes are added to
@@ -85,21 +88,12 @@ public:
   int getLoopPipelineStage() const;
 };
 
-/// Default implementation of compile-time inherited methods to avoid infinite
-/// recursion.
-class TransformImpl : public Transform {
-public:
-  TransformImpl(Kind K, SourceRange Loc, bool IsLegacy)
-      : Transform(K, Loc, IsLegacy) {}
 
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 1; }
-};
 
-class LoopDistributionTransform final : public TransformImpl {
+class LoopDistributionTransform final : public Transform {
 private:
   LoopDistributionTransform(SourceRange Loc, bool IsLegacy)
-      : TransformImpl(LoopDistributionKind, Loc, IsLegacy) {}
+      : Transform(LoopDistributionKind, Loc, IsLegacy) {}
 
 public:
   static bool classof(const LoopDistributionTransform *Trans) { return true; }
@@ -119,7 +113,7 @@ public:
   };
 };
 
-class LoopVectorizationTransform final : public TransformImpl {
+class LoopVectorizationTransform final : public Transform {
 private:
   llvm::Optional<bool> EnableVectorization;
   int VectorizeWidth;
@@ -129,7 +123,7 @@ private:
                              llvm::Optional<bool> EnableVectorization,
                              int VectorizeWidth,
                              llvm::Optional<bool> VectorizePredicateEnable)
-      : TransformImpl(LoopVectorizationKind, Loc, true),
+      : Transform(LoopVectorizationKind, Loc, true),
         EnableVectorization(EnableVectorization),
         VectorizeWidth(VectorizeWidth),
         VectorizePredicateEnable(VectorizePredicateEnable) {}
@@ -166,7 +160,7 @@ public:
   }
 };
 
-class LoopInterleavingTransform final : public TransformImpl {
+class LoopInterleavingTransform final : public Transform {
 private:
   llvm::Optional<bool> EnableInterleaving;
   int InterleaveCount;
@@ -174,7 +168,7 @@ private:
   LoopInterleavingTransform(SourceRange Loc,
                             llvm::Optional<bool> EnableInterleaving,
                             int InterleaveCount)
-      : TransformImpl(LoopInterleavingKind, Loc, false),
+      : Transform(LoopInterleavingKind, Loc, false),
         EnableInterleaving(EnableInterleaving),
         InterleaveCount(InterleaveCount) {}
 
@@ -206,7 +200,7 @@ public:
   int getInterleaveCount() const { return InterleaveCount; }
 };
 
-class LoopVectorizationInterleavingTransform final : public TransformImpl {
+class LoopVectorizationInterleavingTransform final : public Transform {
 private:
   bool AssumeSafety;
   llvm::Optional<bool> EnableVectorization;
@@ -220,7 +214,7 @@ private:
       llvm::Optional<bool> EnableVectorization,
       llvm::Optional<bool> EnableInterleaving, int VectorizeWidth,
       llvm::Optional<bool> VectorizePredicateEnable, int InterleaveCount)
-      : TransformImpl(LoopVectorizationInterleavingKind, Loc, IsLegacy),
+      : Transform(LoopVectorizationInterleavingKind, Loc, IsLegacy),
         AssumeSafety(AssumeSafety), EnableVectorization(EnableVectorization),
         EnableInterleaving(EnableInterleaving), VectorizeWidth(VectorizeWidth),
         VectorizePredicateEnable(VectorizePredicateEnable),
@@ -268,7 +262,7 @@ public:
   int getInterleaveCount() const { return InterleaveCount; }
 };
 
-class LoopUnrollingTransform final : public TransformImpl {
+class LoopUnrollingTransform final : public Transform {
 private:
   bool ImplicitEnable;
   bool ExplicitEnable;
@@ -276,7 +270,7 @@ private:
 
   LoopUnrollingTransform(SourceRange Loc, bool IsLegacy, bool ImplicitEnable,
                          bool ExplicitEnable, int Factor)
-      : TransformImpl(LoopUnrollingKind, Loc, IsLegacy),
+      : Transform(LoopUnrollingKind, Loc, IsLegacy),
         ImplicitEnable(ImplicitEnable), ExplicitEnable(ExplicitEnable),
         Factor(Factor) {}
 
@@ -331,14 +325,14 @@ public:
   bool isFull() const { return Factor == -1; }
 };
 
-class LoopUnrollAndJamTransform final : public TransformImpl {
+class LoopUnrollAndJamTransform final : public Transform {
 private:
   bool ExplicitEnable;
   int Factor;
 
   LoopUnrollAndJamTransform(SourceRange Loc, bool IsLegacy, bool ExplicitEnable,
                             int Factor)
-      : TransformImpl(LoopUnrollAndJamKind, Loc, IsLegacy),
+      : Transform(LoopUnrollAndJamKind, Loc, IsLegacy),
         ExplicitEnable(ExplicitEnable), Factor(Factor) {}
 
 public:
@@ -378,12 +372,12 @@ public:
   bool isFull() const { return Factor == -1; }
 };
 
-class LoopPipeliningTransform final : public TransformImpl {
+class LoopPipeliningTransform final : public Transform {
 private:
   int InitiationInterval;
 
   LoopPipeliningTransform(SourceRange Loc, int InitiationInterval)
-      : TransformImpl(LoopPipeliningKind, Loc, true),
+      : Transform(LoopPipeliningKind, Loc, true),
         InitiationInterval(InitiationInterval) {}
 
 public:
@@ -408,12 +402,10 @@ public:
 
 
 
-class OMPIfClauseVersioningTransform final : public TransformImpl {
+class OMPIfClauseVersioningTransform final : public Transform {
 private:
-
-
   OMPIfClauseVersioningTransform(SourceRange Loc)
-    : TransformImpl(LoopPipeliningKind, Loc, true) {}
+    : Transform(OMPIfClauseVersioningKind, Loc, true) {}
 
 public:
   static bool classof(const OMPIfClauseVersioningTransform *Trans) { return true; }
@@ -437,11 +429,31 @@ public:
 };
 
 
+class OMPDisableSimdTransform final : public Transform {
+private:
+  OMPDisableSimdTransform(SourceRange Loc)
+    : Transform(OMPDisableSimdKind, Loc, true) {}
 
-class LoopAssumeParallelTransform final : public TransformImpl {
+public:
+  static bool classof(const OMPDisableSimdTransform *Trans) { return true; }
+  static bool classof(const Transform *Trans) {
+    return Trans->getKind() == OMPDisableSimdKind;
+  }
+
+  static OMPDisableSimdTransform *create(SourceRange Loc) {
+    return new OMPDisableSimdTransform(Loc);
+  }
+
+  int getNumInputs() const { return 1; }
+  int getNumFollowups() const { return 0; }
+};
+
+
+
+class LoopAssumeParallelTransform final : public Transform {
 private:
   LoopAssumeParallelTransform(SourceRange Loc)
-      : TransformImpl(LoopAssumeParallelKind, Loc, false) {}
+      : Transform(LoopAssumeParallelKind, Loc, false) {}
 
 public:
   static bool classof(const LoopAssumeParallelTransform *Trans) { return true; }

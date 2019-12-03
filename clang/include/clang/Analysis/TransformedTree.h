@@ -41,21 +41,35 @@ struct DefaultExtractTransform : ExtractTransform<DefaultExtractTransform> {
 /// loops can also given identifiers to reference them.
 class TransformInput {
   const Stmt *StmtInput = nullptr;
+  Transform* PrecTrans = nullptr;
+  int FollowupIdx = -1;
 
-  TransformInput(const Stmt *StmtInput) : StmtInput(StmtInput) {}
+  TransformInput(const Stmt *StmtInput, Transform *PrecTrans, int FollowupIdx) : StmtInput(StmtInput), PrecTrans(PrecTrans), FollowupIdx(FollowupIdx)  {}
 
 public:
   TransformInput() {}
 
   static TransformInput createByStmt(const Stmt *StmtInput) {
     assert(StmtInput);
-    return TransformInput(StmtInput);
+    return TransformInput(StmtInput,nullptr, -1);
+  }
+
+  // In general, the same clang::Transform can be reused multiple times with different inputs, when referencing its followup using this constructor, the clang::Transform can only be used once per function to ensure that its followup can be uniquely identified.
+  static TransformInput createByFollowup(Transform *Transform, int FollowupIdx) {
+    assert(Transform);
+    assert(0 <= FollowupIdx && FollowupIdx < Transform->getNumFollowups());
+    return TransformInput(nullptr, Transform, FollowupIdx );
   }
 
   bool isByStmt() const { return StmtInput; }
+  bool isByFollowup() const { return PrecTrans; }
 
   const Stmt *getStmtInput() const { return StmtInput; }
+
+  Transform* getPrecTrans() const { return PrecTrans; }
+  int getFollowupIdx() const { return FollowupIdx; }
 };
+
 
 /// Represents a transformation together with the input loops.
 /// in the future it will also identify the generated loop.
@@ -103,7 +117,6 @@ protected:
 
   Derived *BasedOn;
   int FollowupRole;
-
   /// @}
 
   /// Things applied to this loop.
@@ -150,6 +163,8 @@ public:
            "Non-original loops must have a generating transformation");
     return Result;
   }
+
+
 
   Stmt *getOriginal() const { return Original; }
   Stmt *getInheritedOriginal() const {
@@ -202,6 +217,10 @@ public:
     bool Result = (InputRole == 0);
     assert(Result == (PrimaryInput == this));
     return PrimaryInput == this;
+  }
+
+  int getFollowupRole() const {
+    return FollowupRole;
   }
 
   void applyTransformation(Transform *Trans,
@@ -713,10 +732,22 @@ private:
       const Stmt *TopLevel = getAssociatedLoop(Directive);
 
     auto IfClauses =  Directive->getClausesOfKind < OMPIfClause> ();
-    if (!std::empty(IfClauses)) {
+    if (!llvm::empty(IfClauses)) {
       // OpenMP specifies loop versioning with the if clause: A "then" loop where the directive is applied and a "else" loop where it is not. Currently, it is only supported in the "simd" construct where vectorization is disabled on the else loop.
       assert(HasSimd);
-      Transforms.emplace_back(OMPIfClauseVersioningTransform ::create(Directive->getSourceRange()) ,TransformInput::createByStmt(TopLevel) );
+
+     // assert(llvm::size(IfClauses) == 1);
+      //assert(std::distance(IfClauses.begin(), IfClauses.end()) == 1);
+      auto IfClause = *IfClauses.begin();
+      auto LocRange = SourceRange( IfClause->getBeginLoc(), IfClause->getEndLoc());
+
+      auto VersioningTrans= OMPIfClauseVersioningTransform::create(LocRange);
+      Builder.AllTransforms.push_back(VersioningTrans);
+      Transforms.emplace_back(VersioningTrans,TransformInput::createByStmt(TopLevel ) );
+
+      auto DisableSimd = OMPDisableSimdTransform::create(LocRange);
+      Builder.AllTransforms.push_back(DisableSimd);
+      Transforms.emplace_back(  DisableSimd, TransformInput::createByFollowup(VersioningTrans, OMPIfClauseVersioningTransform:: FollowupElse) );
     }
 
 
@@ -905,14 +936,20 @@ private:
   /// Applies collected transformations to the loop nest representation.
   struct TransformApplicator {
     Derived &Builder;
-    llvm::DenseMap<const Stmt *, llvm::SmallVector<NodeTransform *, 2>>
-        TransByStmt;
+    llvm::DenseMap<const Stmt *, llvm::SmallVector<NodeTransform *, 2>>        TransByStmt;
+    llvm::DenseMap<Transform*, llvm::SmallVector<NodeTransform*, 2> > TransformByFollowup;
 
     TransformApplicator(Derived &Builder) : Builder(Builder) {}
 
     void addNodeTransform(NodeTransform *NT) {
       TransformInput &TopLevelInput = NT->Inputs[0];
-      TransByStmt[TopLevelInput.getStmtInput()].push_back(NT);
+      if (TopLevelInput.isByStmt()) {
+        TransByStmt[TopLevelInput.getStmtInput()].push_back(NT);
+      }      else if (TopLevelInput.isByFollowup()) {
+        TransformByFollowup[TopLevelInput.getPrecTrans()].push_back(NT);
+      }
+      else
+        llvm_unreachable("Transformation must apply to something");
     }
 
     void checkStageOrder(ArrayRef<NodeTy *> PrevLoops, Transform *NewTrans) {
@@ -975,6 +1012,8 @@ private:
                                    MainLoop);
       case Transform::Kind::OMPIfClauseVersioningKind:
         return applyOMPIfClauseVersioning(cast<OMPIfClauseVersioningTransform>(Trans), MainLoop  );
+      case Transform::Kind::OMPDisableSimdKind:
+        return applyOMPDisableSimd(cast<OMPDisableSimdTransform>(Trans), MainLoop  );
       default:
         llvm_unreachable("unimplemented transformation");
       }
@@ -1149,7 +1188,7 @@ private:
       return MainLoop;
     }
 
-    
+
    NodeTy *applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform *Trans,        NodeTy *MainLoop) {
      NodeTy *Then = Builder.createFollowup(  MainLoop->Subloops, MainLoop,       OMPIfClauseVersioningTransform::FollowupIf);
      inheritLoopAttributes(Then, MainLoop, true, true);
@@ -1163,11 +1202,11 @@ private:
       return Then;
     }
 
-    void applyOne(NodeTy *L, NodeTransform *NT) {
-      applyTransform(NT->Trans, L);
-    }
-
-
+   NodeTy *applyOMPDisableSimd(OMPDisableSimdTransform *Trans,        NodeTy *MainLoop) {
+     MainLoop->applyTransformation(Trans, {},  nullptr);
+     Builder.disableVectorizeInterleave(MainLoop);
+ return nullptr;
+}
 
     void traverseSubloops(NodeTy *L) {
       // Transform subloops first.
@@ -1185,20 +1224,66 @@ private:
       assert(L == L->getLatestSuccessor() &&
              "Loop must not have been consumed by another transformation");
 
+      // Look for transformations that apply syntactically to this loop.
       Stmt *OrigStmt = L->getInheritedOriginal();
       auto TransformsOnStmt = TransByStmt.find(OrigStmt);
       if (TransformsOnStmt != TransByStmt.end()) {
         auto &List = TransformsOnStmt->second;
         if (!List.empty()) {
           NodeTransform *Trans = List.front();
-          applyOne(L, Trans);
+          applyTransform(Trans->Trans, L);
           List.erase(List.begin());
+
+
+
           return true;
         }
       }
 
+
+      // Look for transformations that are chained to one of the followups.
+     auto SourceTrans = L-> getSourceTransformation();
+     if (!SourceTrans)
+       return false;
+     auto Chained = TransformByFollowup.find(SourceTrans);
+     if (Chained == TransformByFollowup.end())
+       return false;
+     auto LIdx = L->getFollowupRole();
+     auto &List = Chained->second;
+       for (auto It = List.begin(), E = List.end(); It != E; ++It){
+         NodeTransform* Item = *It;
+       auto FollowupIdx = Item->Inputs[0].getFollowupIdx();
+       if (LIdx != FollowupIdx)
+         continue;
+
+
+       applyTransform(Item->Trans, L);
+       List. erase(It);
+       return true;
+     }
+
+#if 0
+      if (auto LatestTransform = L->getTransformedBy()) {
+        auto Chained = TransformByFollowup.find(LatestTransform);
+        if (Chained != TransformByFollowup.end()) {
+          auto &List = Chained->second;
+          NodeTransform *NT = List  .front();
+          auto MainInput = NT->Inputs[0];
+          assert(MainInput.isByFollowup());
+          assert(MainInput.getPrecTrans()==LatestTransform);
+          auto FollowupNode = L->Followups[MainInput.getFollowupIdx()];
+            assert(FollowupNode);
+          applyTransform(NT->Trans, FollowupNode);
+          List. erase(List.begin());
+          return true;
+        }
+      }
+#endif
+
       return false;
     }
+
+
 
     void traverse(NodeTy *L) {
       do {
@@ -1294,6 +1379,8 @@ public:
 
     SelectiveApplicator([](NodeTransform& NT) -> bool {
       if (auto IfVersioning = dyn_cast<OMPIfClauseVersioningTransform>(NT.Trans))
+        return true;
+      if (auto DisableSimd = dyn_cast<OMPDisableSimdTransform>(NT.Trans))
         return true;
       return false;
       });

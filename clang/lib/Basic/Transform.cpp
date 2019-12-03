@@ -64,29 +64,3 @@ int Transform::getLoopPipelineStage() const {
     return -1;
   }
 }
-
-int Transform::getNumInputs() const {
-  assert(getKind() > UnknownKind);
-  assert(getKind() <= LastKind);
-  static const decltype(
-      &Transform::getNumInputs) GetNumInputFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE( Name)                                     \
-  static_cast<decltype(&Transform::getNumInputs)>(                             \
-      &Name##Transform ::getNumInputs),
-#include "clang/Basic/TransformKinds.def"
-  };
-  return (this->*GetNumInputFuncs[getKind() - 1])();
-}
-
-int Transform::getNumFollowups() const {
-  assert(getKind() > UnknownKind);
-  assert(getKind() <= LastKind);
-  static const decltype(&Transform::getNumInputs)
-      GetNumFollowupFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE( Name)                                     \
-  static_cast<decltype(&Transform::getNumFollowups)>(                          \
-      &Name##Transform ::getNumFollowups),
-#include "clang/Basic/TransformKinds.def"
-      };
-  return (this->*GetNumFollowupFuncs[getKind() - 1])();
-}
