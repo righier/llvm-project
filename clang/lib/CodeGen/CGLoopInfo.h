@@ -73,7 +73,7 @@ public:
   LoopInfoStack() {}
   ~LoopInfoStack();
 
-  CGTransformedTree* lookupTransformedNode(const Stmt *S);
+  CGTransformedTree* lookupTransformedNode(CGTransformedTree *KnownTN, const Stmt *S);
   static  CGTransformedTree* getFollowupAtIdx(CGTransformedTree* TN, int FollowupIdx);
 
   void initAsOutlined(LoopInfoStack &ParentLIS) {
@@ -84,7 +84,7 @@ public:
                  CGDebugInfo *DbgInfo, Stmt *Body);
 
   /// Begin a new structured loop.
-  void push(llvm::BasicBlock *Header, const Stmt *LoopStmt);
+  void push(llvm::BasicBlock *Header, CGTransformedTree* TN, const Stmt *LoopStmt);
 
   /// End the current loop.
   void pop();

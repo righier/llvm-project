@@ -30,17 +30,21 @@ LoopInfoStack::~LoopInfoStack() {
 }
 
 
-CGTransformedTree*  LoopInfoStack::lookupTransformedNode(const Stmt* S) {
+CGTransformedTree* LoopInfoStack::lookupTransformedNode(CGTransformedTree *KnownTN, const clang:: Stmt *S){
+  if (KnownTN)
+    return KnownTN;
  const Stmt* Loop = getAssociatedLoop(S);
   if (!Loop)
     return nullptr;
   return StmtToTree.lookup(Loop);
 }
 
+
   CGTransformedTree* LoopInfoStack::getFollowupAtIdx(CGTransformedTree* TN, int FollowupIdx) {
     assert(TN->isTransformationInput());
 return    TN->getFollowups()[FollowupIdx];
 }
+
 
 void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
@@ -50,8 +54,8 @@ void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
   TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
 }
 
-void LoopInfoStack::push(BasicBlock *Header, const clang::Stmt *LoopStmt) {
-  CGTransformedTree *TreeNode = lookupTransformedNode(LoopStmt);
+void LoopInfoStack::push(BasicBlock *Header, CGTransformedTree* TN,const clang::Stmt *LoopStmt) {
+  CGTransformedTree *TreeNode = lookupTransformedNode(TN, LoopStmt);
   Active.emplace_back(new LoopInfo(Header, TreeNode));
 }
 

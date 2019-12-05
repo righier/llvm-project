@@ -147,10 +147,6 @@ protected:
         BasedOn(BasedOn), FollowupRole(FollowupRole) {}
 
 public:
-  ~TransformedTree() {
-    int a = 0;
-  }
-
   ArrayRef<Derived *> getSubLoops() const { return Subloops; }
 
   std::vector<Derived*> getLatestSubLoops() {
