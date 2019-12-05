@@ -131,6 +131,11 @@ public:
     L->markNondefault();
   }
 
+  void disableOMDSimd(CGTransformedTree *L) {
+    L->addAttribute(LLVMCtx, true, "llvm.loop.vectorize.enable", false);
+    L->markNondefault();
+  }
+
   void disablePipelining(CGTransformedTree *L) {
     L->addAttribute(LLVMCtx, true, "llvm.loop.pipeline.disable", true);
     L->markNondefault();

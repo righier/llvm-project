@@ -29,6 +29,19 @@ LoopInfoStack::~LoopInfoStack() {
     delete T;
 }
 
+
+CGTransformedTree*  LoopInfoStack::lookupTransformedNode(const Stmt* S) {
+ const Stmt* Loop = getAssociatedLoop(S);
+  if (!Loop)
+    return nullptr;
+  return StmtToTree.lookup(Loop);
+}
+
+  CGTransformedTree* LoopInfoStack::getFollowupAtIdx(CGTransformedTree* TN, int FollowupIdx) {
+    assert(TN->isTransformationInput());
+return    TN->getFollowups()[FollowupIdx];
+}
+
 void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
                               clang::Stmt *Body) {
@@ -38,8 +51,7 @@ void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
 }
 
 void LoopInfoStack::push(BasicBlock *Header, const clang::Stmt *LoopStmt) {
-  auto Loop = getAssociatedLoop(LoopStmt);
-  auto TreeNode = StmtToTree.lookup(Loop);
+  CGTransformedTree *TreeNode = lookupTransformedNode(LoopStmt);
   Active.emplace_back(new LoopInfo(Header, TreeNode));
 }
 

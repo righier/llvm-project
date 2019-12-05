@@ -64,6 +64,7 @@ public:
                          SemaTransformedTree *InputLoop) {}
   void applyVectorizeInterleave(LoopVectorizationInterleavingTransform *Trans,
                                 SemaTransformedTree *MainLoop) {}
+  void disableOMDSimd(SemaTransformedTree *L) {  }
   void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
                          SemaTransformedTree *OuterLoop,
                          SemaTransformedTree *InnerLoop) {}

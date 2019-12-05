@@ -73,6 +73,9 @@ public:
   LoopInfoStack() {}
   ~LoopInfoStack();
 
+  CGTransformedTree* lookupTransformedNode(const Stmt *S);
+  static  CGTransformedTree* getFollowupAtIdx(CGTransformedTree* TN, int FollowupIdx);
+
   void initAsOutlined(LoopInfoStack &ParentLIS) {
     StmtToTree = ParentLIS.StmtToTree;
   }

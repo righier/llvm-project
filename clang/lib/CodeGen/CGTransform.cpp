@@ -12,6 +12,7 @@
 
 #include "CGTransform.h"
 #include "CGDebugInfo.h"
+#include "CGLoopInfo.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/StmtTransform.h"
 #include "llvm/IR/Metadata.h"
@@ -20,6 +21,7 @@
 using namespace clang;
 using namespace clang::CodeGen;
 using namespace llvm;
+
 
 void CodeGenFunction::HandleCodeTransformations(const Stmt *Body) {
   if (!getParentFn()) {

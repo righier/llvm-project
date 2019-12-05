@@ -1768,20 +1768,26 @@ static LValue EmitOMPHelperVar(CodeGenFunction &CGF,
 static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
                                const RegionCodeGenTy &SimdInitGen,
                                const RegionCodeGenTy &BodyCodeGen) {
-  auto &&ThenGen = [&SimdInitGen, &BodyCodeGen](CodeGenFunction &CGF,
+  auto &&ThenGen = [&SimdInitGen, &BodyCodeGen, &S](CodeGenFunction &CGF,
                                                 PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
     SimdInitGen(CGF);
 
-    BodyCodeGen(CGF);
+   CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
+   CGTransformedTree* ThenTN = LoopInfoStack::getFollowupAtIdx(TN, 0);
+
+    BodyCodeGen(CGF,ThenTN);
   };
-  auto &&ElseGen = [&BodyCodeGen](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&ElseGen = [&BodyCodeGen,&S](CodeGenFunction &CGF, PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
     
     // TODO: Apply to TransformedTree
     // CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
 
-    BodyCodeGen(CGF);
+    CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
+    CGTransformedTree* ElseTN = LoopInfoStack::getFollowupAtIdx(TN,1);
+
+    BodyCodeGen(CGF, ElseTN);
   };
   const Expr *IfCond = nullptr;
   for (const auto *C : S.getClausesOfKind<OMPIfClause>()) {

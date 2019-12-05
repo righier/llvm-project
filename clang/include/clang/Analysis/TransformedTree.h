@@ -129,7 +129,11 @@ protected:
   Derived *PrimaryInput = nullptr;
 
   llvm::SmallVector<Derived *, 4> Followups;
-  Derived *Successor = nullptr;
+
+  // Derived *Successor = nullptr;
+  // First successor is the primary (the one that #pragma clang transform is applied to)
+  llvm::SmallVector<Derived*, 2> Successors;
+
   int InputRole = -1;
 
   bool IsParallel = false;
@@ -143,7 +147,22 @@ protected:
         BasedOn(BasedOn), FollowupRole(FollowupRole) {}
 
 public:
+  ~TransformedTree() {
+    int a = 0;
+  }
+
   ArrayRef<Derived *> getSubLoops() const { return Subloops; }
+
+  std::vector<Derived*> getLatestSubLoops() {
+    std::vector<Derived*> Result;
+    Result.reserve(Subloops.size());
+    for (auto SubL : Subloops) {
+      // TODO: Efficiency
+      auto SubLatest = SubL->getLatestSuccessors();
+      Result.insert(Result.end(), SubLatest.begin(), SubLatest.end());
+    }
+    return Result;
+  }
 
   Derived *getPrimaryInput() const { return PrimaryInput; }
   Transform *getTransformedBy() const { return TransformedBy; }
@@ -182,22 +201,28 @@ public:
 
   bool isRoot() const { return IsRoot; }
 
-  Derived *getSuccessor() { return Successor; }
+  ArrayRef<Derived*> getSuccessors()const { return Successors; }
 
-  Derived *getLatestSuccessor() {
+  // TODO: Accept SmallArrayImpl to fill
+  std::vector<Derived* > getLatestSuccessors()  {
     // If the loop is not being consumed, this is the latest successor.
-    if (!isTransformationInput())
-      return &getDerived();
-    // It is possible for a loop consumed into a non-loop, such that it has no
-    // successor.
-    if (!Successor)
-      return nullptr;
-    return Successor->getLatestSuccessor();
+    if (!isTransformationInput()) {
+      std::vector<Derived* > Result;
+      Result.push_back(&getDerived() );
+      return Result;
+      //return { &getDerived() };
+    }
+
+    std::vector<Derived* > Result;
+    for (auto Succ : Successors) {
+      auto SuccResult = Succ->getLatestSuccessors();
+      Result.insert(Result.end(),   SuccResult.begin(),SuccResult.end());
+    }
+    return Result;
   }
 
-  const Derived *getLatestSuccessor() const {
-    return const_cast<Derived *>(this)->getLatestSuccessor();
-  }
+
+
 
   bool isOriginal() const { return Original; }
 
@@ -223,15 +248,20 @@ public:
     return FollowupRole;
   }
 
+  ArrayRef<Derived*> getFollowups() const {
+    return Followups;
+  }
+
   void applyTransformation(Transform *Trans,
                            llvm::ArrayRef<Derived *> Followups,
-                           Derived *Successor) {
+                           ArrayRef< Derived *>Successors) {
     assert(!isTransformationInput());
+    assert(llvm::find(Successors, nullptr) == Successors.end() );
 
     this->TransformedBy = Trans;
     this->Followups.insert(this->Followups.end(), Followups.begin(),
                            Followups.end());
-    this->Successor = Successor;
+    this->Successors .assign( Successors.begin(), Successors.end());
     this->PrimaryInput = &getDerived();
     this->InputRole = 0; // for primary
 
@@ -245,14 +275,15 @@ public:
 
   void applySuccessors(Derived *PrimaryInput, int InputRole,
                        llvm::ArrayRef<Derived *> Followups,
-                       Derived *Successor) {
+                       ArrayRef< Derived * > Successors) {
     assert(!isTransformationInput());
     assert(InputRole > 0);
+    assert(llvm::find(Successors, nullptr) == Successors.end() );
 
     this->PrimaryInput = PrimaryInput;
     this->Followups.insert(this->Followups.end(), Followups.begin(),
                            Followups.end());
-    this->Successor = Successor;
+    this->Successors .assign( Successors.begin(), Successors.end());
     this->InputRole = InputRole;
 
 #ifndef NDEBUG
@@ -1056,8 +1087,9 @@ private:
       // Search for the innermost loop that is being jammed.
       NodeTy *Cur = MainLoop;
       NodeTy *Inner = nullptr;
-      if (Cur->Subloops.size() == 1) {
-        Inner = Cur->Subloops[0]->getLatestSuccessor();
+      auto LatestInner = Cur->getLatestSubLoops();
+      if (LatestInner.size() == 1) {
+        Inner = LatestInner[0];
       } else if (!Trans->isLegacy()) {
         Builder.Diag(Trans->getBeginLoc(),
                      diag::err_sema_transform_unrollandjam_expect_nested_loop);
@@ -1196,33 +1228,42 @@ private:
      NodeTy *Else = Builder.createFollowup(  MainLoop->Subloops, MainLoop,       OMPIfClauseVersioningTransform::FollowupElse);
      inheritLoopAttributes(Else, MainLoop, true, false);
 
-     MainLoop->applyTransformation(Trans, {Then, Else},  Then);
+     MainLoop->applyTransformation(Trans, {Then, Else},  {Then, Else});
      Builder.applyOMPIfClauseVersioning(Trans, MainLoop);
 
       return Then;
     }
 
    NodeTy *applyOMPDisableSimd(OMPDisableSimdTransform *Trans,        NodeTy *MainLoop) {
-     MainLoop->applyTransformation(Trans, {},  nullptr);
-     Builder.disableVectorizeInterleave(MainLoop);
+     MainLoop->applyTransformation(Trans, {}, {});
+     Builder.disableOMDSimd(MainLoop);
  return nullptr;
 }
 
     void traverseSubloops(NodeTy *L) {
+      // TODO: Instead of recursively traversing the entire subtree, in case we are re-traversing after a transformation, only traverse followups of that transformation.
+      for (NodeTy *SubL : L->getSubLoops()) {
+        auto Latest =  SubL->getLatestSuccessors();
+        for (auto SubL: Latest)
+          traverse(SubL);
+      }
+
+#if 0
       // Transform subloops first.
+      // TODO: Instead of recursively traversing the entire subtree, in case we are re-traversing after a transformation, only traverse followups of that transformation.
       for (NodeTy *SubL : L->getSubLoops()) {
         SubL = SubL->getLatestSuccessor();
         if (!SubL)
           continue;
         traverse(SubL);
       }
+#endif
     }
 
     bool applyTransform(NodeTy *L) {
       if (L->isRoot())
         return false;
-      assert(L == L->getLatestSuccessor() &&
-             "Loop must not have been consumed by another transformation");
+     // assert(L == L->getLatestSuccessor() && "Loop must not have been consumed by another transformation");
 
       // Look for transformations that apply syntactically to this loop.
       Stmt *OrigStmt = L->getInheritedOriginal();
@@ -1285,7 +1326,18 @@ private:
 
 
 
-    void traverse(NodeTy *L) {
+    void traverse(NodeTy* N) {
+      auto Latest = N->getLatestSuccessors();
+      for (auto L : Latest) {
+        traverseSubloops(L);
+        if (applyTransform(L)) {
+          // Apply transformations on nested followups.
+          traverse(L);
+        }
+      }
+    }
+
+#if 0
       do {
         L = L->getLatestSuccessor();
         if (!L)
@@ -1293,6 +1345,7 @@ private:
         traverseSubloops(L);
       } while (applyTransform(L));
     }
+#endif
   };
 
 protected:
