@@ -1140,18 +1140,25 @@ private:
       return UnrolledOuter;
     }
 
-    NodeTy *applyDistribution(LoopDistributionTransform *Trans,
-                              NodeTy *MainLoop) {
-      checkStageOrder({MainLoop}, Trans);
+    NodeTy* applyDistribution(LoopDistributionTransform* Trans,
+      NodeTy* MainLoop) {
+      checkStageOrder({ MainLoop }, Trans);
 
-      NodeTy *All = Builder.createFollowup(
-          MainLoop->Subloops, MainLoop, LoopDistributionTransform::FollowupAll);
-      NodeTy *Successor = Trans->isLegacy() ? All : nullptr;
-      inheritLoopAttributes(All, MainLoop, true, Successor == All);
+      NodeTy* All = Builder.createFollowup(        MainLoop->Subloops, MainLoop, LoopDistributionTransform::FollowupAll);
+      NodeTy* PrimarySuccessor;
+      if (Trans->isLegacy()) {
+        inheritLoopAttributes(All, MainLoop, true, true);
+        MainLoop->applyTransformation(Trans, { All }, {All});
+        PrimarySuccessor = All;
+     } else {
+        inheritLoopAttributes(All, MainLoop, true, false);
+        MainLoop->applyTransformation(Trans, { All }, {});
+        PrimarySuccessor = nullptr;
+      }
 
-      MainLoop->applyTransformation(Trans, {All}, Successor);
+
       Builder.applyDistribution(Trans, MainLoop);
-      return Successor;
+      return PrimarySuccessor;
     }
 
     NodeTy *
