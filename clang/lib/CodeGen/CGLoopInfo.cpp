@@ -6,19 +6,30 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CGLoopInfo.h"
+
 #include "CGTransform.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+#include "CGLoopInfo.h"
+
+
+
+
+
+
 
 using namespace clang::CodeGen;
+
+
 using namespace llvm;
 
-LoopInfo::LoopInfo(llvm::BasicBlock *Header, CGTransformedTree *TreeNode)
-    : Header(Header) {
-  if (TreeNode) {
-    LoopMD = TreeNode->makeLoopID(Header->getContext(), false);
-    AccGroup = TreeNode->getAccessGroupOrNull();
+
+
+LoopInfo::LoopInfo(llvm::BasicBlock *Header, CGTransformedTree *Current, CGTransformedTree *Syntactical)
+    : Header(Header), Syntactical(Syntactical) {
+  if (Current) {
+    LoopMD = Current->makeLoopID(Header->getContext(), false);
+    AccGroup = Current->getAccessGroupOrNull();
   }
 }
 
@@ -30,9 +41,7 @@ LoopInfoStack::~LoopInfoStack() {
 }
 
 
-CGTransformedTree* LoopInfoStack::lookupTransformedNode(CGTransformedTree *KnownTN, const clang:: Stmt *S){
-  if (KnownTN)
-    return KnownTN;
+CGTransformedTree* LoopInfoStack::lookupTransformedNode(const clang:: Stmt *S){
  const Stmt* Loop = getAssociatedLoop(S);
   if (!Loop)
     return nullptr;
@@ -40,11 +49,21 @@ CGTransformedTree* LoopInfoStack::lookupTransformedNode(CGTransformedTree *Known
 }
 
 
-  CGTransformedTree* LoopInfoStack::getFollowupAtIdx(CGTransformedTree* TN, int FollowupIdx) {
-    assert(TN->isTransformationInput());
-return    TN->getFollowups()[FollowupIdx];
+clang::CodeGen::CGTransformedTree* clang::CodeGen:: LoopInfoStack::getFollowupAtIdx(clang::CodeGen::CGTransformedTree* TN, clang:: Transform::Kind  ExpectedTransformation,int FollowupIdx) {
+  assert(TN->isTransformationInput());
+  assert(TN->getTransformedBy()->getKind()== ExpectedTransformation);
+  return    TN->getFollowups()[FollowupIdx];
 }
 
+
+
+
+  void clang::CodeGen::LoopInfoStack::followTransformation(  Transform::Kind  ExpectedTransformation, int FollowupIdx   ) {
+    assert(Staging && "Must have resolved a staging transformation");
+    assert(Staging->isTransformationInput());
+    assert(Staging->getSourceTransformation()->getKind()== ExpectedTransformation);
+    Staging = Staging->getFollowups()[FollowupIdx];
+  }
 
 void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
@@ -52,11 +71,18 @@ void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
   CGTransformedTreeBuilder Builder(ASTCtx, LLVMCtx, AllNodes, AllTransforms,
                                    DbgInfo);
   TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
+  TransformedStructure->finalize(  LLVMCtx );
 }
 
-void LoopInfoStack::push(BasicBlock *Header, CGTransformedTree* TN,const clang::Stmt *LoopStmt) {
-  CGTransformedTree *TreeNode = lookupTransformedNode(TN, LoopStmt);
-  Active.emplace_back(new LoopInfo(Header, TreeNode));
+void LoopInfoStack::push(BasicBlock *Header, const clang::Stmt *LoopStmt) {
+  if (Staging) {
+    Active.emplace_back(new LoopInfo(Header, Staging, Staging));
+    Staging = nullptr;
+  } else {
+    Active.emplace_back(new LoopInfo(Header, lookupTransformedNode( LoopStmt), nullptr));
+  }
+  //CGTransformedTree *TreeNode = Staging ? Staging :   lookupTransformedNode( LoopStmt);
+ // Active.emplace_back(new LoopInfo(Header, TreeNode));
 }
 
 void LoopInfoStack::pop() {

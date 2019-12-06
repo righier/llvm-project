@@ -1768,26 +1768,31 @@ static LValue EmitOMPHelperVar(CodeGenFunction &CGF,
 static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
                                const RegionCodeGenTy &SimdInitGen,
                                const RegionCodeGenTy &BodyCodeGen) {
+
+
   auto &&ThenGen = [&SimdInitGen, &BodyCodeGen, &S](CodeGenFunction &CGF,
                                                 PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
     SimdInitGen(CGF);
 
-   CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
-   CGTransformedTree* ThenTN = LoopInfoStack::getFollowupAtIdx(TN, 0);
 
-    BodyCodeGen(CGF,ThenTN);
+
+    //CGF.LoopStack.followTransformation(  Transform::OMPIfClauseVersioningKind, 0 );
+    //CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
+    //CGTransformedTree* ThenTN = LoopInfoStack::getFollowupAtIdx(TN, 0);
+    LoopInfoStack::FollowupScope FScope(CGF.LoopStack,Transform::OMPIfClauseVersioningKind, OMPIfClauseVersioningTransform::FollowupIf );
+    BodyCodeGen(CGF);
   };
   auto &&ElseGen = [&BodyCodeGen,&S](CodeGenFunction &CGF, PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
     
-    // TODO: Apply to TransformedTree
+
     // CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
-
-    CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
-    CGTransformedTree* ElseTN = LoopInfoStack::getFollowupAtIdx(TN,1);
-
-    BodyCodeGen(CGF, ElseTN);
+    //CGF.LoopStack.followTransformation( , Transform::OMPIfClauseVersioningKind, 1 );
+    //CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
+    //CGTransformedTree* ElseTN = LoopInfoStack::getFollowupAtIdx(TN,1);
+    LoopInfoStack::FollowupScope FScope(CGF.LoopStack, Transform::OMPIfClauseVersioningKind, OMPIfClauseVersioningTransform::FollowupElse );
+    BodyCodeGen(CGF);
   };
   const Expr *IfCond = nullptr;
   for (const auto *C : S.getClausesOfKind<OMPIfClause>()) {
@@ -1799,6 +1804,7 @@ static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
     }
   }
   if (IfCond) {
+    LoopInfoStack::TransformScope TScope(CGF.LoopStack, &S);
     CGF.CGM.getOpenMPRuntime().emitIfClause(CGF, IfCond, ThenGen, ElseGen);
   } else {
     RegionCodeGenTy ThenRCG(ThenGen);

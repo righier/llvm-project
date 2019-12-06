@@ -79,6 +79,8 @@ public:
 
   void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,
                              bool IsAll, bool IsSuccessor) {}
+
+  void finalize(NodeTy* Root) {}
 };
 
 } // namespace clang

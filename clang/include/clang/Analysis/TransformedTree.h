@@ -140,6 +140,7 @@ protected:
   bool HasLegacyDisable = false;
   /// @}
 
+
 protected:
   TransformedTree(llvm::ArrayRef<Derived *> SubLoops, Derived *BasedOn,
                   clang::Stmt *Original, int FollowupRole)
@@ -179,8 +180,6 @@ public:
     return Result;
   }
 
-
-
   Stmt *getOriginal() const { return Original; }
   Stmt *getInheritedOriginal() const {
     if (Original)
@@ -189,6 +188,7 @@ public:
       return BasedOn->getInheritedOriginal();
     return nullptr;
   }
+
 
   Derived *getBasedOn() const { return BasedOn; }
 
@@ -1468,6 +1468,8 @@ public:
     // Apply all others.
     SelectiveApplicator([](NodeTransform &NT) -> bool { return true; });
     assert(TransformList.size() == 0 && "Must apply all transformations");
+
+    getDerived().finalize(Root);
 
     return Root;
   }

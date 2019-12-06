@@ -34,12 +34,15 @@ class CGTransformedTree : public TransformedTree<CGTransformedTree> {
   llvm::DebugLoc EndLoc;
 
   llvm::MDNode *AccessGroup = nullptr;
-  llvm::SmallSetVector<llvm::MDNode *, 2> ParallelAccessGroups;
+  llvm::SmallVector<llvm::MDNode *, 2> ParallelAccessGroups;
+
+  bool Finalized = false;
 
 public:
   CGTransformedTree(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
                     clang::Stmt *Original, int FollowupRole)
-      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole) {}
+      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole)
+, IsCodeGenned(Original)   {  }
 
   bool IsDefault = true;
   bool DisableHeuristic = false;
@@ -64,19 +67,43 @@ public:
   void addAttribute(llvm::LLVMContext &LLVMCtx, bool Inherited,
                     llvm::StringRef Name, int Val);
 
+
+
   llvm::MDNode *getAccessGroupOrNull() {
-    assert(getOriginal());
     return AccessGroup;
   }
+
+  llvm::MDNode* makeAccessGroup(llvm::LLVMContext& LLVMCtx);
+
   void
   getOrCreateAccessGroups(llvm::LLVMContext &LLVMCtx,
                           llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
-  llvm::ArrayRef<llvm::MDNode *> getParallelAccessGroups() const {
-    return ParallelAccessGroups.getArrayRef();
+  void collectAccessGroups(llvm::LLVMContext& LLVMCtx, llvm::SmallVectorImpl<llvm::MDNode*>& AccessGroups);
+
+  void finalize(llvm::LLVMContext& LLVMCtx) {
+    if (isParallel()) 
+      collectAccessGroups(LLVMCtx,ParallelAccessGroups);
+    
+    Finalized = true;
   }
 
+
+  llvm::ArrayRef<llvm::MDNode *> getParallelAccessGroups() const {
+    assert(Finalized);
+    return ParallelAccessGroups;
+  }
+
+
   llvm::MDNode *makeLoopID(llvm::LLVMContext &Ctx, bool HasAllDisableNonforced);
+
+  bool isCodeGenned() const {
+    return IsCodeGenned;
+  }
+  bool IsCodeGenned;
+
 };
+
+
 
 class CGTransformedTreeBuilder
     : public TransformedTreeBuilder<CGTransformedTreeBuilder,
@@ -153,6 +180,8 @@ public:
   void applyPipelining(LoopPipeliningTransform *Trans,
                        CGTransformedTree *MainLoop);
   void applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop);
+
+  void finalize(NodeTy *Root);
 };
 
 } // namespace CodeGen

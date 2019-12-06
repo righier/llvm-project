@@ -51,6 +51,7 @@ bool CGTransformedTree::collectLoopProperties(
 }
 
 void CGTransformedTree::addAttribute(bool Inherited, llvm::Metadata *Node) {
+  assert(!Finalized);
   if (Inherited)
     Attributes.push_back(Node);
   else
@@ -82,10 +83,21 @@ void CGTransformedTree::addAttribute(llvm::LLVMContext &LLVMCtx, bool Inherited,
                     ConstantInt::get(llvm::Type::getInt32Ty(LLVMCtx), Val))});
 }
 
+llvm::MDNode * CGTransformedTree::makeAccessGroup(llvm::LLVMContext &LLVMCtx) {
+  if (!AccessGroup) {
+    if (IsCodeGenned) 
+      AccessGroup = MDNode::getDistinct(LLVMCtx, {});
+  }
+  assert(!AccessGroup == !IsCodeGenned && "Non-codegenned loop must not have an access group");
+  return AccessGroup;
+}
+
 void CGTransformedTree::getOrCreateAccessGroups(
     llvm::LLVMContext &LLVMCtx,
     llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups) {
-  if (getOriginal()) {
+  assert((IsCodeGenned || !getOriginal()) && "Original loop should not be emitted if its transformed successors are");
+
+  if (IsCodeGenned) {
     if (!AccessGroup)
       AccessGroup = MDNode::getDistinct(LLVMCtx, {});
     AccessGroups.push_back(AccessGroup);
@@ -95,8 +107,17 @@ void CGTransformedTree::getOrCreateAccessGroups(
   getBasedOn()->getOrCreateAccessGroups(LLVMCtx, AccessGroups);
 }
 
-llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx,
-                                            bool HasAllDisableNonforced) {
+
+void CGTransformedTree::collectAccessGroups(llvm::LLVMContext& LLVMCtx, llvm::SmallVectorImpl<llvm::MDNode*>& AccessGroups) {
+  auto AccGroup = makeAccessGroup(LLVMCtx);
+  if (AccGroup)
+    AccessGroups.push_back(AccGroup);
+  if (BasedOn)
+    BasedOn->collectAccessGroups(LLVMCtx, AccessGroups);
+}
+
+llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx, bool HasAllDisableNonforced) {
+  assert(Finalized);
   if (IsDefault && (!DisableHeuristic || HasAllDisableNonforced))
     return nullptr;
 
@@ -191,15 +212,18 @@ void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
     Dst->Attributes.push_back(A);
   }
 
+#if 0
   // We currently assume that every transformation of a parallel loop also
   // results in a parallel loop.
   Dst->ParallelAccessGroups.insert(Src->ParallelAccessGroups.begin(),
                                    Src->ParallelAccessGroups.end());
+#endif
 }
 
 void CGTransformedTreeBuilder::markParallel(CGTransformedTree *L) {
   getBase().markParallel(L);
 
+#if 0
   // Has it already been marked parallel?
   // Avoid redundant metadata if it was.
   if (!L->ParallelAccessGroups.empty())
@@ -211,6 +235,7 @@ void CGTransformedTreeBuilder::markParallel(CGTransformedTree *L) {
 
   L->getOrCreateAccessGroups(LLVMCtx, AccGroups);
   L->ParallelAccessGroups.insert(AccGroups.begin(), AccGroups.end());
+#endif
 }
 
 void CGTransformedTreeBuilder::applyUnroll(LoopUnrollingTransform *Trans,
@@ -398,5 +423,33 @@ void CGTransformedTreeBuilder::applyPipelining(LoopPipeliningTransform *Trans,
 }
 
 void  CGTransformedTreeBuilder:: applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop) {
-  // Is applied by OpenMP's codegen.
+  assert(  MainLoop->IsCodeGenned );
+
+  MainLoop->IsCodeGenned = false;
+  for (auto Succ : MainLoop->getFollowups()) 
+    Succ->IsCodeGenned = true;
+}
+
+
+void CGTransformedTreeBuilder::  finalize(NodeTy *Root) {
+  SmallVector<CGTransformedTree*,32> Worklist;
+  SmallSet<CGTransformedTree*, 32> Visited;
+  Worklist.push_back(Root);
+
+  while (!Worklist.empty()) {
+   auto *N = Worklist.pop_back_val();
+   auto It = Visited.insert(N);
+   if (!It.second)
+     continue;
+
+   N->finalize(LLVMCtx);
+
+   if (N->isTransformationInput()) {
+     for (auto Followup : N->getFollowups())
+       Worklist.push_back(Followup);
+   } else {
+     for (auto SubLoop : N->getSubLoops())
+       Worklist.push_back(SubLoop);
+   }
+  }
 }
