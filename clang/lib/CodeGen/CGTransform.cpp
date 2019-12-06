@@ -437,19 +437,17 @@ void CGTransformedTreeBuilder::  finalize(NodeTy *Root) {
   Worklist.push_back(Root);
 
   while (!Worklist.empty()) {
-   auto *N = Worklist.pop_back_val();
-   auto It = Visited.insert(N);
-   if (!It.second)
-     continue;
+    auto* N = Worklist.pop_back_val();
+    auto It = Visited.insert(N);
+    if (!It.second)
+      continue;
 
-   N->finalize(LLVMCtx);
+    N->finalize(LLVMCtx);
 
-   if (N->isTransformationInput()) {
-     for (auto Followup : N->getFollowups())
-       Worklist.push_back(Followup);
-   } else {
-     for (auto SubLoop : N->getSubLoops())
-       Worklist.push_back(SubLoop);
-   }
+    for (auto SubLoop : N->getSubLoops())
+      Worklist.push_back(SubLoop);
+
+    for (auto Followup : N->getFollowups())
+      Worklist.push_back(Followup);
   }
 }

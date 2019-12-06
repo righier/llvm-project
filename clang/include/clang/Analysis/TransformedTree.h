@@ -1207,7 +1207,7 @@ private:
 
     NodeTy *applyPipelining(LoopPipeliningTransform *Trans, NodeTy *MainLoop) {
       checkStageOrder({MainLoop}, Trans);
-      MainLoop->applyTransformation(Trans, {}, nullptr);
+      MainLoop->applyTransformation(Trans, {}, {});
       Builder.applyPipelining(Trans, MainLoop);
       return nullptr;
     }
