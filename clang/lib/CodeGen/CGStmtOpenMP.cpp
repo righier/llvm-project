@@ -1803,13 +1803,17 @@ static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
       break;
     }
   }
-  if (IfCond) {
+
+  if (!IfCond) {
+    CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+    SimdInitGen(CGF);
+    BodyCodeGen(CGF);
+    return;
+  }
+
+
     LoopInfoStack::TransformScope TScope(CGF.LoopStack, &S);
     CGF.CGM.getOpenMPRuntime().emitIfClause(CGF, IfCond, ThenGen, ElseGen);
-  } else {
-    RegionCodeGenTy ThenRCG(ThenGen);
-    ThenRCG(CGF);
-  }
 }
 
 static void emitOMPSimdRegion(CodeGenFunction &CGF, const OMPLoopDirective &S,
