@@ -1057,7 +1057,7 @@ private:
       NodeTy *Successor = nullptr;
       if (Trans->isFull()) {
         // Full unrolling has no followup-loop.
-        MainLoop->applyTransformation(Trans, {}, nullptr);
+        MainLoop->applyTransformation(Trans, {}, {});
       } else {
         NodeTy *All = Builder.createFollowup(
             MainLoop->Subloops, MainLoop, LoopUnrollingTransform::FollowupAll);
