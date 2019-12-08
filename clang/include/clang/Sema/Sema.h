@@ -518,7 +518,7 @@ public:
   ///    structors
   /// 2: Always insert vtordisps to support RTTI on partially constructed
   ///    objects
-  PragmaStack<MSVtorDispAttr::Mode> VtorDispStack;
+  PragmaStack<MSVtorDispMode> VtorDispStack;
   // #pragma pack.
   // Sentinel to represent when the stack is set to mac68k alignment.
   static const unsigned kMac68kAlignmentSentinel = ~0U;
@@ -2800,9 +2800,10 @@ public:
                           StringRef Uuid);
   DLLImportAttr *mergeDLLImportAttr(Decl *D, const AttributeCommonInfo &CI);
   DLLExportAttr *mergeDLLExportAttr(Decl *D, const AttributeCommonInfo &CI);
-  MSInheritanceAttr *
-  mergeMSInheritanceAttr(Decl *D, const AttributeCommonInfo &CI, bool BestCase,
-                         MSInheritanceAttr::Spelling SemanticSpelling);
+  MSInheritanceAttr *mergeMSInheritanceAttr(Decl *D,
+                                            const AttributeCommonInfo &CI,
+                                            bool BestCase,
+                                            MSInheritanceModel Model);
   FormatAttr *mergeFormatAttr(Decl *D, const AttributeCommonInfo &CI,
                               IdentifierInfo *Format, int FormatIdx,
                               int FirstArg);
@@ -3740,7 +3741,7 @@ public:
   bool checkTargetAttr(SourceLocation LiteralLoc, StringRef Str);
   bool checkMSInheritanceAttrOnDefinition(
       CXXRecordDecl *RD, SourceRange Range, bool BestCase,
-      MSInheritanceAttr::Spelling SemanticSpelling);
+      MSInheritanceModel SemanticSpelling);
 
   void CheckAlignasUnderalignment(Decl *D);
 
@@ -8759,6 +8760,8 @@ public:
   bool CheckARCMethodDecl(ObjCMethodDecl *method);
   bool inferObjCARCLifetime(ValueDecl *decl);
 
+  void deduceOpenCLAddressSpace(ValueDecl *decl);
+
   ExprResult
   HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
                             Expr *BaseExpr,
@@ -8960,7 +8963,7 @@ public:
   /// Called on well formed \#pragma vtordisp().
   void ActOnPragmaMSVtorDisp(PragmaMsStackAction Action,
                              SourceLocation PragmaLoc,
-                             MSVtorDispAttr::Mode Value);
+                             MSVtorDispMode Value);
 
   enum PragmaSectionKind {
     PSK_DataSeg,
@@ -9315,8 +9318,7 @@ public:
   /// Struct to store the context selectors info for declare variant directive.
   using OMPCtxStringType = SmallString<8>;
   using OMPCtxSelectorData =
-      OpenMPCtxSelectorData<OMPCtxStringType, SmallVector<OMPCtxStringType, 4>,
-                            ExprResult>;
+      OpenMPCtxSelectorData<SmallVector<OMPCtxStringType, 4>, ExprResult>;
 
   /// Checks if the variant/multiversion functions are compatible.
   bool areMultiversionVariantFunctionsCompatible(
@@ -11280,6 +11282,8 @@ private:
   bool CheckHexagonBuiltinCpu(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckHexagonBuiltinArgument(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
+  bool CheckMipsBuiltinCpu(unsigned BuiltinID, CallExpr *TheCall);
+  bool CheckMipsBuiltinArgument(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckSystemZBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckX86BuiltinRoundingOrSAE(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckX86BuiltinGatherScatterScale(unsigned BuiltinID, CallExpr *TheCall);

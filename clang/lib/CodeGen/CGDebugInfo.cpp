@@ -2733,19 +2733,17 @@ llvm::DIType *CGDebugInfo::CreateType(const MemberPointerType *Ty,
     // Set the MS inheritance model. There is no flag for the unspecified model.
     if (CGM.getTarget().getCXXABI().isMicrosoft()) {
       switch (Ty->getMostRecentCXXRecordDecl()->getMSInheritanceModel()) {
-      case MSInheritanceAttr::Keyword_single_inheritance:
+      case MSInheritanceModel::Single:
         Flags |= llvm::DINode::FlagSingleInheritance;
         break;
-      case MSInheritanceAttr::Keyword_multiple_inheritance:
+      case MSInheritanceModel::Multiple:
         Flags |= llvm::DINode::FlagMultipleInheritance;
         break;
-      case MSInheritanceAttr::Keyword_virtual_inheritance:
+      case MSInheritanceModel::Virtual:
         Flags |= llvm::DINode::FlagVirtualInheritance;
         break;
-      case MSInheritanceAttr::Keyword_unspecified_inheritance:
+      case MSInheritanceModel::Unspecified:
         break;
-      case MSInheritanceAttr::SpellingNotCalculated:
-        llvm_unreachable("Spelling not yet calculated");
       }
     }
   }
@@ -3495,14 +3493,15 @@ llvm::DISubprogram *CGDebugInfo::getObjCMethodDeclaration(
   if (!D || DebugKind <= codegenoptions::DebugLineTablesOnly)
     return nullptr;
 
-  if (CGM.getCodeGenOpts().DwarfVersion < 5)
+  const auto *OMD = dyn_cast<ObjCMethodDecl>(D);
+  if (!OMD)
+    return nullptr;
+
+  if (CGM.getCodeGenOpts().DwarfVersion < 5 && !OMD->isDirectMethod())
     return nullptr;
 
   // Starting with DWARF V5 method declarations are emitted as children of
   // the interface type.
-  const auto *OMD = dyn_cast<ObjCMethodDecl>(D);
-  if (!OMD)
-    return nullptr;
   auto *ID = dyn_cast_or_null<ObjCInterfaceDecl>(D->getDeclContext());
   if (!ID)
     ID = OMD->getClassInterface();
@@ -3517,7 +3516,7 @@ llvm::DISubprogram *CGDebugInfo::getObjCMethodDeclaration(
       InterfaceType, getObjCMethodName(OMD), StringRef(),
       InterfaceType->getFile(), LineNo, FnType, LineNo, Flags, SPFlags);
   DBuilder.finalizeSubprogram(FD);
-  ObjCMethodCache[ID].push_back(FD);
+  ObjCMethodCache[ID].push_back({FD, OMD->isDirectMethod()});
   return FD;
 }
 
@@ -4713,27 +4712,28 @@ void CGDebugInfo::finalize() {
     DBuilder.replaceTemporary(llvm::TempDIType(E.Decl), Ty);
   }
 
-  if (CGM.getCodeGenOpts().DwarfVersion >= 5) {
-    // Add methods to interface.
-    for (const auto &P : ObjCMethodCache) {
-      if (P.second.empty())
-        continue;
+  // Add methods to interface.
+  for (const auto &P : ObjCMethodCache) {
+    if (P.second.empty())
+      continue;
 
-      QualType QTy(P.first->getTypeForDecl(), 0);
-      auto It = TypeCache.find(QTy.getAsOpaquePtr());
-      assert(It != TypeCache.end());
+    QualType QTy(P.first->getTypeForDecl(), 0);
+    auto It = TypeCache.find(QTy.getAsOpaquePtr());
+    assert(It != TypeCache.end());
 
-      llvm::DICompositeType *InterfaceDecl =
-          cast<llvm::DICompositeType>(It->second);
+    llvm::DICompositeType *InterfaceDecl =
+        cast<llvm::DICompositeType>(It->second);
 
-      SmallVector<llvm::Metadata *, 16> EltTys;
-      auto CurrenetElts = InterfaceDecl->getElements();
-      EltTys.append(CurrenetElts.begin(), CurrenetElts.end());
-      for (auto &MD : P.second)
-        EltTys.push_back(MD);
-      llvm::DINodeArray Elements = DBuilder.getOrCreateArray(EltTys);
-      DBuilder.replaceArrays(InterfaceDecl, Elements);
-    }
+    auto CurElts = InterfaceDecl->getElements();
+    SmallVector<llvm::Metadata *, 16> EltTys(CurElts.begin(), CurElts.end());
+
+    // For DWARF v4 or earlier, only add objc_direct methods.
+    for (auto &SubprogramDirect : P.second)
+      if (CGM.getCodeGenOpts().DwarfVersion >= 5 || SubprogramDirect.getInt())
+        EltTys.push_back(SubprogramDirect.getPointer());
+
+    llvm::DINodeArray Elements = DBuilder.getOrCreateArray(EltTys);
+    DBuilder.replaceArrays(InterfaceDecl, Elements);
   }
 
   for (const auto &P : ReplaceMap) {

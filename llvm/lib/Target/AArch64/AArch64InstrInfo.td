@@ -262,15 +262,17 @@ def SDT_AArch64WrapperLarge : SDTypeProfile<1, 4,
 // non-extending masked load fragment.
 def nonext_masked_load :
   PatFrag<(ops node:$ptr, node:$pred, node:$def),
-          (masked_ld node:$ptr, node:$pred, node:$def), [{
-  return cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
+          (masked_ld node:$ptr, undef, node:$pred, node:$def), [{
+  return cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD &&
+         cast<MaskedLoadSDNode>(N)->isUnindexed();
 }]>;
 // sign extending masked load fragments.
 def asext_masked_load :
   PatFrag<(ops node:$ptr, node:$pred, node:$def),
-          (masked_ld node:$ptr, node:$pred, node:$def),[{
-  return cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::EXTLOAD ||
-         cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::SEXTLOAD;
+          (masked_ld node:$ptr, undef, node:$pred, node:$def),[{
+  return (cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::EXTLOAD ||
+          cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::SEXTLOAD) &&
+         cast<MaskedLoadSDNode>(N)->isUnindexed();
 }]>;
 def asext_masked_load_i8 :
   PatFrag<(ops node:$ptr, node:$pred, node:$def),
@@ -290,8 +292,9 @@ def asext_masked_load_i32 :
 // zero extending masked load fragments.
 def zext_masked_load :
   PatFrag<(ops node:$ptr, node:$pred, node:$def),
-          (masked_ld node:$ptr, node:$pred, node:$def), [{
-  return cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::ZEXTLOAD;
+          (masked_ld node:$ptr, undef, node:$pred, node:$def), [{
+  return cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::ZEXTLOAD &&
+         cast<MaskedLoadSDNode>(N)->isUnindexed();
 }]>;
 def zext_masked_load_i8 :
   PatFrag<(ops node:$ptr, node:$pred, node:$def),
@@ -312,14 +315,16 @@ def zext_masked_load_i32 :
 // non-truncating masked store fragment.
 def nontrunc_masked_store :
   PatFrag<(ops node:$val, node:$ptr, node:$pred),
-          (masked_st node:$val, node:$ptr, node:$pred), [{
-  return !cast<MaskedStoreSDNode>(N)->isTruncatingStore();
+          (masked_st node:$val, node:$ptr, undef, node:$pred), [{
+  return !cast<MaskedStoreSDNode>(N)->isTruncatingStore() &&
+         cast<MaskedStoreSDNode>(N)->isUnindexed();
 }]>;
 // truncating masked store fragments.
 def trunc_masked_store :
   PatFrag<(ops node:$val, node:$ptr, node:$pred),
-          (masked_st node:$val, node:$ptr, node:$pred), [{
-  return cast<MaskedStoreSDNode>(N)->isTruncatingStore();
+          (masked_st node:$val, node:$ptr, undef, node:$pred), [{
+  return cast<MaskedStoreSDNode>(N)->isTruncatingStore() &&
+         cast<MaskedStoreSDNode>(N)->isUnindexed();
 }]>;
 def trunc_masked_store_i8 :
   PatFrag<(ops node:$val, node:$ptr, node:$pred),
@@ -518,10 +523,10 @@ def AArch64uunpklo : SDNode<"AArch64ISD::UUNPKLO", SDT_AArch64unpk>;
 // the Function object through the <Target>Subtarget and objections were raised
 // to that (see post-commit review comments for r301750).
 let RecomputePerFunction = 1 in {
-  def ForCodeSize   : Predicate<"MF->getFunction().hasOptSize()">;
-  def NotForCodeSize   : Predicate<"!MF->getFunction().hasOptSize()">;
+  def ForCodeSize   : Predicate<"shouldOptForSize(MF)">;
+  def NotForCodeSize   : Predicate<"!shouldOptForSize(MF)">;
   // Avoid generating STRQro if it is slow, unless we're optimizing for code size.
-  def UseSTRQro : Predicate<"!Subtarget->isSTRQroSlow() || MF->getFunction().hasOptSize()">;
+  def UseSTRQro : Predicate<"!Subtarget->isSTRQroSlow() || shouldOptForSize(MF)">;
 
   def UseBTI : Predicate<[{ MF->getFunction().hasFnAttribute("branch-target-enforcement") }]>;
   def NotUseBTI : Predicate<[{ !MF->getFunction().hasFnAttribute("branch-target-enforcement") }]>;
@@ -751,6 +756,29 @@ defm FCADD : SIMDThreeSameVectorComplexHSD<1, 0b111, complexrotateopodd,
                                            "fcadd", null_frag>;
 defm FCMLA : SIMDIndexedTiedComplexHSD<1, 0, 1, complexrotateop, "fcmla",
                                        null_frag>;
+
+let Predicates = [HasComplxNum, HasNEON, HasFullFP16] in {
+  def : Pat<(v4f16 (int_aarch64_neon_vcadd_rot90 (v4f16 V64:$Rn), (v4f16 V64:$Rm))),
+            (FCADDv4f16 (v4f16 V64:$Rn), (v4f16 V64:$Rm), (i32 0))>;
+  def : Pat<(v4f16 (int_aarch64_neon_vcadd_rot270 (v4f16 V64:$Rn), (v4f16 V64:$Rm))),
+            (FCADDv4f16 (v4f16 V64:$Rn), (v4f16 V64:$Rm), (i32 1))>;
+  def : Pat<(v8f16 (int_aarch64_neon_vcadd_rot90 (v8f16 V128:$Rn), (v8f16 V128:$Rm))),
+            (FCADDv8f16 (v8f16 V128:$Rn), (v8f16 V128:$Rm), (i32 0))>;
+  def : Pat<(v8f16 (int_aarch64_neon_vcadd_rot270 (v8f16 V128:$Rn), (v8f16 V128:$Rm))),
+            (FCADDv8f16 (v8f16 V128:$Rn), (v8f16 V128:$Rm), (i32 1))>;
+}
+let Predicates = [HasComplxNum, HasNEON] in {
+  def : Pat<(v2f32 (int_aarch64_neon_vcadd_rot90 (v2f32 V64:$Rn), (v2f32 V64:$Rm))),
+            (FCADDv2f32 (v2f32 V64:$Rn), (v2f32 V64:$Rm), (i32 0))>;
+  def : Pat<(v2f32 (int_aarch64_neon_vcadd_rot270 (v2f32 V64:$Rn), (v2f32 V64:$Rm))),
+            (FCADDv2f32 (v2f32 V64:$Rn), (v2f32 V64:$Rm), (i32 1))>;
+  foreach Ty = [v4f32, v2f64] in {
+    def : Pat<(Ty (int_aarch64_neon_vcadd_rot90 (Ty V128:$Rn), (Ty V128:$Rm))),
+              (!cast<Instruction>("FCADD"#Ty) (Ty V128:$Rn), (Ty V128:$Rm), (i32 0))>;
+    def : Pat<(Ty (int_aarch64_neon_vcadd_rot270 (Ty V128:$Rn), (Ty V128:$Rm))),
+              (!cast<Instruction>("FCADD"#Ty) (Ty V128:$Rn), (Ty V128:$Rm), (i32 1))>;
+  }
+}
 
 // v8.3a Pointer Authentication
 // These instructions inhabit part of the hint space and so can be used for
