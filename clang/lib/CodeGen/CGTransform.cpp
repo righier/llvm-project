@@ -32,8 +32,7 @@ void CodeGenFunction::HandleCodeTransformations(const Stmt *Body) {
   assert(CurFn && "Must be called after StartFunction");
   assert(Body);
 
-  LoopStack.initBuild(getContext(), getLLVMContext(), DebugInfo,
-                      getParentFn()->getBody());
+  LoopStack.initBuild(getContext(), getLangOpts(),  getLLVMContext(), DebugInfo,                      getParentFn()->getBody());
 }
 
 void CodeGenFunction::EmitTransformExecutableDirective(

@@ -301,6 +301,7 @@ template <typename Derived, typename NodeTy> class TransformedTreeBuilder {
   }
 
   ASTContext &ASTCtx;
+const   LangOptions& LangOpts;
   llvm::SmallVectorImpl<NodeTy *> &AllNodes;
   llvm::SmallVectorImpl<Transform *> &AllTransforms;
 
@@ -366,9 +367,7 @@ private:
   }
 
   /// Collect all loop transformations in the function's AST.
-  class CollectTransformationsVisitor
-      : public RecursiveASTVisitor<CollectTransformationsVisitor> {
-
+  class CollectTransformationsVisitor      : public RecursiveASTVisitor<CollectTransformationsVisitor> {
     Derived &Builder;
     llvm::DenseMap<Stmt *, NodeTy *> &StmtToTree;
 
@@ -752,30 +751,34 @@ private:
       return true;
     }
 
-    bool handleOMPLoopClauses(OMPLoopDirective *Directive, bool HasTaskloop,
-                              bool HasFor, bool HasSimd) {
+    bool handleOMPLoopClauses(OMPLoopDirective* Directive, bool HasTaskloop,
+      bool HasFor, bool HasSimd) {
       assert((!HasTaskloop || !HasFor) &&
-             "taskloop and for are mutually exclusive");
-      const Stmt *TopLevel = getAssociatedLoop(Directive);
+        "taskloop and for are mutually exclusive");
+      const Stmt* TopLevel = getAssociatedLoop(Directive);
 
-    auto IfClauses =  Directive->getClausesOfKind < OMPIfClause> ();
-    if (!llvm::empty(IfClauses)) {
-      // OpenMP specifies loop versioning with the if clause: A "then" loop where the directive is applied and a "else" loop where it is not. Currently, it is only supported in the "simd" construct where vectorization is disabled on the else loop.
-      assert(HasSimd);
+      if (HasSimd && !HasTaskloop) {
+        auto &LangOpts = Builder.LangOpts;
+        auto IfClauses = llvm::make_filter_range(Directive->getClausesOfKind < OMPIfClause>(),
+          [&LangOpts](auto C) { return LangOpts.OpenMP >= 50 && (C->getNameModifier() == OMPD_unknown ||  C->getNameModifier() == OMPD_simd); });
+        if (!llvm::empty(IfClauses)) {
+          // OpenMP specifies loop versioning with the if clause: A "then" loop where the directive is applied and a "else" loop where it is not. Currently, it is only supported in the "simd" construct where vectorization is disabled on the else loop.
+          assert(HasSimd);
 
-     // assert(llvm::size(IfClauses) == 1);
-      //assert(std::distance(IfClauses.begin(), IfClauses.end()) == 1);
-      auto IfClause = *IfClauses.begin();
-      auto LocRange = SourceRange( IfClause->getBeginLoc(), IfClause->getEndLoc());
+          // assert(llvm::size(IfClauses) == 1);
+           //assert(std::distance(IfClauses.begin(), IfClauses.end()) == 1);
+          auto IfClause = *IfClauses.begin();
+          auto LocRange = SourceRange(IfClause->getBeginLoc(), IfClause->getEndLoc());
 
-      auto VersioningTrans= OMPIfClauseVersioningTransform::create(LocRange);
-      Builder.AllTransforms.push_back(VersioningTrans);
-      Transforms.emplace_back(VersioningTrans,TransformInput::createByStmt(TopLevel ) );
+          auto VersioningTrans = OMPIfClauseVersioningTransform::create(LocRange);
+          Builder.AllTransforms.push_back(VersioningTrans);
+          Transforms.emplace_back(VersioningTrans, TransformInput::createByStmt(TopLevel));
 
-      auto DisableSimd = OMPDisableSimdTransform::create(LocRange);
-      Builder.AllTransforms.push_back(DisableSimd);
-      Transforms.emplace_back(  DisableSimd, TransformInput::createByFollowup(VersioningTrans, OMPIfClauseVersioningTransform:: FollowupElse) );
-    }
+          auto DisableSimd = OMPDisableSimdTransform::create(LocRange);
+          Builder.AllTransforms.push_back(DisableSimd);
+          Transforms.emplace_back(DisableSimd, TransformInput::createByFollowup(VersioningTrans, OMPIfClauseVersioningTransform::FollowupElse));
+        }
+      }
 
 
 
@@ -1352,10 +1355,10 @@ private:
   };
 
 protected:
-  TransformedTreeBuilder(ASTContext &ASTCtx,
-                         llvm::SmallVectorImpl<NodeTy *> &AllNodes,
-                         llvm::SmallVectorImpl<Transform *> &AllTransforms)
-      : ASTCtx(ASTCtx), AllNodes(AllNodes), AllTransforms(AllTransforms) {}
+  TransformedTreeBuilder(ASTContext& ASTCtx, const LangOptions& LangOpts,
+    llvm::SmallVectorImpl<NodeTy*>& AllNodes,
+    llvm::SmallVectorImpl<Transform*>& AllTransforms)
+    : ASTCtx(ASTCtx), LangOpts(LangOpts), AllNodes(AllNodes), AllTransforms(AllTransforms) {}
 
   NodeTy *createRoot(llvm::ArrayRef<NodeTy *> SubLoops) {
     auto *Result = new NodeTy(SubLoops, nullptr, nullptr, -1);

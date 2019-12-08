@@ -76,8 +76,7 @@ void Sema::HandleLoopTransformations(FunctionDecl *FD) {
   llvm::DenseMap<Stmt *, SemaTransformedTree *> StmtToTree;
   llvm::SmallVector<SemaTransformedTree *, 64> AllNodes;
   llvm::SmallVector<Transform *, 64> AllTransforms;
-  SemaTransformedTreeBuilder Builder(getASTContext(), AllNodes, AllTransforms,
-                                     *this);
+  SemaTransformedTreeBuilder Builder(getASTContext(), getLangOpts(), AllNodes, AllTransforms,                                     *this);
   Builder.computeTransformedStructure(FD->getBody(), StmtToTree);
 
   for (auto N : AllNodes)

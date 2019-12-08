@@ -119,11 +119,11 @@ class CGTransformedTreeBuilder
   CGDebugInfo *DbgInfo;
 
 public:
-  CGTransformedTreeBuilder(ASTContext &ASTCtx, llvm::LLVMContext &LLVMCtx,
+  CGTransformedTreeBuilder(ASTContext &ASTCtx, const LangOptions &LangOpts, llvm::LLVMContext &LLVMCtx,
                            llvm::SmallVectorImpl<NodeTy *> &AllNodes,
                            llvm::SmallVectorImpl<Transform *> &AllTransforms,
                            CGDebugInfo *DbgInfo)
-      : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms),
+      : TransformedTreeBuilder(ASTCtx, LangOpts, AllNodes, AllTransforms),
         LLVMCtx(LLVMCtx), DbgInfo(DbgInfo) {}
 
   // Ignore any diagnostic and its arguments.

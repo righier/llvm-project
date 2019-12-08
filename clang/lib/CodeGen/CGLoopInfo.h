@@ -137,8 +137,7 @@ public:
 
 
 
-  void initBuild(ASTContext &ASTCtx, llvm::LLVMContext &LLVMCtx,
-                 CGDebugInfo *DbgInfo, Stmt *Body);
+  void initBuild(ASTContext &ASTCtx,const  LangOptions &LangOpts,  llvm::LLVMContext &LLVMCtx,                 CGDebugInfo *DbgInfo, Stmt *Body);
 
   /// Begin a new structured loop.
   void push(llvm::BasicBlock *Header, const Stmt *LoopStmt);

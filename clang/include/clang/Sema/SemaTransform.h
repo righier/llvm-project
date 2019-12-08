@@ -42,11 +42,11 @@ class SemaTransformedTreeBuilder
   Sema &Sem;
 
 public:
-  SemaTransformedTreeBuilder(ASTContext &ASTCtx,
+  SemaTransformedTreeBuilder(ASTContext &ASTCtx,const LangOptions &LangOpts, 
                              llvm::SmallVectorImpl<NodeTy *> &AllNodes,
                              llvm::SmallVectorImpl<Transform *> &AllTransforms,
                              Sema &Sem)
-      : TransformedTreeBuilder(ASTCtx, AllNodes, AllTransforms), Sem(Sem) {}
+      : TransformedTreeBuilder(ASTCtx,LangOpts, AllNodes, AllTransforms), Sem(Sem) {}
 
   auto Diag(SourceLocation Loc, unsigned DiagID) {
     return Sem.Diag(Loc, DiagID);

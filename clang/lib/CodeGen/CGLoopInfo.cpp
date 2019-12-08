@@ -11,6 +11,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "CGLoopInfo.h"
+#include "clang/Basic/LangOptions.h"
 
 
 
@@ -19,8 +20,6 @@
 
 
 using namespace clang::CodeGen;
-
-
 using namespace llvm;
 
 
@@ -28,6 +27,7 @@ using namespace llvm;
 LoopInfo::LoopInfo(llvm::BasicBlock *Header, CGTransformedTree *Current, CGTransformedTree *Syntactical)
     : Header(Header), Syntactical(Syntactical) {
   if (Current) {
+    assert(Current->isCodeGenned() && "Emitted loop must be marked as code-genned");
     LoopMD = Current->makeLoopID(Header->getContext(), false);
     AccGroup = Current->getAccessGroupOrNull();
   }
@@ -65,11 +65,8 @@ clang::CodeGen::CGTransformedTree* clang::CodeGen:: LoopInfoStack::getFollowupAt
     Staging = Staging->getFollowups()[FollowupIdx];
   }
 
-void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
-                              llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
-                              clang::Stmt *Body) {
-  CGTransformedTreeBuilder Builder(ASTCtx, LLVMCtx, AllNodes, AllTransforms,
-                                   DbgInfo);
+void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,const clang:: LangOptions &LangOpts,  llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,  clang::Stmt *Body) {
+  CGTransformedTreeBuilder Builder(ASTCtx,LangOpts, LLVMCtx, AllNodes, AllTransforms,                                   DbgInfo);
   TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
   TransformedStructure->finalize(  LLVMCtx );
 }
