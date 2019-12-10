@@ -15,24 +15,6 @@
 #include <string>
 #include <vector>
 
-
-// Clang headers like to use NDEBUG inside of them to enable/disable debug
-// related features using "#ifndef NDEBUG" preprocessor blocks to do one thing
-// or another. This is bad because it means that if clang was built in release
-// mode, it assumes that you are building in release mode which is not always
-// the case. You can end up with functions that are defined as empty in header
-// files when NDEBUG is not defined, and this can cause link errors with the
-// clang .a files that you have since you might be missing functions in the .a
-// file. So we have to define NDEBUG when including clang headers to avoid any
-// mismatches. This is covered by rdar://problem/8691220
-
-#if !defined(NDEBUG) && !defined(LLVM_NDEBUG_OFF)
-#define LLDB_DEFINED_NDEBUG_FOR_CLANG
-#define NDEBUG
-// Need to include assert.h so it is as clang would expect it to be (disabled)
-#include <assert.h>
-#endif
-
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTImporter.h"
 #include "clang/AST/Attr.h"
@@ -53,13 +35,6 @@
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Sema/Sema.h"
-
-#ifdef LLDB_DEFINED_NDEBUG_FOR_CLANG
-#undef NDEBUG
-#undef LLDB_DEFINED_NDEBUG_FOR_CLANG
-// Need to re-include assert.h so it is as _we_ would expect it to be (enabled)
-#include <assert.h>
-#endif
 
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/Threading.h"
@@ -4091,6 +4066,11 @@ ClangASTContext::GetTypeInfo(lldb::opaque_compiler_type_t type,
                                   ->getUnderlyingType()
                                   .getAsOpaquePtr())
         .GetTypeInfo(pointee_or_element_clang_type);
+  case clang::Type::Atomic:
+    return CompilerType(this, llvm::cast<clang::AtomicType>(qual_type)
+                                  ->getValueType()
+                                  .getAsOpaquePtr())
+        .GetTypeInfo(pointee_or_element_clang_type);
   case clang::Type::UnresolvedUsing:
     return 0;
 
@@ -4785,6 +4765,13 @@ ClangASTContext::GetRValueReferenceType(lldb::opaque_compiler_type_t type) {
     return CompilerType();
 }
 
+CompilerType ClangASTContext::GetAtomicType(lldb::opaque_compiler_type_t type) {
+  if (!type)
+    return CompilerType();
+  return CompilerType(
+      this, getASTContext()->getAtomicType(GetQualType(type)).getAsOpaquePtr());
+}
+
 CompilerType
 ClangASTContext::AddConstModifier(lldb::opaque_compiler_type_t type) {
   if (type) {
@@ -5389,6 +5376,11 @@ lldb::Format ClangASTContext::GetFormat(lldb::opaque_compiler_type_t type) {
                                   ->getUnderlyingType()
                                   .getAsOpaquePtr())
         .GetFormat();
+  case clang::Type::Atomic:
+    return CompilerType(this, llvm::cast<clang::AtomicType>(qual_type)
+                                  ->getValueType()
+                                  .getAsOpaquePtr())
+        .GetFormat();
   case clang::Type::DependentSizedArray:
   case clang::Type::DependentSizedExtVector:
   case clang::Type::UnresolvedUsing:
@@ -5404,7 +5396,6 @@ lldb::Format ClangASTContext::GetFormat(lldb::opaque_compiler_type_t type) {
 
   case clang::Type::TemplateSpecialization:
   case clang::Type::DeducedTemplateSpecialization:
-  case clang::Type::Atomic:
   case clang::Type::Adjusted:
   case clang::Type::Pipe:
     break;
@@ -8949,7 +8940,7 @@ void ClangASTContext::DumpFromSymbolFile(Stream &s,
 
 void ClangASTContext::DumpValue(
     lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx, Stream *s,
-    lldb::Format format, const DataExtractor &data,
+    lldb::Format format, const lldb_private::DataExtractor &data,
     lldb::offset_t data_byte_offset, size_t data_byte_size,
     uint32_t bitfield_bit_size, uint32_t bitfield_bit_offset, bool show_types,
     bool show_summary, bool verbose, uint32_t depth) {
@@ -9406,8 +9397,8 @@ static bool DumpEnumValue(const clang::QualType &qual_type, Stream *s,
 
 bool ClangASTContext::DumpTypeValue(
     lldb::opaque_compiler_type_t type, Stream *s, lldb::Format format,
-    const DataExtractor &data, lldb::offset_t byte_offset, size_t byte_size,
-    uint32_t bitfield_bit_size, uint32_t bitfield_bit_offset,
+    const lldb_private::DataExtractor &data, lldb::offset_t byte_offset,
+    size_t byte_size, uint32_t bitfield_bit_size, uint32_t bitfield_bit_offset,
     ExecutionContextScope *exe_scope) {
   if (!type)
     return false;

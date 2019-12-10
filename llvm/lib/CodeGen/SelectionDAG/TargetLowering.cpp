@@ -6064,28 +6064,28 @@ bool TargetLowering::expandFP_TO_UINT(SDNode *Node, SDValue &Result,
     // Expand based on maximum range of FP_TO_SINT, if the value exceeds the
     // signmask then offset (the result of which should be fully representable).
     // Sel = Src < 0x8000000000000000
-    // Val = select Sel, Src, Src - 0x8000000000000000
-    // Ofs = select Sel, 0, 0x8000000000000000
-    // Result = fp_to_sint(Val) ^ Ofs
+    // FltOfs = select Sel, 0, 0x8000000000000000
+    // IntOfs = select Sel, 0, 0x8000000000000000
+    // Result = fp_to_sint(Src - FltOfs) ^ IntOfs
 
     // TODO: Should any fast-math-flags be set for the FSUB?
-    SDValue SrcBiased;
-    if (Node->isStrictFPOpcode())
-      SrcBiased = DAG.getNode(ISD::STRICT_FSUB, dl, { SrcVT, MVT::Other }, 
-                              { Node->getOperand(0), Src, Cst });
-    else
-      SrcBiased = DAG.getNode(ISD::FSUB, dl, SrcVT, Src, Cst);
-    SDValue Val = DAG.getSelect(dl, SrcVT, Sel, Src, SrcBiased);
-    SDValue Ofs = DAG.getSelect(dl, DstVT, Sel, DAG.getConstant(0, dl, DstVT),
-                                DAG.getConstant(SignMask, dl, DstVT));
+    SDValue FltOfs = DAG.getSelect(dl, SrcVT, Sel,
+                                   DAG.getConstantFP(0.0, dl, SrcVT), Cst);
+    SDValue IntOfs = DAG.getSelect(dl, DstVT, Sel,
+                                   DAG.getConstant(0, dl, DstVT),
+                                   DAG.getConstant(SignMask, dl, DstVT));
     SDValue SInt;
     if (Node->isStrictFPOpcode()) {
+      SDValue Val = DAG.getNode(ISD::STRICT_FSUB, dl, { SrcVT, MVT::Other }, 
+                                { Node->getOperand(0), Src, FltOfs });
       SInt = DAG.getNode(ISD::STRICT_FP_TO_SINT, dl, { DstVT, MVT::Other }, 
-                         { SrcBiased.getValue(1), Val });
+                         { Val.getValue(1), Val });
       Chain = SInt.getValue(1);
-    } else
+    } else {
+      SDValue Val = DAG.getNode(ISD::FSUB, dl, SrcVT, Src, FltOfs);
       SInt = DAG.getNode(ISD::FP_TO_SINT, dl, DstVT, Val);
-    Result = DAG.getNode(ISD::XOR, dl, DstVT, SInt, Ofs);
+    }
+    Result = DAG.getNode(ISD::XOR, dl, DstVT, SInt, IntOfs);
   } else {
     // Expand based on maximum range of FP_TO_SINT:
     // True = fp_to_sint(Src)
@@ -6223,6 +6223,26 @@ SDValue TargetLowering::expandFMINNUM_FMAXNUM(SDNode *Node,
       return DAG.getNode(IEEE2018Op, dl, VT, Node->getOperand(0),
                          Node->getOperand(1), Node->getFlags());
     }
+  }
+
+  // If none of the above worked, but there are no NaNs, then expand to
+  // a compare/select sequence.  This is required for correctness since
+  // InstCombine might have canonicalized a fcmp+select sequence to a
+  // FMINNUM/FMAXNUM node.  If we were to fall through to the default
+  // expansion to libcall, we might introduce a link-time dependency
+  // on libm into a file that originally did not have one.
+  if (Node->getFlags().hasNoNaNs()) {
+    ISD::CondCode Pred =
+        Node->getOpcode() == ISD::FMINNUM ? ISD::SETLT : ISD::SETGT;
+    SDValue Op1 = Node->getOperand(0);
+    SDValue Op2 = Node->getOperand(1);
+    SDValue SelCC = DAG.getSelectCC(dl, Op1, Op2, Op1, Op2, Pred);
+    // Copy FMF flags, but always set the no-signed-zeros flag
+    // as this is implied by the FMINNUM/FMAXNUM semantics.
+    SDNodeFlags Flags = Node->getFlags();
+    Flags.setNoSignedZeros(true);
+    SelCC->setFlags(Flags);
+    return SelCC;
   }
 
   return SDValue();

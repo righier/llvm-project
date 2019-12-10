@@ -532,8 +532,7 @@ TEST_F(BackgroundIndexTest, CmdLineHash) {
   llvm::StringMap<std::string> Storage;
   size_t CacheHits = 0;
   MemoryShardStorage MSS(Storage, CacheHits);
-  OverlayCDB CDB(/*Base=*/nullptr, /*FallbackFlags=*/{},
-                 /*ResourceDir=*/std::string(""));
+  OverlayCDB CDB(/*Base=*/nullptr);
   BackgroundIndex Idx(Context::empty(), FS, CDB,
                       [&](llvm::StringRef) { return &MSS; });
 
@@ -542,7 +541,7 @@ TEST_F(BackgroundIndexTest, CmdLineHash) {
   FS.Files[testPath("A.h")] = "";
   Cmd.Filename = "../A.cc";
   Cmd.Directory = testPath("build");
-  Cmd.CommandLine = {"/bin/clang++", "../A.cc", "-fsyntax-only"};
+  Cmd.CommandLine = {"clang++", "../A.cc", "-fsyntax-only"};
   CDB.setCompileCommand(testPath("build/../A.cc"), Cmd);
   ASSERT_TRUE(Idx.blockUntilIdleForTest());
 
@@ -558,7 +557,7 @@ TEST_F(BackgroundIndexTest, CmdLineHash) {
 
   // FIXME: Changing compile commands should be enough to invalidate the cache.
   FS.Files[testPath("A.cc")] = " ";
-  Cmd.CommandLine = {"/bin/clang++", "../A.cc", "-Dfoo", "-fsyntax-only"};
+  Cmd.CommandLine = {"clang++", "../A.cc", "-Dfoo", "-fsyntax-only"};
   CDB.setCompileCommand(testPath("build/../A.cc"), Cmd);
   ASSERT_TRUE(Idx.blockUntilIdleForTest());
 

@@ -1735,7 +1735,7 @@ Value *LibCallSimplifier::optimizePow(CallInst *Pow, IRBuilder<> &B) {
     // TODO: This whole transformation should be backend specific (e.g. some
     //       backends might prefer libcalls or the limit for the exponent might
     //       be different) and it should also consider optimizing for size.
-    APFloat LimF(ExpoF->getSemantics(), 33.0),
+    APFloat LimF(ExpoF->getSemantics(), 33),
             ExpoA(abs(*ExpoF));
     if (ExpoA.compare(LimF) == APFloat::cmpLessThan) {
       // This transformation applies to integer or integer+0.5 exponents only.
@@ -2755,7 +2755,8 @@ Value *LibCallSimplifier::optimizeFPuts(CallInst *CI, IRBuilder<> &B) {
   // Don't rewrite fputs to fwrite when optimising for size because fwrite
   // requires more arguments and thus extra MOVs are required.
   bool OptForSize = CI->getFunction()->hasOptSize() ||
-                    llvm::shouldOptimizeForSize(CI->getParent(), PSI, BFI);
+                    llvm::shouldOptimizeForSize(CI->getParent(), PSI, BFI,
+                                                PGSOQueryType::IRPass);
   if (OptForSize)
     return nullptr;
 

@@ -98,21 +98,16 @@ static void DiagnoseUnusedOfDecl(Sema &S, NamedDecl *D, SourceLocation Loc) {
 
 /// Emit a note explaining that this function is deleted.
 void Sema::NoteDeletedFunction(FunctionDecl *Decl) {
-  assert(Decl->isDeleted());
+  assert(Decl && Decl->isDeleted());
 
-  CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(Decl);
-
-  if (Method && Method->isDeleted() && Method->isDefaulted()) {
+  if (Decl->isDefaulted()) {
     // If the method was explicitly defaulted, point at that declaration.
-    if (!Method->isImplicit())
+    if (!Decl->isImplicit())
       Diag(Decl->getLocation(), diag::note_implicitly_deleted);
 
     // Try to diagnose why this special member function was implicitly
     // deleted. This might fail, if that reason no longer applies.
-    CXXSpecialMember CSM = getSpecialMember(Method);
-    if (CSM != CXXInvalid)
-      ShouldDeleteSpecialMember(Method, CSM, nullptr, /*Diagnose=*/true);
-
+    DiagnoseDeletedDefaultedFunction(Decl);
     return;
   }
 
@@ -5445,15 +5440,15 @@ static FunctionDecl *rewriteBuiltinFunctionDecl(Sema *Sema, ASTContext &Context,
     Expr *Arg = ArgRes.get();
     QualType ArgType = Arg->getType();
     if (!ParamType->isPointerType() ||
-        ParamType.getQualifiers().hasAddressSpace() ||
+        ParamType.hasAddressSpace() ||
         !ArgType->isPointerType() ||
-        !ArgType->getPointeeType().getQualifiers().hasAddressSpace()) {
+        !ArgType->getPointeeType().hasAddressSpace()) {
       OverloadParams.push_back(ParamType);
       continue;
     }
 
     QualType PointeeType = ParamType->getPointeeType();
-    if (PointeeType.getQualifiers().hasAddressSpace())
+    if (PointeeType.hasAddressSpace())
       continue;
 
     NeedsNewDecl = true;
@@ -13037,6 +13032,16 @@ ExprResult Sema::CreateBuiltinBinOp(SourceLocation OpLoc,
   if (ResultTy.isNull() || LHS.isInvalid() || RHS.isInvalid())
     return ExprError();
 
+  if (ResultTy->isRealFloatingType() &&
+      (getLangOpts().getFPRoundingMode() != LangOptions::FPR_ToNearest ||
+       getLangOpts().getFPExceptionMode() != LangOptions::FPE_Ignore))
+    // Mark the current function as usng floating point constrained intrinsics
+    if (FunctionDecl *F = dyn_cast<FunctionDecl>(CurContext))
+{
+      F->setUsesFPIntrin(true);
+      printf("Enclosing function uses fp intrinsics\n");
+}
+
   // Some of the binary operations require promoting operands of half vector to
   // float vectors and truncating the result back to half vector. For now, we do
   // this only when HalfArgsAndReturn is set (that is, when the target is arm or
@@ -15411,9 +15416,8 @@ static OdrUseContext isOdrUseContext(Sema &SemaRef) {
 }
 
 static bool isImplicitlyDefinableConstexprFunction(FunctionDecl *Func) {
-  CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(Func);
   return Func->isConstexpr() &&
-         (Func->isImplicitlyInstantiable() || (MD && !MD->isUserProvided()));
+         (Func->isImplicitlyInstantiable() || !Func->isUserProvided());
 }
 
 /// Mark a function referenced, and check whether it is odr-used
@@ -15559,6 +15563,12 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
             DefineImplicitLambdaToFunctionPointerConversion(Loc, Conversion);
         } else if (MethodDecl->isVirtual() && getLangOpts().AppleKext)
           MarkVTableUsed(Loc, MethodDecl->getParent());
+      }
+
+      if (Func->isDefaulted() && !Func->isDeleted()) {
+        DefaultedComparisonKind DCK = getDefaultedComparisonKind(Func);
+        if (DCK != DefaultedComparisonKind::None)
+          DefineDefaultedComparison(Loc, Func, DCK);
       }
 
       // Implicit instantiation of function templates and member functions of
