@@ -42,7 +42,7 @@ class SemaTransformedTreeBuilder
   Sema &Sem;
 
 public:
-  SemaTransformedTreeBuilder(ASTContext &ASTCtx,const LangOptions &LangOpts, 
+  SemaTransformedTreeBuilder(ASTContext &ASTCtx,const LangOptions &LangOpts,
                              llvm::SmallVectorImpl<NodeTy *> &AllNodes,
                              llvm::SmallVectorImpl<Transform *> &AllTransforms,
                              Sema &Sem)
@@ -54,31 +54,15 @@ public:
 
   void applyOriginal(SemaTransformedTree *L) {}
 
-  void disableDistribution(SemaTransformedTree *L) {}
-  void disableVectorizeInterleave(SemaTransformedTree *L) {}
-  void disableUnrollAndJam(SemaTransformedTree *L) {}
-  void disableUnroll(SemaTransformedTree *L) {}
-  void disablePipelining(SemaTransformedTree *L) {}
 
-  void applyDistribution(LoopDistributionTransform *Trans,
-                         SemaTransformedTree *InputLoop) {}
-  void applyVectorizeInterleave(LoopVectorizationInterleavingTransform *Trans,
-                                SemaTransformedTree *MainLoop) {}
-  void disableOMDSimd(SemaTransformedTree *L) {  }
-  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
-                         SemaTransformedTree *OuterLoop,
-                         SemaTransformedTree *InnerLoop) {}
-  void applyUnroll(LoopUnrollingTransform *Trans,
-                   SemaTransformedTree *OriginalLoop) {}
-  void applyPipelining(LoopPipeliningTransform *Trans,
-                       SemaTransformedTree *MainLoop) {}
-  void applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform *Trans, SemaTransformedTree *MainLoop) {
-    assert(MainLoop->isOriginal());
-  }
+  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,    SemaTransformedTree *OuterLoop,    SemaTransformedTree *InnerLoop) {}
+  void applyUnroll(LoopUnrollingTransform *Trans,    SemaTransformedTree *OriginalLoop) {}
+  void applyDistribution(LoopDistributionTransform *Trans,                         SemaTransformedTree *InputLoop) {}
+  void applyVectorization(LoopVectorizationTransform *Trans,                         SemaTransformedTree *InputLoop) {}
+  void applyInterleaving(LoopInterleavingTransform *Trans,                         SemaTransformedTree *InputLoop) {}
 
 
-  void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,
-                             bool IsAll, bool IsSuccessor) {}
+  void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,    bool IsAll, bool IsSuccessor) {}
 
   void finalize(NodeTy* Root) {}
 };

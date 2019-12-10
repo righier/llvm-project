@@ -32,16 +32,18 @@ public:
 
   static Kind getTransformDirectiveKind(llvm::StringRef Str);
   static llvm::StringRef getTransformDirectiveKeyword(Kind K);
+
+#if 0
   static llvm::StringRef getTransformDirectiveName(Kind K);
+#endif 
 
 private:
   Kind TransformKind;
   SourceRange LocRange;
-  bool IsLegacy;
+
 
 protected:
-  Transform(Kind K, SourceRange LocRange, bool IsLegacy)
-      : TransformKind(K), LocRange(LocRange), IsLegacy(IsLegacy) {}
+  Transform(Kind K, SourceRange LocRange) : TransformKind(K), LocRange(LocRange) {}
 
 public:
   virtual ~Transform() {}
@@ -60,15 +62,6 @@ public:
   }
   /// @}
 
-  /// Non-legacy directives originate from a #pragma clang transform directive.
-  /// Legacy transformations are introduced by #pragma clang loop,
-  /// #pragma omp simd, #pragma unroll, etc.
-  /// Differences include:
-  ///  * Legacy directives transformation execution order is defined by the
-  ///    compiler.
-  ///  * Some warnings that clang historically did not warn about are disabled.
-  ///  * Some differences of the emitted loop metadata for compatibility.
-  bool isLegacy() const { return IsLegacy; }
 
   /// Each transformation defines how many loops it consumes and generates.
   /// Users of this class can store arrays holding the information regarding the
@@ -90,10 +83,117 @@ public:
 
 
 
+
+class LoopUnrollingTransform final : public Transform {
+private:
+  bool ImplicitEnable;
+  bool ExplicitEnable;
+  int64_t Factor;
+
+  LoopUnrollingTransform(SourceRange Loc, bool ImplicitEnable,
+    bool ExplicitEnable, int Factor)
+    : Transform(LoopUnrollingKind, Loc),
+    ImplicitEnable(ImplicitEnable), ExplicitEnable(ExplicitEnable),
+    Factor(Factor) {}
+
+public:
+  static bool classof(const LoopUnrollingTransform *Trans) { return true; }
+  static bool classof(const Transform *Trans) {
+    return Trans->getKind() == LoopUnrollingKind;
+  }
+
+  static LoopUnrollingTransform *create(SourceRange Loc, 
+    bool ImplicitEnable,
+    bool ExplicitEnable) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable,  ExplicitEnable, 0);
+  }
+  static LoopUnrollingTransform *createFull(SourceRange Loc, 
+    bool ImplicitEnable,
+    bool ExplicitEnable) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable,
+      ExplicitEnable, -1);
+  }
+  static LoopUnrollingTransform *createPartial(SourceRange Loc, 
+    bool ImplicitEnable,
+    bool ExplicitEnable,
+    int Factor) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable,                                      ExplicitEnable, Factor);
+  }
+
+  int getNumInputs() const { return 1; }
+  int getNumFollowups() const { return 3; }
+  enum Input {
+    InputToUnroll,
+  };
+  enum Followup {
+    FollowupAll,      // if not full
+    FollowupUnrolled, // if not full
+    FollowupRemainder
+  };
+
+  bool hasFollowupRole(int i) { return isFull(); }
+  int getDefaultSuccessor() const {
+    return  FollowupUnrolled;
+  }
+
+  bool isImplicitEnable() const { return ImplicitEnable; }
+
+  bool isExplicitEnable() const { return ExplicitEnable; }
+
+  int getFactor() const { return Factor; }
+
+  bool isFull() const { return Factor == -1; }
+};
+
+class LoopUnrollAndJamTransform final : public Transform {
+private:
+  bool ExplicitEnable;
+  int Factor;
+
+  LoopUnrollAndJamTransform(SourceRange Loc,  bool ExplicitEnable,
+    int Factor)
+    : Transform(LoopUnrollAndJamKind, Loc),
+    ExplicitEnable(ExplicitEnable), Factor(Factor) {}
+
+public:
+  static bool classof(const LoopUnrollAndJamTransform *Trans) { return true; }
+  static bool classof(const Transform *Trans) {
+    return Trans->getKind() == LoopUnrollAndJamKind;
+  }
+
+  static LoopUnrollAndJamTransform *create(SourceRange Loc,     bool ExplicitEnable) {
+    return new LoopUnrollAndJamTransform(Loc,  ExplicitEnable, 0);
+  }
+  static LoopUnrollAndJamTransform *createFull(SourceRange Loc,     bool ExplicitEnable) {
+    return new LoopUnrollAndJamTransform(Loc, ExplicitEnable, -1);
+  }
+  static LoopUnrollAndJamTransform *
+    createPartial(SourceRange Loc, bool ExplicitEnable, int Factor) {
+    return new LoopUnrollAndJamTransform(Loc,  ExplicitEnable, Factor);
+  }
+
+  int getNumInputs() const { return 1; }
+  int getNumFollowups() const { return 3; }
+  enum Input {
+    InputOuter,
+    InputInner,
+  };
+  enum Followup { FollowupAll, FollowupOuter, FollowupInner };
+
+  bool isExplicitEnable() const { return ExplicitEnable; }
+
+  int getFactor() const {
+    assert(Factor >= 0);
+    return Factor;
+  }
+
+  bool isFull() const { return Factor == -1; }
+};
+
+
 class LoopDistributionTransform final : public Transform {
 private:
-  LoopDistributionTransform(SourceRange Loc, bool IsLegacy)
-      : Transform(LoopDistributionKind, Loc, IsLegacy) {}
+  LoopDistributionTransform(SourceRange Loc): Transform(LoopDistributionKind, Loc) {}
 
 public:
   static bool classof(const LoopDistributionTransform *Trans) { return true; }
@@ -101,8 +201,8 @@ public:
     return Trans->getKind() == LoopDistributionKind;
   }
 
-  static LoopDistributionTransform *create(SourceRange Loc, bool IsLegacy) {
-    return new LoopDistributionTransform(Loc, IsLegacy);
+  static LoopDistributionTransform *create(SourceRange Loc) {
+    return new LoopDistributionTransform(Loc);
   }
 
   enum Input {
@@ -123,7 +223,7 @@ private:
                              llvm::Optional<bool> EnableVectorization,
                              int VectorizeWidth,
                              llvm::Optional<bool> VectorizePredicateEnable)
-      : Transform(LoopVectorizationKind, Loc, true),
+      : Transform(LoopVectorizationKind, Loc),
         EnableVectorization(EnableVectorization),
         VectorizeWidth(VectorizeWidth),
         VectorizePredicateEnable(VectorizePredicateEnable) {}
@@ -168,7 +268,7 @@ private:
   LoopInterleavingTransform(SourceRange Loc,
                             llvm::Optional<bool> EnableInterleaving,
                             int InterleaveCount)
-      : Transform(LoopInterleavingKind, Loc, false),
+      : Transform(LoopInterleavingKind, Loc),
         EnableInterleaving(EnableInterleaving),
         InterleaveCount(InterleaveCount) {}
 
@@ -200,280 +300,6 @@ public:
   int getInterleaveCount() const { return InterleaveCount; }
 };
 
-class LoopVectorizationInterleavingTransform final : public Transform {
-private:
-  bool AssumeSafety;
-  llvm::Optional<bool> EnableVectorization;
-  llvm::Optional<bool> EnableInterleaving;
-  int VectorizeWidth;
-  llvm::Optional<bool> VectorizePredicateEnable;
-  int InterleaveCount;
-
-  LoopVectorizationInterleavingTransform(
-      SourceRange Loc, bool IsLegacy, bool AssumeSafety,
-      llvm::Optional<bool> EnableVectorization,
-      llvm::Optional<bool> EnableInterleaving, int VectorizeWidth,
-      llvm::Optional<bool> VectorizePredicateEnable, int InterleaveCount)
-      : Transform(LoopVectorizationInterleavingKind, Loc, IsLegacy),
-        AssumeSafety(AssumeSafety), EnableVectorization(EnableVectorization),
-        EnableInterleaving(EnableInterleaving), VectorizeWidth(VectorizeWidth),
-        VectorizePredicateEnable(VectorizePredicateEnable),
-        InterleaveCount(InterleaveCount) {}
-
-public:
-  static bool classof(const LoopVectorizationInterleavingTransform *Trans) {
-    return true;
-  }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == LoopVectorizationInterleavingKind;
-  }
-
-  static LoopVectorizationInterleavingTransform *
-  create(SourceRange Loc, bool Legacy, bool AssumeSafety,
-         llvm::Optional<bool> EnableVectorization,
-         llvm::Optional<bool> EnableInterleaving, int VectorizeWidth,
-         llvm::Optional<bool> VectorizePredicateEnable, int InterleaveCount) {
-    assert(EnableVectorization.getValueOr(true) ||
-           EnableInterleaving.getValueOr(true));
-    return new LoopVectorizationInterleavingTransform(
-        Loc, Legacy, AssumeSafety, EnableVectorization, EnableInterleaving,
-        VectorizeWidth, VectorizePredicateEnable, InterleaveCount);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 3; }
-  enum Input {
-    InputToVectorize,
-  };
-  enum Followup { FollowupAll, FollowupVectorized, FollowupEpilogue };
-
-  bool isAssumeSafety() const { return AssumeSafety; }
-  llvm::Optional<bool> isVectorizationEnabled() const {
-    return EnableVectorization;
-  }
-  llvm::Optional<bool> isInterleavingEnabled() const {
-    return EnableInterleaving;
-  }
-
-  int getWidth() const { return VectorizeWidth; }
-  llvm::Optional<bool> isPredicateEnabled() const {
-    return VectorizePredicateEnable;
-  }
-  int getInterleaveCount() const { return InterleaveCount; }
-};
-
-class LoopUnrollingTransform final : public Transform {
-private:
-  bool ImplicitEnable;
-  bool ExplicitEnable;
-  int64_t Factor;
-
-  LoopUnrollingTransform(SourceRange Loc, bool IsLegacy, bool ImplicitEnable,
-                         bool ExplicitEnable, int Factor)
-      : Transform(LoopUnrollingKind, Loc, IsLegacy),
-        ImplicitEnable(ImplicitEnable), ExplicitEnable(ExplicitEnable),
-        Factor(Factor) {}
-
-public:
-  static bool classof(const LoopUnrollingTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == LoopUnrollingKind;
-  }
-
-  static LoopUnrollingTransform *create(SourceRange Loc, bool Legacy,
-                                        bool ImplicitEnable,
-                                        bool ExplicitEnable) {
-    return new LoopUnrollingTransform(Loc, Legacy, ImplicitEnable,
-                                      ExplicitEnable, 0);
-  }
-  static LoopUnrollingTransform *createFull(SourceRange Loc, bool Legacy,
-                                            bool ImplicitEnable,
-                                            bool ExplicitEnable) {
-    return new LoopUnrollingTransform(Loc, Legacy, ImplicitEnable,
-                                      ExplicitEnable, -1);
-  }
-  static LoopUnrollingTransform *createPartial(SourceRange Loc, bool Legacy,
-                                               bool ImplicitEnable,
-                                               bool ExplicitEnable,
-                                               int Factor) {
-    return new LoopUnrollingTransform(Loc, Legacy, ImplicitEnable,
-                                      ExplicitEnable, Factor);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 3; }
-  enum Input {
-    InputToUnroll,
-  };
-  enum Followup {
-    FollowupAll,      // if not full
-    FollowupUnrolled, // if not full
-    FollowupRemainder
-  };
-
-  bool hasFollowupRole(int i) { return isFull(); }
-  int getDefaultSuccessor() const {
-    return isLegacy() ? FollowupAll : FollowupUnrolled;
-  }
-
-  bool isImplicitEnable() const { return ImplicitEnable; }
-
-  bool isExplicitEnable() const { return ExplicitEnable; }
-
-  int getFactor() const { return Factor; }
-
-  bool isFull() const { return Factor == -1; }
-};
-
-class LoopUnrollAndJamTransform final : public Transform {
-private:
-  bool ExplicitEnable;
-  int Factor;
-
-  LoopUnrollAndJamTransform(SourceRange Loc, bool IsLegacy, bool ExplicitEnable,
-                            int Factor)
-      : Transform(LoopUnrollAndJamKind, Loc, IsLegacy),
-        ExplicitEnable(ExplicitEnable), Factor(Factor) {}
-
-public:
-  static bool classof(const LoopUnrollAndJamTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == LoopUnrollAndJamKind;
-  }
-
-  static LoopUnrollAndJamTransform *create(SourceRange Loc, bool Legacy,
-                                           bool ExplicitEnable) {
-    return new LoopUnrollAndJamTransform(Loc, Legacy, ExplicitEnable, 0);
-  }
-  static LoopUnrollAndJamTransform *createFull(SourceRange Loc, bool Legacy,
-                                               bool ExplicitEnable) {
-    return new LoopUnrollAndJamTransform(Loc, Legacy, ExplicitEnable, -1);
-  }
-  static LoopUnrollAndJamTransform *
-  createPartial(SourceRange Loc, bool Legacy, bool ExplicitEnable, int Factor) {
-    return new LoopUnrollAndJamTransform(Loc, Legacy, ExplicitEnable, Factor);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 3; }
-  enum Input {
-    InputOuter,
-    InputInner,
-  };
-  enum Followup { FollowupAll, FollowupOuter, FollowupInner };
-
-  bool isExplicitEnable() const { return ExplicitEnable; }
-
-  int getFactor() const {
-    assert(Factor >= 0);
-    return Factor;
-  }
-
-  bool isFull() const { return Factor == -1; }
-};
-
-class LoopPipeliningTransform final : public Transform {
-private:
-  int InitiationInterval;
-
-  LoopPipeliningTransform(SourceRange Loc, int InitiationInterval)
-      : Transform(LoopPipeliningKind, Loc, true),
-        InitiationInterval(InitiationInterval) {}
-
-public:
-  static bool classof(const LoopPipeliningTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == LoopPipeliningKind;
-  }
-
-  static LoopPipeliningTransform *create(SourceRange Loc,
-                                         int InitiationInterval) {
-    return new LoopPipeliningTransform(Loc, InitiationInterval);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 0; }
-  enum Input {
-    InputToPipeline,
-  };
-
-  int getInitiationInterval() const { return InitiationInterval; }
-};
-
-
-
-class OMPIfClauseVersioningTransform final : public Transform {
-private:
-  OMPIfClauseVersioningTransform(SourceRange Loc)
-    : Transform(OMPIfClauseVersioningKind, Loc, true) {}
-
-public:
-  static bool classof(const OMPIfClauseVersioningTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == OMPIfClauseVersioningKind;
-  }
-
-  static OMPIfClauseVersioningTransform *create(SourceRange Loc) {
-    return new OMPIfClauseVersioningTransform(Loc);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 2; }
-  enum Input {
-    InputToPipeline,
-  };
-  enum Output {
-    FollowupIf,
-    FollowupElse
-  };
-};
-
-
-class OMPDisableSimdTransform final : public Transform {
-private:
-  OMPDisableSimdTransform(SourceRange Loc)
-    : Transform(OMPDisableSimdKind, Loc, true) {}
-
-public:
-  static bool classof(const OMPDisableSimdTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == OMPDisableSimdKind;
-  }
-
-  static OMPDisableSimdTransform *create(SourceRange Loc) {
-    return new OMPDisableSimdTransform(Loc);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 0; }
-};
-
-
-
-class LoopAssumeParallelTransform final : public Transform {
-private:
-  LoopAssumeParallelTransform(SourceRange Loc)
-      : Transform(LoopAssumeParallelKind, Loc, false) {}
-
-public:
-  static bool classof(const LoopAssumeParallelTransform *Trans) { return true; }
-  static bool classof(const Transform *Trans) {
-    return Trans->getKind() == LoopAssumeParallelKind;
-  }
-
-  static LoopAssumeParallelTransform *create(SourceRange Loc) {
-    return new LoopAssumeParallelTransform(Loc);
-  }
-
-  int getNumInputs() const { return 1; }
-  int getNumFollowups() const { return 1; }
-  enum Input {
-    InputParallel,
-  };
-  enum Followup {
-    FollowupParallel,
-  };
-};
 
 } // namespace clang
 #endif /* LLVM_CLANG_BASIC_TRANSFORM_H */

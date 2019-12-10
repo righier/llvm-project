@@ -76,14 +76,10 @@ public:
   llvm::MDNode* makeAccessGroup(llvm::LLVMContext& LLVMCtx);
 
   void
-  getOrCreateAccessGroups(llvm::LLVMContext &LLVMCtx,
-                          llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
+  getOrCreateAccessGroups(llvm::LLVMContext &LLVMCtx,  llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
   void collectAccessGroups(llvm::LLVMContext& LLVMCtx, llvm::SmallVectorImpl<llvm::MDNode*>& AccessGroups);
 
   void finalize(llvm::LLVMContext& LLVMCtx) {
-    if (isParallel()) 
-      collectAccessGroups(LLVMCtx,ParallelAccessGroups);
-    
     Finalized = true;
   }
 
@@ -105,11 +101,8 @@ public:
 
 
 
-class CGTransformedTreeBuilder
-    : public TransformedTreeBuilder<CGTransformedTreeBuilder,
-                                    CGTransformedTree> {
-  using BaseTy =
-      TransformedTreeBuilder<CGTransformedTreeBuilder, CGTransformedTree>;
+class CGTransformedTreeBuilder    : public TransformedTreeBuilder<CGTransformedTreeBuilder,    CGTransformedTree> {
+  using BaseTy =      TransformedTreeBuilder<CGTransformedTreeBuilder, CGTransformedTree>;
   using NodeTy = CGTransformedTree;
 
   BaseTy &getBase() { return *this; }
@@ -117,6 +110,8 @@ class CGTransformedTreeBuilder
 
   llvm::LLVMContext &LLVMCtx;
   CGDebugInfo *DbgInfo;
+
+
 
 public:
   CGTransformedTreeBuilder(ASTContext &ASTCtx, const LangOptions &LangOpts, llvm::LLVMContext &LLVMCtx,
@@ -134,52 +129,17 @@ public:
 
   void applyOriginal(CGTransformedTree *L);
 
-  void inheritLoopAttributes(CGTransformedTree *Dst, CGTransformedTree *Src,
-                             bool IsAll, bool IsSuccessor);
-  void markParallel(CGTransformedTree *L);
+  void inheritLoopAttributes(CGTransformedTree *Dst, CGTransformedTree *Src,   bool IsAll, bool IsSuccessor);
+  
 
-  void disableUnroll(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.unroll.disable");
-    L->markNondefault();
-  }
 
-  void disableUnrollAndJam(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.unroll_and_jam.disable");
-    L->markNondefault();
-  }
+  void applyUnroll(LoopUnrollingTransform *Trans,                   CGTransformedTree *OriginalLoop);
+  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,                         CGTransformedTree *OuterLoop,                         CGTransformedTree *InnerLoop);
+  void applyDistribution(LoopDistributionTransform *Trans,                         CGTransformedTree *OriginalLoop);
+  void applyVectorization(LoopVectorizationTransform* Trans, CGTransformedTree* InputLoop);
+  void applyInterleaving(LoopInterleavingTransform* Trans, CGTransformedTree* InputLoop);
 
-  void disableDistribution(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.distribute.enable", false);
-    L->markNondefault();
-  }
 
-  void disableVectorizeInterleave(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.vectorize.width", 1);
-    L->markNondefault();
-  }
-
-  void disableOMDSimd(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.vectorize.enable", false);
-    L->markNondefault();
-  }
-
-  void disablePipelining(CGTransformedTree *L) {
-    L->addAttribute(LLVMCtx, true, "llvm.loop.pipeline.disable", true);
-    L->markNondefault();
-  }
-
-  void applyUnroll(LoopUnrollingTransform *Trans,
-                   CGTransformedTree *OriginalLoop);
-  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
-                         CGTransformedTree *OuterLoop,
-                         CGTransformedTree *InnerLoop);
-  void applyDistribution(LoopDistributionTransform *Trans,
-                         CGTransformedTree *OriginalLoop);
-  void applyVectorizeInterleave(LoopVectorizationInterleavingTransform *Trans,
-                                CGTransformedTree *MainLoop);
-  void applyPipelining(LoopPipeliningTransform *Trans,
-                       CGTransformedTree *MainLoop);
-  void applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop);
 
   void finalize(NodeTy *Root);
 };

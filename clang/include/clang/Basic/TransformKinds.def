@@ -5,24 +5,14 @@
 #ifndef TRANSFORM_DIRECTIVE_LAST
 #  define TRANSFORM_DIRECTIVE_LAST(Name) TRANSFORM_DIRECTIVE(Name)
 #endif
-#ifndef TRANSFORM_DIRECTIVE_KEYWORD
-#  define TRANSFORM_DIRECTIVE_KEYWORD(Keyword, Name) TRANSFORM_DIRECTIVE(Name)
-#endif
 
 // Loop transformations accessible through "#pragma clang transform".
-TRANSFORM_DIRECTIVE_KEYWORD(unroll,LoopUnrolling)
-TRANSFORM_DIRECTIVE_KEYWORD(unrollandjam,LoopUnrollAndJam)
-TRANSFORM_DIRECTIVE_KEYWORD(vectorize,LoopVectorization)
-TRANSFORM_DIRECTIVE_KEYWORD(interleave,LoopInterleaving)
-TRANSFORM_DIRECTIVE_KEYWORD(distribute,LoopDistribution)
+TRANSFORM_DIRECTIVE(LoopUnrolling)
+TRANSFORM_DIRECTIVE(LoopUnrollAndJam)
+TRANSFORM_DIRECTIVE(LoopDistribution)
+TRANSFORM_DIRECTIVE(LoopVectorization)
+TRANSFORM_DIRECTIVE_LAST(LoopInterleaving)
 
-// Compatibility transformations: "#pragma clang loop" hints and OpenMP.
-TRANSFORM_DIRECTIVE(LoopVectorizationInterleaving)
-TRANSFORM_DIRECTIVE(LoopPipelining)
-TRANSFORM_DIRECTIVE(OMPIfClauseVersioning)
-TRANSFORM_DIRECTIVE(OMPDisableSimd)
-TRANSFORM_DIRECTIVE_LAST(LoopAssumeParallel)
 
 #undef TRANSFORM_DIRECTIVE
 #undef TRANSFORM_DIRECTIVE_LAST
-#undef TRANSFORM_DIRECTIVE_KEYWORD

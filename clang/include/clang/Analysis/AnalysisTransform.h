@@ -114,16 +114,16 @@ template <typename Derived> struct ExtractTransform {
         return nullptr;
 
       if (Full) {
-        return wrap(LoopUnrollingTransform::createFull(Loc, false, true, true));
+        return wrap(LoopUnrollingTransform::createFull(Loc,  true, true));
       } else if (Partial) {
         llvm::Optional<int64_t> Factor = evalIntArg(Partial->getFactor(), 2);
         if (AnyError || !Factor.hasValue())
           return nullptr;
         return wrap(LoopUnrollingTransform::createPartial(
-            Loc, false, true, true, Factor.getValue()));
+            Loc,  true, true, Factor.getValue()));
       }
 
-      return wrap(LoopUnrollingTransform::create(Loc, false, true, true));
+      return wrap(LoopUnrollingTransform::create(Loc, true, true));
     }
 
     case Transform::LoopUnrollAndJamKind: {
@@ -138,15 +138,15 @@ template <typename Derived> struct ExtractTransform {
         if (AnyError || !Factor.hasValue())
           return nullptr;
         return wrap(LoopUnrollAndJamTransform::createPartial(
-            Loc, false, true, Factor.getValue()));
+            Loc,  true, Factor.getValue()));
       }
 
-      return wrap(LoopUnrollAndJamTransform::create(Loc, false, true));
+      return wrap(LoopUnrollAndJamTransform::create(Loc,  true));
     }
 
     case clang::Transform::LoopDistributionKind:
       allowedClauses({});
-      return wrap(LoopDistributionTransform::create(Loc, false));
+      return wrap(LoopDistributionTransform::create(Loc));
 
     case clang::Transform::LoopVectorizationKind: {
       allowedClauses({TransformClause::WidthKind});

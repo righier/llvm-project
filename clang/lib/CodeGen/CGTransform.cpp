@@ -195,8 +195,8 @@ void CGTransformedTreeBuilder::applyOriginal(CGTransformedTree *L) {
 
   L->BeginLoc = DbgInfo->SourceLocToDebugLoc(L->getOriginal()->getBeginLoc());
   L->EndLoc = DbgInfo->SourceLocToDebugLoc(L->getOriginal()->getEndLoc());
-  if (L->BeginLoc || L->EndLoc)
-    L->markNondefault();
+  //if (L->BeginLoc || L->EndLoc)
+  //  L->markNondefault();
 }
 
 void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
@@ -219,27 +219,10 @@ void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
 #endif
 }
 
-void CGTransformedTreeBuilder::markParallel(CGTransformedTree *L) {
-  getBase().markParallel(L);
-
-#if 0
-  // Has it already been marked parallel?
-  // Avoid redundant metadata if it was.
-  if (!L->ParallelAccessGroups.empty())
-    return;
-
-  SmallVector<llvm::MDNode *, 8> AccGroups;
-  assert(L->ParallelAccessGroups.empty() &&
-         "Should not have parallel access groups if was empty before");
-
-  L->getOrCreateAccessGroups(LLVMCtx, AccGroups);
-  L->ParallelAccessGroups.insert(AccGroups.begin(), AccGroups.end());
-#endif
-}
 
 void CGTransformedTreeBuilder::applyUnroll(LoopUnrollingTransform *Trans,
                                            CGTransformedTree *OriginalLoop) {
-  if (Trans->isExplicitEnable() && !(Trans->isLegacy() && Trans->isFull()))
+  if (Trans->isExplicitEnable())
     OriginalLoop->addAttribute(LLVMCtx, false, "llvm.loop.unroll.enable");
 
   if (Trans->isFull()) {
@@ -254,26 +237,20 @@ void CGTransformedTreeBuilder::applyUnroll(LoopUnrollingTransform *Trans,
   for (CGTransformedTree *F : OriginalLoop->Followups) {
     switch (F->FollowupRole) {
     case LoopUnrollingTransform::FollowupAll:
-      OriginalLoop->FollowupAttributes.emplace_back(LLVMLoopUnrollFollowupAll,
-                                                    F);
-      if (Trans->isLegacy())
-        F->addAttribute(LLVMCtx, true, "llvm.loop.unroll.disable");
-      else
+      OriginalLoop->FollowupAttributes.emplace_back(LLVMLoopUnrollFollowupAll,                                                    F);
         F->markDisableHeuristic();
-      break;
+        break;
     case LoopUnrollingTransform::FollowupUnrolled:
-      OriginalLoop->FollowupAttributes.emplace_back(
-          LLVMLoopUnrollFollowupUnrolled, F);
+      OriginalLoop->FollowupAttributes.emplace_back(          LLVMLoopUnrollFollowupUnrolled, F);
       break;
     case LoopUnrollingTransform::FollowupRemainder:
-      OriginalLoop->FollowupAttributes.emplace_back(
-          LLVMLoopUnrollFollowupRemainder, F);
+      OriginalLoop->FollowupAttributes.emplace_back(          LLVMLoopUnrollFollowupRemainder, F);
       break;
     }
   }
 
   OriginalLoop->markNondefault();
-  if (!Trans->isLegacy())
+
     OriginalLoop->markDisableHeuristic();
 }
 
@@ -291,18 +268,16 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
   for (CGTransformedTree *F : OuterLoop->Followups) {
     switch (F->FollowupRole) {
     case LoopUnrollAndJamTransform::FollowupAll:
-      OuterLoop->FollowupAttributes.emplace_back(
-          "llvm.loop.unroll_and_jam.followup_all", F);
-      if (!Trans->isLegacy())
+      OuterLoop->FollowupAttributes.emplace_back(          "llvm.loop.unroll_and_jam.followup_all", F);
+
         F->markDisableHeuristic();
       break;
     case LoopUnrollAndJamTransform::FollowupOuter:
       OuterLoop->FollowupAttributes.emplace_back(
           "llvm.loop.unroll_and_jam.followup_outer", F);
-      if (!Trans->isLegacy())
+
         F->markDisableHeuristic();
-      if (Trans->isLegacy())
-        F->addAttribute(LLVMCtx, true, "llvm.loop.unroll_and_jam.disable");
+
       break;
     }
   }
@@ -311,7 +286,7 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
     for (CGTransformedTree *F : InnerLoop->Followups) {
       switch (F->FollowupRole) {
       case LoopUnrollAndJamTransform::FollowupInner:
-        if (!Trans->isLegacy())
+
           F->markDisableHeuristic();
         OuterLoop->FollowupAttributes.emplace_back(
             "llvm.loop.unroll_and_jam.followup_inner", F);
@@ -321,9 +296,9 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
   }
 
   OuterLoop->markNondefault();
-  if (!Trans->isLegacy())
+
     OuterLoop->markDisableHeuristic();
-  if (InnerLoop && !Trans->isLegacy())
+  if (InnerLoop )
     InnerLoop->markDisableHeuristic();
 }
 
@@ -337,97 +312,89 @@ void CGTransformedTreeBuilder::applyDistribution(
     case LoopDistributionTransform::FollowupAll:
       OriginalLoop->FollowupAttributes.emplace_back(
           "llvm.loop.distribute.followup_all", F);
-      if (!Trans->isLegacy())
+
         F->markDisableHeuristic();
       break;
     }
   }
 
   OriginalLoop->markNondefault();
-  if (!Trans->isLegacy())
+
     OriginalLoop->markDisableHeuristic();
 }
 
-void CGTransformedTreeBuilder::applyVectorizeInterleave(
-    LoopVectorizationInterleavingTransform *Trans,
-    CGTransformedTree *MainLoop) {
-  bool DisabledVectorization =
-      !Trans->isVectorizationEnabled().getValueOr(true) ||
-      Trans->getWidth() == 1;
-  bool ForcedInterleaving = Trans->isInterleavingEnabled().getValueOr(false);
-  Optional<bool> VecEnabled = Trans->isVectorizationEnabled();
-  if (ForcedInterleaving)
-    VecEnabled = true;
 
-  if (Trans->isPredicateEnabled().hasValue() && !DisabledVectorization) {
-    MainLoop->addAttribute(LLVMCtx, false,
-                           "llvm.loop.vectorize.predicate.enable",
-                           Trans->isPredicateEnabled().getValue());
-    if (Trans->isLegacy())
-      VecEnabled = true;
-  }
 
-  if (Trans->getWidth() > 0) {
-#if 0
-    if (Trans->isLegacy() && !VecEnabled.hasValue())
-      MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.enable",
-                             true);
-#endif
-    MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.width",
-                           Trans->getWidth());
-  }
 
-  if (Trans->getInterleaveCount() > 0)
-    MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.interleave.count",
-                           Trans->getInterleaveCount());
 
-  if (VecEnabled.hasValue())
-    MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.enable",
-                           VecEnabled.getValue());
+void CGTransformedTreeBuilder::applyVectorization(LoopVectorizationTransform *Trans, CGTransformedTree *MainLoop) {
+  // Enable vectorization, disable interleaving.
+  MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.enable", true);
+  MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.interleave.count", 1);
+
+  // If SIMD width is specified, forward it.
+  if (Trans->getWidth() > 0) 
+    MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.width", Trans->getWidth());
+  
 
   for (CGTransformedTree *F : MainLoop->Followups) {
     switch (F->FollowupRole) {
-    case LoopVectorizationInterleavingTransform ::FollowupAll:
-      if (Trans->isLegacy())
-        F->addAttribute(LLVMCtx, true, "llvm.loop.isvectorized");
-      MainLoop->FollowupAttributes.emplace_back(
-          "llvm.loop.vectorize.followup_all", F);
-      if (!Trans->isLegacy())
-        F->markDisableHeuristic();
+    case LoopVectorizationTransform ::FollowupAll:
+      MainLoop->FollowupAttributes.emplace_back("llvm.loop.vectorize.followup_all", F);
+      F->markDisableHeuristic();
       break;
-    case LoopVectorizationInterleavingTransform ::FollowupVectorized:
-      MainLoop->FollowupAttributes.emplace_back(
-          "llvm.loop.vectorize.followup_vectorized", F);
+    case LoopVectorizationTransform ::FollowupVectorized:
+      MainLoop->FollowupAttributes.emplace_back("llvm.loop.vectorize.followup_vectorized", F);
+     // F->markDisableHeuristic();
       break;
-    case LoopVectorizationInterleavingTransform ::FollowupEpilogue:
-      MainLoop->FollowupAttributes.emplace_back(
-          "llvm.loop.vectorize.followup_epilogue", F);
+    case LoopVectorizationTransform ::FollowupEpilogue:
+      MainLoop->FollowupAttributes.emplace_back("llvm.loop.vectorize.followup_epilogue", F);
+      //F->markDisableHeuristic();
       break;
     }
   }
 
   MainLoop->markNondefault();
-  if (!Trans->isLegacy())
-    MainLoop->markDisableHeuristic();
+  MainLoop->markDisableHeuristic();
 }
 
-void CGTransformedTreeBuilder::applyPipelining(LoopPipeliningTransform *Trans,
-                                               CGTransformedTree *MainLoop) {
-  if (Trans->getInitiationInterval() > 0)
-    MainLoop->addAttribute(LLVMCtx, false,
-                           "llvm.loop.pipeline.initiationinterval",
-                           Trans->getInitiationInterval());
+
+
+void CGTransformedTreeBuilder::applyInterleaving(    LoopInterleavingTransform *Trans,    CGTransformedTree *MainLoop) {
+  // Enable the LoopVectorize pass, but explicitly disable vectorization to only apply interleaving.
+  MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.enable", true);
+  MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.vectorize.width", 1);
+
+  // If interleave factor is specified, forward it.
+  if (Trans->getInterleaveCount() > 0)
+    MainLoop->addAttribute(LLVMCtx, false, "llvm.loop.interleave.count",  Trans->getInterleaveCount());
+
+
+  for (CGTransformedTree *F : MainLoop->Followups) {
+    switch (F->FollowupRole) {
+    case LoopInterleavingTransform ::FollowupAll:
+      MainLoop->FollowupAttributes.emplace_back(
+          "llvm.loop.vectorize.followup_all", F);
+        F->markDisableHeuristic();
+      break;
+    case LoopInterleavingTransform ::FollowupVectorized:
+      MainLoop->FollowupAttributes.emplace_back(
+          "llvm.loop.vectorize.followup_vectorized", F);
+    //  F->markDisableHeuristic();
+      break;
+    case LoopInterleavingTransform ::FollowupEpilogue:
+      MainLoop->FollowupAttributes.emplace_back(
+          "llvm.loop.vectorize.followup_epilogue", F);
+      //F->markDisableHeuristic();
+      break;
+    }
+  }
 
   MainLoop->markNondefault();
+  MainLoop->markDisableHeuristic();
 }
 
-void  CGTransformedTreeBuilder:: applyOMPIfClauseVersioning(OMPIfClauseVersioningTransform* Trans, CGTransformedTree* MainLoop) {
-  assert(  MainLoop->IsCodeGenned );
 
-  MainLoop->IsCodeGenned = false;
-  for (auto Succ : MainLoop->getFollowups()) 
-    Succ->IsCodeGenned = true;
-}
 
 
 void CGTransformedTreeBuilder::  finalize(NodeTy *Root) {

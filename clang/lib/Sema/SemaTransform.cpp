@@ -45,6 +45,8 @@ Sema::ActOnLoopTransformDirective(Transform::Kind Kind,
   auto *Result =
       TransformExecutableDirective::create(Context, Loc, AStmt, Clauses, Kind);
 
+
+
   // Emit errors and warnings.
   SemaExtractTransform VerifyTransform(Result, *this);
   VerifyTransform.createTransform();

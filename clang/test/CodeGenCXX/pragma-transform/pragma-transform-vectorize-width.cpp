@@ -9,10 +9,11 @@ extern "C" void pragma_transform_vectorize(int *List, int Length) {
 }
 
 
-// CHECK-DAG: ![[LOOP]] = distinct !{![[LOOP]], ![[VECTORIZE_WIDTH:[0-9]+]], ![[INTERLEAVE_DISABLE:[0-9]+]], ![[VECTORIZE_ENABLE:[0-9]+]], ![[VECTORIZE_FOLLOWUP_ALL:[0-9]+]], ![[DISABLE_NONFORCED:[0-9]+]]}
-// CHECK-DAG: ![[VECTORIZE_WIDTH]] = !{!"llvm.loop.vectorize.width", i32 4}
-// CHECK-DAG: ![[INTERLEAVE_DISABLE]] = !{!"llvm.loop.interleave.count", i32 1}
+// CHECK-DAG: ![[LOOP]] = distinct !{![[LOOP]], ![[VECTORIZE_ENABLE:[0-9]+]], ![[INTERLEAVE_DISABLE:[0-9]+]], ![[VECTORIZE_WIDTH:[0-9]+]], ![[VECTORIZE_FOLLOWUP_ALL:[0-9]+]], ![[DISABLE_NONFORCED:[0-9]+]]}
 // CHECK-DAG: ![[VECTORIZE_ENABLE]] = !{!"llvm.loop.vectorize.enable", i1 true}
+// CHECK-DAG: ![[INTERLEAVE_DISABLE]] = !{!"llvm.loop.interleave.count", i32 1}
+// CHECK-DAG: ![[VECTORIZE_WIDTH]] = !{!"llvm.loop.vectorize.width", i32 4}
+
 // CHECK-DAG: ![[VECTORIZE_FOLLOWUP_ALL]] = !{!"llvm.loop.vectorize.followup_all", ![[LOOP_VECTORIZE_ALL:[0-9]+]]}
 // CHECK-DAG: ![[DISABLE_NONFORCED]] = !{!"llvm.loop.disable_nonforced"}
 

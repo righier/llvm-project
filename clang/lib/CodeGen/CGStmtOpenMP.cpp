@@ -1431,7 +1431,10 @@ void CodeGenFunction::EmitOMPInnerLoop(
   // Start the loop with a block that tests the condition.
   auto CondBlock = createBasicBlock("omp.inner.for.cond");
   EmitBlock(CondBlock);
-  LoopStack.push(CondBlock, &S);
+  const SourceRange R = S.getSourceRange();
+  LoopStack.push(CondBlock, SourceLocToDebugLoc(R.getBegin()),
+                 SourceLocToDebugLoc(R.getEnd()),&S);
+ 
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -1701,8 +1704,39 @@ void CodeGenFunction::EmitOMPLinearClause(
   }
 }
 
+static void emitSimdlenSafelenClause(CodeGenFunction &CGF,
+                                     const OMPExecutableDirective &D,
+                                     bool IsMonotonic) {
+  if (!CGF.HaveInsertPoint())
+    return;
+  if (const auto *C = D.getSingleClause<OMPSimdlenClause>()) {
+    RValue Len = CGF.EmitAnyExpr(C->getSimdlen(), AggValueSlot::ignored(),
+                                 /*ignoreResult=*/true);
+    auto *Val = cast<llvm::ConstantInt>(Len.getScalarVal());
+    CGF.LoopStack.setVectorizeWidth(Val->getZExtValue());
+    // In presence of finite 'safelen', it may be unsafe to mark all
+    // the memory instructions parallel, because loop-carried
+    // dependences of 'safelen' iterations are possible.
+    if (!IsMonotonic)
+      CGF.LoopStack.setParallel(!D.getSingleClause<OMPSafelenClause>());
+  } else if (const auto *C = D.getSingleClause<OMPSafelenClause>()) {
+    RValue Len = CGF.EmitAnyExpr(C->getSafelen(), AggValueSlot::ignored(),
+                                 /*ignoreResult=*/true);
+    auto *Val = cast<llvm::ConstantInt>(Len.getScalarVal());
+    CGF.LoopStack.setVectorizeWidth(Val->getZExtValue());
+    // In presence of finite 'safelen', it may be unsafe to mark all
+    // the memory instructions parallel, because loop-carried
+    // dependences of 'safelen' iterations are possible.
+    CGF.LoopStack.setParallel(/*Enable=*/false);
+  }
+}
+
 void CodeGenFunction::EmitOMPSimdInit(const OMPLoopDirective &D,
                                       bool IsMonotonic) {
+  // Walk clauses and process safelen/lastprivate.
+  LoopStack.setParallel(!IsMonotonic);
+  LoopStack.setVectorizeEnable();
+  emitSimdlenSafelenClause(*this, D, IsMonotonic);
 }
 
 void CodeGenFunction::EmitOMPSimdFinal(
@@ -1768,30 +1802,17 @@ static LValue EmitOMPHelperVar(CodeGenFunction &CGF,
 static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
                                const RegionCodeGenTy &SimdInitGen,
                                const RegionCodeGenTy &BodyCodeGen) {
-
-
-  auto &&ThenGen = [&SimdInitGen, &BodyCodeGen, &S](CodeGenFunction &CGF,
+  auto &&ThenGen = [&SimdInitGen, &BodyCodeGen](CodeGenFunction &CGF,
                                                 PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
     SimdInitGen(CGF);
 
-
-
-    //CGF.LoopStack.followTransformation(  Transform::OMPIfClauseVersioningKind, 0 );
-    //CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
-    //CGTransformedTree* ThenTN = LoopInfoStack::getFollowupAtIdx(TN, 0);
-    LoopInfoStack::FollowupScope FScope(CGF.LoopStack,Transform::OMPIfClauseVersioningKind, OMPIfClauseVersioningTransform::FollowupIf );
     BodyCodeGen(CGF);
   };
-  auto &&ElseGen = [&BodyCodeGen,&S](CodeGenFunction &CGF, PrePostActionTy &) {
+  auto &&ElseGen = [&BodyCodeGen](CodeGenFunction &CGF, PrePostActionTy &) {
     CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
-    
+    CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
 
-    // CGF.LoopStack.setVectorizeEnable(/*Enable=*/false);
-    //CGF.LoopStack.followTransformation( , Transform::OMPIfClauseVersioningKind, 1 );
-    //CGTransformedTree*TN = CGF.LoopStack.lookupTransformedNode(&S);
-    //CGTransformedTree* ElseTN = LoopInfoStack::getFollowupAtIdx(TN,1);
-    LoopInfoStack::FollowupScope FScope(CGF.LoopStack, Transform::OMPIfClauseVersioningKind, OMPIfClauseVersioningTransform::FollowupElse );
     BodyCodeGen(CGF);
   };
   const Expr *IfCond = nullptr;
@@ -1803,17 +1824,12 @@ static void emitCommonSimdLoop(CodeGenFunction &CGF, const OMPLoopDirective &S,
       break;
     }
   }
-
-  if (!IfCond) {
-    CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
-    SimdInitGen(CGF);
-    BodyCodeGen(CGF);
-    return;
-  }
-
-
-    LoopInfoStack::TransformScope TScope(CGF.LoopStack, &S);
+  if (IfCond) {
     CGF.CGM.getOpenMPRuntime().emitIfClause(CGF, IfCond, ThenGen, ElseGen);
+  } else {
+    RegionCodeGenTy ThenRCG(ThenGen);
+    ThenRCG(CGF);
+  }
 }
 
 static void emitOMPSimdRegion(CodeGenFunction &CGF, const OMPLoopDirective &S,
@@ -1934,7 +1950,9 @@ void CodeGenFunction::EmitOMPOuterLoop(
   // Start the loop with a block that tests the condition.
   llvm::BasicBlock *CondBlock = createBasicBlock("omp.dispatch.cond");
   EmitBlock(CondBlock);
-  LoopStack.push(CondBlock, &S);
+  const SourceRange R = S.getSourceRange();
+  LoopStack.push(CondBlock, SourceLocToDebugLoc(R.getBegin()),
+                 SourceLocToDebugLoc(R.getEnd()),&S);
 
   llvm::Value *BoolCondVal = nullptr;
   if (!DynamicOrOrdered) {
@@ -1980,7 +1998,9 @@ void CodeGenFunction::EmitOMPOuterLoop(
       [&S, IsMonotonic](CodeGenFunction &CGF, PrePostActionTy &) {
         // Generate !llvm.loop.parallel metadata for loads and stores for loops
         // with dynamic/guided scheduling and without ordered clause.
-        if (isOpenMPSimdDirective(S.getDirectiveKind()))
+        if (!isOpenMPSimdDirective(S.getDirectiveKind()))
+          CGF.LoopStack.setParallel(!IsMonotonic);
+        else
           CGF.EmitOMPSimdInit(S, IsMonotonic);
       },
       [&S, &LoopArgs, LoopExit, &CodeGenLoop, IVSize, IVSigned, &CodeGenOrdered,
