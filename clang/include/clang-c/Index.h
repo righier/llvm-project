@@ -2572,7 +2572,7 @@ enum CXCursorKind {
 
   /** OpenMP parallel master directive.
    */
-  CXCursor_OMPParallelMasterDirective      = 285,
+  CXCursor_OMPParallelMasterDirective = 285,
 
   CXCursor_LastStmt = CXCursor_OMPParallelMasterDirective,
 
