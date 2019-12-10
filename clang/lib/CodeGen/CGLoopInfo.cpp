@@ -6,14 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "CGLoopInfo.h"
 #include "CGTransform.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/CFG.h"
-#include "CGLoopInfo.h"
-#include "clang/Basic/LangOptions.h"
-#include "CGLoopInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
+#include "clang/Basic/LangOptions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
@@ -459,12 +456,14 @@ void LoopAttributes::clear() {
 
 LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
-                   LoopInfo *Parent, CGTransformedTree *Current, CGTransformedTree *Syntactical)
+                   LoopInfo *Parent, CGTransformedTree *Current,
+                   CGTransformedTree *Syntactical)
     : Header(Header), Attrs(Attrs), StartLoc(StartLoc), EndLoc(EndLoc),
-      Parent(Parent) , Syntactical(Syntactical){
+      Parent(Parent), Syntactical(Syntactical) {
 
   if (Current) {
-    assert(Current->isCodeGenned() && "Emitted loop must be marked as code-genned");
+    assert(Current->isCodeGenned() &&
+           "Emitted loop must be marked as code-genned");
     LoopMD = Current->makeLoopID(Header->getContext(), false);
     AccGroup = Current->getAccessGroupOrNull();
   }
@@ -473,7 +472,7 @@ LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
     // Create an access group for this loop.
     LLVMContext &Ctx = Header->getContext();
     if (!AccGroup)
-    AccGroup = MDNode::getDistinct(Ctx, {});
+      AccGroup = MDNode::getDistinct(Ctx, {});
   }
 
   if (!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
@@ -488,11 +487,10 @@ LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
       !EndLoc)
     return;
 
-  assert(!LoopMD && "#pragma clang transform is incompatible with loop attributes");
+  assert(!LoopMD &&
+         "#pragma clang transform is incompatible with loop attributes");
   TempLoopID = MDNode::getTemporary(Header->getContext(), None);
 }
-
-
 
 LoopInfoStack::~LoopInfoStack() {
   for (auto N : AllNodes)
@@ -500,7 +498,6 @@ LoopInfoStack::~LoopInfoStack() {
   for (auto T : AllTransforms)
     delete T;
 }
-
 
 void LoopInfo::finish() {
   // We did not annotate the loop body instructions because there are no
@@ -513,7 +510,7 @@ void LoopInfo::finish() {
   LLVMContext &Ctx = Header->getContext();
 
   if (Parent && (Parent->Attrs.UnrollAndJamEnable ||
-    Parent->Attrs.UnrollAndJamCount != 0)) {
+                 Parent->Attrs.UnrollAndJamCount != 0)) {
     // Parent unroll-and-jams this loop.
     // Split the transformations in those that happens before the unroll-and-jam
     // and those after.
@@ -564,14 +561,14 @@ void LoopInfo::finish() {
       // add it manually.
       SmallVector<Metadata *, 1> BeforeLoopProperties;
       if (BeforeJam.VectorizeEnable != LoopAttributes::Unspecified ||
-        BeforeJam.VectorizePredicateEnable != LoopAttributes::Unspecified ||
-        BeforeJam.InterleaveCount != 0 || BeforeJam.VectorizeWidth != 0)
+          BeforeJam.VectorizePredicateEnable != LoopAttributes::Unspecified ||
+          BeforeJam.InterleaveCount != 0 || BeforeJam.VectorizeWidth != 0)
         BeforeLoopProperties.push_back(
-          MDNode::get(Ctx, MDString::get(Ctx, "llvm.loop.isvectorized")));
+            MDNode::get(Ctx, MDString::get(Ctx, "llvm.loop.isvectorized")));
 
       bool InnerFollowupHasTransform = false;
       MDNode *InnerFollowup = createMetadata(AfterJam, BeforeLoopProperties,
-        InnerFollowupHasTransform);
+                                             InnerFollowupHasTransform);
       if (InnerFollowupHasTransform)
         Parent->UnrollAndJamInnerFollowup = InnerFollowup;
     }
@@ -585,16 +582,18 @@ void LoopInfo::finish() {
 }
 
 void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
-  const llvm::DebugLoc &EndLoc, const  clang:: Stmt *LoopStmt) {
+                         const llvm::DebugLoc &EndLoc,
+                         const clang::Stmt *LoopStmt) {
 
-  LoopInfo* Parent = Active.empty() ? nullptr : Active.back().get();
+  LoopInfo *Parent = Active.empty() ? nullptr : Active.back().get();
   if (Staging) {
     Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,
-      Parent, Staging, Staging));
+                                     Parent, Staging, Staging));
 
   } else {
     Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,
-      Parent, lookupTransformedNode( LoopStmt), nullptr));
+                                     Parent, lookupTransformedNode(LoopStmt),
+                                     nullptr));
   }
 
 #if 0
@@ -607,15 +606,16 @@ void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
 }
 
 void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
-  ArrayRef<const clang::Attr *> Attrs,
-  const llvm::DebugLoc &StartLoc,
-  const llvm::DebugLoc &EndLoc, const clang::Stmt *LoopStmt) {
+                         ArrayRef<const clang::Attr *> Attrs,
+                         const llvm::DebugLoc &StartLoc,
+                         const llvm::DebugLoc &EndLoc,
+                         const clang::Stmt *LoopStmt) {
 
   // Identify loop hint attributes from Attrs.
   for (const auto *Attr : Attrs) {
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
-      dyn_cast<OpenCLUnrollHintAttr>(Attr);
+        dyn_cast<OpenCLUnrollHintAttr>(Attr);
 
     // Skip non loop hint attributes
     if (!LH && !OpenCLHint) {
@@ -788,7 +788,7 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
   }
 
   /// Stage the attributes.
-  push(Header, StartLoc, EndLoc,LoopStmt);
+  push(Header, StartLoc, EndLoc, LoopStmt);
 }
 
 void LoopInfoStack::pop() {
@@ -797,35 +797,39 @@ void LoopInfoStack::pop() {
   Active.pop_back();
 }
 
-
-CGTransformedTree* LoopInfoStack::lookupTransformedNode(const clang:: Stmt *S){
- const Stmt* Loop = getAssociatedLoop(S);
+CGTransformedTree *LoopInfoStack::lookupTransformedNode(const clang::Stmt *S) {
+  const Stmt *Loop = getAssociatedLoop(S);
   if (!Loop)
     return nullptr;
   return StmtToTree.lookup(Loop);
 }
 
-
-clang::CodeGen::CGTransformedTree* clang::CodeGen:: LoopInfoStack::getFollowupAtIdx(clang::CodeGen::CGTransformedTree* TN, clang:: Transform::Kind  ExpectedTransformation,int FollowupIdx) {
+clang::CodeGen::CGTransformedTree *
+clang::CodeGen::LoopInfoStack::getFollowupAtIdx(
+    clang::CodeGen::CGTransformedTree *TN,
+    clang::Transform::Kind ExpectedTransformation, int FollowupIdx) {
   assert(TN->isTransformationInput());
-  assert(TN->getTransformedBy()->getKind()== ExpectedTransformation);
-  return    TN->getFollowups()[FollowupIdx];
+  assert(TN->getTransformedBy()->getKind() == ExpectedTransformation);
+  return TN->getFollowups()[FollowupIdx];
 }
 
+void clang::CodeGen::LoopInfoStack::followTransformation(
+    Transform::Kind ExpectedTransformation, int FollowupIdx) {
+  assert(Staging && "Must have resolved a staging transformation");
+  assert(Staging->isTransformationInput());
+  assert(Staging->getSourceTransformation()->getKind() ==
+         ExpectedTransformation);
+  Staging = Staging->getFollowups()[FollowupIdx];
+}
 
-
-
-  void clang::CodeGen::LoopInfoStack::followTransformation(  Transform::Kind  ExpectedTransformation, int FollowupIdx   ) {
-    assert(Staging && "Must have resolved a staging transformation");
-    assert(Staging->isTransformationInput());
-    assert(Staging->getSourceTransformation()->getKind()== ExpectedTransformation);
-    Staging = Staging->getFollowups()[FollowupIdx];
-  }
-
-void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,const clang:: LangOptions &LangOpts,  llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,  clang::Stmt *Body) {
-  CGTransformedTreeBuilder Builder(ASTCtx,LangOpts, LLVMCtx, AllNodes, AllTransforms,                                   DbgInfo);
+void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
+                              const clang::LangOptions &LangOpts,
+                              llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
+                              clang::Stmt *Body) {
+  CGTransformedTreeBuilder Builder(ASTCtx, LangOpts, LLVMCtx, AllNodes,
+                                   AllTransforms, DbgInfo);
   TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
-  TransformedStructure->finalize(  LLVMCtx );
+  TransformedStructure->finalize(LLVMCtx);
 }
 
 #if 0
@@ -873,5 +877,3 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
     return;
   }
 }
-
-

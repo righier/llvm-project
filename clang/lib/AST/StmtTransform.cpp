@@ -153,6 +153,7 @@ const Stmt *clang::getAssociatedLoop(const Stmt *S) {
     if (auto LD = dyn_cast<OMPLoopDirective>(S))
       return getAssociatedLoop(LD->getAssociatedStmt());
 #endif
-  default:return nullptr;
+  default:
+    return nullptr;
   }
 }

@@ -24,8 +24,8 @@ public:
   enum Kind {
     UnknownKind,
 #define TRANSFORM_DIRECTIVE(Name) Name##Kind,
-#define TRANSFORM_DIRECTIVE_LAST(Name)                                \
-  TRANSFORM_DIRECTIVE( Name)                                           \
+#define TRANSFORM_DIRECTIVE_LAST(Name)                                         \
+  TRANSFORM_DIRECTIVE(Name)                                                    \
   LastKind = Name##Kind
 #include "TransformKinds.def"
   };
@@ -35,15 +35,15 @@ public:
 
 #if 0
   static llvm::StringRef getTransformDirectiveName(Kind K);
-#endif 
+#endif
 
 private:
   Kind TransformKind;
   SourceRange LocRange;
 
-
 protected:
-  Transform(Kind K, SourceRange LocRange) : TransformKind(K), LocRange(LocRange) {}
+  Transform(Kind K, SourceRange LocRange)
+      : TransformKind(K), LocRange(LocRange) {}
 
 public:
   virtual ~Transform() {}
@@ -62,13 +62,12 @@ public:
   }
   /// @}
 
-
   /// Each transformation defines how many loops it consumes and generates.
   /// Users of this class can store arrays holding the information regarding the
   /// loops, such as pointer to the AST node or the loop name. The index in this
   /// array is its "role".
   /// @{
-  virtual int getNumInputs() const { return 1;  }
+  virtual int getNumInputs() const { return 1; }
   virtual int getNumFollowups() const { return 0; }
   /// @}
 
@@ -81,9 +80,6 @@ public:
   int getLoopPipelineStage() const;
 };
 
-
-
-
 class LoopUnrollingTransform final : public Transform {
 private:
   bool ImplicitEnable;
@@ -91,10 +87,9 @@ private:
   int64_t Factor;
 
   LoopUnrollingTransform(SourceRange Loc, bool ImplicitEnable,
-    bool ExplicitEnable, int Factor)
-    : Transform(LoopUnrollingKind, Loc),
-    ImplicitEnable(ImplicitEnable), ExplicitEnable(ExplicitEnable),
-    Factor(Factor) {}
+                         bool ExplicitEnable, int Factor)
+      : Transform(LoopUnrollingKind, Loc), ImplicitEnable(ImplicitEnable),
+        ExplicitEnable(ExplicitEnable), Factor(Factor) {}
 
 public:
   static bool classof(const LoopUnrollingTransform *Trans) { return true; }
@@ -102,22 +97,20 @@ public:
     return Trans->getKind() == LoopUnrollingKind;
   }
 
-  static LoopUnrollingTransform *create(SourceRange Loc, 
-    bool ImplicitEnable,
-    bool ExplicitEnable) {
-    return new LoopUnrollingTransform(Loc, ImplicitEnable,  ExplicitEnable, 0);
+  static LoopUnrollingTransform *create(SourceRange Loc, bool ImplicitEnable,
+                                        bool ExplicitEnable) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable, ExplicitEnable, 0);
   }
-  static LoopUnrollingTransform *createFull(SourceRange Loc, 
-    bool ImplicitEnable,
-    bool ExplicitEnable) {
-    return new LoopUnrollingTransform(Loc, ImplicitEnable,
-      ExplicitEnable, -1);
+  static LoopUnrollingTransform *
+  createFull(SourceRange Loc, bool ImplicitEnable, bool ExplicitEnable) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable, ExplicitEnable, -1);
   }
-  static LoopUnrollingTransform *createPartial(SourceRange Loc, 
-    bool ImplicitEnable,
-    bool ExplicitEnable,
-    int Factor) {
-    return new LoopUnrollingTransform(Loc, ImplicitEnable,                                      ExplicitEnable, Factor);
+  static LoopUnrollingTransform *createPartial(SourceRange Loc,
+                                               bool ImplicitEnable,
+                                               bool ExplicitEnable,
+                                               int Factor) {
+    return new LoopUnrollingTransform(Loc, ImplicitEnable, ExplicitEnable,
+                                      Factor);
   }
 
   int getNumInputs() const { return 1; }
@@ -132,9 +125,7 @@ public:
   };
 
   bool hasFollowupRole(int i) { return isFull(); }
-  int getDefaultSuccessor() const {
-    return  FollowupUnrolled;
-  }
+  int getDefaultSuccessor() const { return FollowupUnrolled; }
 
   bool isImplicitEnable() const { return ImplicitEnable; }
 
@@ -150,10 +141,9 @@ private:
   bool ExplicitEnable;
   int Factor;
 
-  LoopUnrollAndJamTransform(SourceRange Loc,  bool ExplicitEnable,
-    int Factor)
-    : Transform(LoopUnrollAndJamKind, Loc),
-    ExplicitEnable(ExplicitEnable), Factor(Factor) {}
+  LoopUnrollAndJamTransform(SourceRange Loc, bool ExplicitEnable, int Factor)
+      : Transform(LoopUnrollAndJamKind, Loc), ExplicitEnable(ExplicitEnable),
+        Factor(Factor) {}
 
 public:
   static bool classof(const LoopUnrollAndJamTransform *Trans) { return true; }
@@ -161,15 +151,17 @@ public:
     return Trans->getKind() == LoopUnrollAndJamKind;
   }
 
-  static LoopUnrollAndJamTransform *create(SourceRange Loc,     bool ExplicitEnable) {
-    return new LoopUnrollAndJamTransform(Loc,  ExplicitEnable, 0);
+  static LoopUnrollAndJamTransform *create(SourceRange Loc,
+                                           bool ExplicitEnable) {
+    return new LoopUnrollAndJamTransform(Loc, ExplicitEnable, 0);
   }
-  static LoopUnrollAndJamTransform *createFull(SourceRange Loc,     bool ExplicitEnable) {
+  static LoopUnrollAndJamTransform *createFull(SourceRange Loc,
+                                               bool ExplicitEnable) {
     return new LoopUnrollAndJamTransform(Loc, ExplicitEnable, -1);
   }
   static LoopUnrollAndJamTransform *
-    createPartial(SourceRange Loc, bool ExplicitEnable, int Factor) {
-    return new LoopUnrollAndJamTransform(Loc,  ExplicitEnable, Factor);
+  createPartial(SourceRange Loc, bool ExplicitEnable, int Factor) {
+    return new LoopUnrollAndJamTransform(Loc, ExplicitEnable, Factor);
   }
 
   int getNumInputs() const { return 1; }
@@ -190,10 +182,10 @@ public:
   bool isFull() const { return Factor == -1; }
 };
 
-
 class LoopDistributionTransform final : public Transform {
 private:
-  LoopDistributionTransform(SourceRange Loc): Transform(LoopDistributionKind, Loc) {}
+  LoopDistributionTransform(SourceRange Loc)
+      : Transform(LoopDistributionKind, Loc) {}
 
 public:
   static bool classof(const LoopDistributionTransform *Trans) { return true; }
@@ -299,7 +291,6 @@ public:
 
   int getInterleaveCount() const { return InterleaveCount; }
 };
-
 
 } // namespace clang
 #endif /* LLVM_CLANG_BASIC_TRANSFORM_H */

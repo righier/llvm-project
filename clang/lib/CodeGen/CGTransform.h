@@ -41,8 +41,8 @@ class CGTransformedTree : public TransformedTree<CGTransformedTree> {
 public:
   CGTransformedTree(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
                     clang::Stmt *Original, int FollowupRole)
-      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole)
-, IsCodeGenned(Original)   {  }
+      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole),
+        IsCodeGenned(Original) {}
 
   bool IsDefault = true;
   bool DisableHeuristic = false;
@@ -67,42 +67,34 @@ public:
   void addAttribute(llvm::LLVMContext &LLVMCtx, bool Inherited,
                     llvm::StringRef Name, int Val);
 
+  llvm::MDNode *getAccessGroupOrNull() { return AccessGroup; }
 
-
-  llvm::MDNode *getAccessGroupOrNull() {
-    return AccessGroup;
-  }
-
-  llvm::MDNode* makeAccessGroup(llvm::LLVMContext& LLVMCtx);
+  llvm::MDNode *makeAccessGroup(llvm::LLVMContext &LLVMCtx);
 
   void
-  getOrCreateAccessGroups(llvm::LLVMContext &LLVMCtx,  llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
-  void collectAccessGroups(llvm::LLVMContext& LLVMCtx, llvm::SmallVectorImpl<llvm::MDNode*>& AccessGroups);
+  getOrCreateAccessGroups(llvm::LLVMContext &LLVMCtx,
+                          llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
+  void collectAccessGroups(llvm::LLVMContext &LLVMCtx,
+                           llvm::SmallVectorImpl<llvm::MDNode *> &AccessGroups);
 
-  void finalize(llvm::LLVMContext& LLVMCtx) {
-    Finalized = true;
-  }
-
+  void finalize(llvm::LLVMContext &LLVMCtx) { Finalized = true; }
 
   llvm::ArrayRef<llvm::MDNode *> getParallelAccessGroups() const {
     assert(Finalized);
     return ParallelAccessGroups;
   }
 
-
   llvm::MDNode *makeLoopID(llvm::LLVMContext &Ctx, bool HasAllDisableNonforced);
 
-  bool isCodeGenned() const {
-    return IsCodeGenned;
-  }
+  bool isCodeGenned() const { return IsCodeGenned; }
   bool IsCodeGenned;
-
 };
 
-
-
-class CGTransformedTreeBuilder    : public TransformedTreeBuilder<CGTransformedTreeBuilder,    CGTransformedTree> {
-  using BaseTy =      TransformedTreeBuilder<CGTransformedTreeBuilder, CGTransformedTree>;
+class CGTransformedTreeBuilder
+    : public TransformedTreeBuilder<CGTransformedTreeBuilder,
+                                    CGTransformedTree> {
+  using BaseTy =
+      TransformedTreeBuilder<CGTransformedTreeBuilder, CGTransformedTree>;
   using NodeTy = CGTransformedTree;
 
   BaseTy &getBase() { return *this; }
@@ -111,10 +103,9 @@ class CGTransformedTreeBuilder    : public TransformedTreeBuilder<CGTransformedT
   llvm::LLVMContext &LLVMCtx;
   CGDebugInfo *DbgInfo;
 
-
-
 public:
-  CGTransformedTreeBuilder(ASTContext &ASTCtx, const LangOptions &LangOpts, llvm::LLVMContext &LLVMCtx,
+  CGTransformedTreeBuilder(ASTContext &ASTCtx, const LangOptions &LangOpts,
+                           llvm::LLVMContext &LLVMCtx,
                            llvm::SmallVectorImpl<NodeTy *> &AllNodes,
                            llvm::SmallVectorImpl<Transform *> &AllTransforms,
                            CGDebugInfo *DbgInfo)
@@ -129,17 +120,20 @@ public:
 
   void applyOriginal(CGTransformedTree *L);
 
-  void inheritLoopAttributes(CGTransformedTree *Dst, CGTransformedTree *Src,   bool IsAll, bool IsSuccessor);
-  
+  void inheritLoopAttributes(CGTransformedTree *Dst, CGTransformedTree *Src,
+                             bool IsAll, bool IsSuccessor);
 
-
-  void applyUnroll(LoopUnrollingTransform *Trans,                   CGTransformedTree *OriginalLoop);
-  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,                         CGTransformedTree *OuterLoop,                         CGTransformedTree *InnerLoop);
-  void applyDistribution(LoopDistributionTransform *Trans,                         CGTransformedTree *OriginalLoop);
-  void applyVectorization(LoopVectorizationTransform* Trans, CGTransformedTree* InputLoop);
-  void applyInterleaving(LoopInterleavingTransform* Trans, CGTransformedTree* InputLoop);
-
-
+  void applyUnroll(LoopUnrollingTransform *Trans,
+                   CGTransformedTree *OriginalLoop);
+  void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
+                         CGTransformedTree *OuterLoop,
+                         CGTransformedTree *InnerLoop);
+  void applyDistribution(LoopDistributionTransform *Trans,
+                         CGTransformedTree *OriginalLoop);
+  void applyVectorization(LoopVectorizationTransform *Trans,
+                          CGTransformedTree *InputLoop);
+  void applyInterleaving(LoopInterleavingTransform *Trans,
+                         CGTransformedTree *InputLoop);
 
   void finalize(NodeTy *Root);
 };

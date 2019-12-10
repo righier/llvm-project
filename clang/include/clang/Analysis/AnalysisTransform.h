@@ -114,13 +114,13 @@ template <typename Derived> struct ExtractTransform {
         return nullptr;
 
       if (Full) {
-        return wrap(LoopUnrollingTransform::createFull(Loc,  true, true));
+        return wrap(LoopUnrollingTransform::createFull(Loc, true, true));
       } else if (Partial) {
         llvm::Optional<int64_t> Factor = evalIntArg(Partial->getFactor(), 2);
         if (AnyError || !Factor.hasValue())
           return nullptr;
-        return wrap(LoopUnrollingTransform::createPartial(
-            Loc,  true, true, Factor.getValue()));
+        return wrap(LoopUnrollingTransform::createPartial(Loc, true, true,
+                                                          Factor.getValue()));
       }
 
       return wrap(LoopUnrollingTransform::create(Loc, true, true));
@@ -138,10 +138,10 @@ template <typename Derived> struct ExtractTransform {
         if (AnyError || !Factor.hasValue())
           return nullptr;
         return wrap(LoopUnrollAndJamTransform::createPartial(
-            Loc,  true, Factor.getValue()));
+            Loc, true, Factor.getValue()));
       }
 
-      return wrap(LoopUnrollAndJamTransform::create(Loc,  true));
+      return wrap(LoopUnrollAndJamTransform::create(Loc, true));
     }
 
     case clang::Transform::LoopDistributionKind:

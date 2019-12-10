@@ -19,12 +19,12 @@ using namespace clang;
 
 Transform::Kind Transform ::getTransformDirectiveKind(llvm::StringRef Str) {
   return llvm::StringSwitch<Transform::Kind>(Str)
-    .Case("unroll", LoopUnrollingKind)
-    .Case("unrollandjam", LoopUnrollAndJamKind)
-    .Case("vectorize", LoopVectorizationKind)
-    .Case("interleave", LoopInterleavingKind)
-    .Case("distribute", LoopDistributionKind)
-    .Default(  UnknownKind);
+      .Case("unroll", LoopUnrollingKind)
+      .Case("unrollandjam", LoopUnrollAndJamKind)
+      .Case("vectorize", LoopVectorizationKind)
+      .Case("interleave", LoopInterleavingKind)
+      .Case("distribute", LoopDistributionKind)
+      .Default(UnknownKind);
 }
 
 llvm::StringRef Transform ::getTransformDirectiveKeyword(Kind K) {

@@ -1433,8 +1433,7 @@ void CodeGenFunction::EmitOMPInnerLoop(
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
   LoopStack.push(CondBlock, SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),&S);
- 
+                 SourceLocToDebugLoc(R.getEnd()), &S);
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -1952,7 +1951,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
   LoopStack.push(CondBlock, SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),&S);
+                 SourceLocToDebugLoc(R.getEnd()), &S);
 
   llvm::Value *BoolCondVal = nullptr;
   if (!DynamicOrOrdered) {

@@ -14,10 +14,9 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 #define LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
 #include "clang/Basic/Transform.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Value.h"
@@ -39,8 +38,6 @@ class Transform;
 namespace CodeGen {
 class CGTransformedTree;
 class CGDebugInfo;
-
-
 
 /// Attributes that may be specified on loops.
 struct LoopAttributes {
@@ -93,7 +90,8 @@ public:
   /// Construct a new LoopInfo for the loop with entry Header.
   LoopInfo(llvm::BasicBlock *Header, const LoopAttributes &Attrs,
            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
-           LoopInfo *Parent, CGTransformedTree *Current, CGTransformedTree *Syntactical);
+           LoopInfo *Parent, CGTransformedTree *Current,
+           CGTransformedTree *Syntactical);
 
   /// Get the loop id metadata for this loop.
   llvm::MDNode *getLoopID() const {
@@ -115,12 +113,12 @@ public:
   /// been processed.
   void finish();
 
-  CGTransformedTree* Syntactical;
+  CGTransformedTree *Syntactical;
 
 private:
   /// Loop ID metadata.
   llvm::TempMDTuple TempLoopID;
-  llvm::MDNode* LoopMD=nullptr;
+  llvm::MDNode *LoopMD = nullptr;
   /// Header block of this loop.
   llvm::BasicBlock *Header;
   /// The attributes for this loop.
@@ -137,8 +135,6 @@ private:
   /// loop's LoopInfo to set the llvm.loop.unroll_and_jam.followup_inner
   /// metadata.
   llvm::MDNode *UnrollAndJamInnerFollowup = nullptr;
-
-
 
   /// Create a LoopID without any transformations.
   llvm::MDNode *
@@ -215,67 +211,62 @@ public:
   LoopInfoStack() {}
   ~LoopInfoStack();
 
+  CGTransformedTree *lookupTransformedNode(const Stmt *S);
+  static CGTransformedTree *
+  getFollowupAtIdx(CGTransformedTree *TN,
+                   Transform::Kind ExpectedTransformation, int FollowupIdx);
 
-  CGTransformedTree* lookupTransformedNode( const Stmt *S);
-  static  CGTransformedTree* getFollowupAtIdx(CGTransformedTree* TN,  Transform::Kind  ExpectedTransformation,int FollowupIdx);
-
-
-  void setNextTransformedNode(CGTransformedTree* TN) {
+  void setNextTransformedNode(CGTransformedTree *TN) {
     assert(!Staging && "Conflicting staging transformed node");
     Staging = TN;
   }
 
-
-  void followTransformation(Transform::Kind  ExpectedTransformation, int FollowupIdx);
+  void followTransformation(Transform::Kind ExpectedTransformation,
+                            int FollowupIdx);
   void initAsOutlined(LoopInfoStack &ParentLIS) {
     StmtToTree = ParentLIS.StmtToTree;
   }
 
-
-
-
-
   class TransformScope {
-    LoopInfoStack& LIS;
+    LoopInfoStack &LIS;
     bool Active;
+
   public:
-    TransformScope(LoopInfoStack &LIS, const Stmt *S) :LIS(LIS) {
-      auto& SyntacticalParent = LIS. getTopSyntacticalParent();
+    TransformScope(LoopInfoStack &LIS, const Stmt *S) : LIS(LIS) {
+      auto &SyntacticalParent = LIS.getTopSyntacticalParent();
       if (SyntacticalParent) {
         Active = false;
         return;
       }
 
-      SyntacticalParent = LIS.lookupTransformedNode( S);
+      SyntacticalParent = LIS.lookupTransformedNode(S);
       Active = true;
     }
     ~TransformScope() {
       if (Active)
-        LIS. getTopSyntacticalParent() = nullptr;
+        LIS.getTopSyntacticalParent() = nullptr;
     }
   };
 
   class FollowupScope {
-    LoopInfoStack& LIS;
+    LoopInfoStack &LIS;
+
   public:
-    FollowupScope(LoopInfoStack &LIS, Transform::Kind  ExpectedTransformation, int FollowupIdx) : LIS(LIS) {
-      auto& SyntacticalParent = LIS. getTopSyntacticalParent();
+    FollowupScope(LoopInfoStack &LIS, Transform::Kind ExpectedTransformation,
+                  int FollowupIdx)
+        : LIS(LIS) {
+      auto &SyntacticalParent = LIS.getTopSyntacticalParent();
       assert(SyntacticalParent);
       assert(!LIS.Staging && "Conflicting syntactic node for staging");
 
-      LIS. Staging = LIS.getFollowupAtIdx(SyntacticalParent,ExpectedTransformation,  FollowupIdx);
+      LIS.Staging = LIS.getFollowupAtIdx(SyntacticalParent,
+                                         ExpectedTransformation, FollowupIdx);
     }
-    ~FollowupScope() {
-      LIS.Staging = nullptr;
-    }
+    ~FollowupScope() { LIS.Staging = nullptr; }
   };
 
-
-
-
-
-  void initBuild(ASTContext &ASTCtx,const  LangOptions &LangOpts,  llvm::LLVMContext &LLVMCtx,                 CGDebugInfo *DbgInfo, Stmt *Body);
-
+  void initBuild(ASTContext &ASTCtx, const LangOptions &LangOpts,
+                 llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo, Stmt *Body);
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
@@ -365,14 +356,13 @@ private:
   llvm::SmallVector<std::unique_ptr<LoopInfo>, 4> Active;
 
   /// Return the syntactical transformation node of the topmost loop.
-  CGTransformedTree*& getTopSyntacticalParent() {
+  CGTransformedTree *&getTopSyntacticalParent() {
     return Active.empty() ? SyntacticalRootNode : Active.back()->Syntactical;
   }
 
-  CGTransformedTree* Staging=nullptr;
+  CGTransformedTree *Staging = nullptr;
 
-  CGTransformedTree* SyntacticalRootNode=nullptr;
-
+  CGTransformedTree *SyntacticalRootNode = nullptr;
 
   llvm::SmallVector<CGTransformedTree *, 64> AllNodes;
   llvm::SmallVector<Transform *, 64> AllTransforms;
@@ -380,9 +370,6 @@ private:
 
   CGTransformedTree *TransformedStructure = nullptr;
 };
-
-
-
 
 } // end namespace CodeGen
 } // end namespace clang

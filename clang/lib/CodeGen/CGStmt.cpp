@@ -720,7 +720,6 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");
   EmitBlock(LoopHeader.getBlock());
 
-  
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), WhileAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
@@ -823,7 +822,6 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
 
   EmitBlock(LoopCond.getBlock());
 
-  
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(LoopBody, CGM.getContext(), DoAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
@@ -982,7 +980,6 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   // later.
   llvm::BasicBlock *CondBlock = createBasicBlock("for.cond");
   EmitBlock(CondBlock);
-
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), ForAttrs,
