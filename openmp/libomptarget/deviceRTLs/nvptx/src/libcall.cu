@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "omptarget-nvptx.h"
+#include "common/omptarget.h"
 
 // Timer precision is 1ns
 #define TIMER_PRECISION ((double)1E-9)
@@ -364,7 +364,7 @@ EXTERN void omp_set_lock(omp_lock_t *lock) {
     for (;;) {
       now = clock();
       clock_t cycles = now > start ? now - start : now + (0xffffffff - start);
-      if (cycles >= __OMP_SPIN * blockIdx.x) {
+      if (cycles >= __OMP_SPIN * GetBlockIdInKernel()) {
         break;
       }
     }

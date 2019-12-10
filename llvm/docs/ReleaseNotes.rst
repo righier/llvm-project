@@ -58,6 +58,9 @@ Non-comprehensive list of changes in this release
 * The BasicBlockPass, BBPassManager and all their uses were deleted in
   `this revision <https://reviews.llvm.org/rG9f0ff0b2634bab6a5be8dace005c9eb24d386dd1>`_.
 
+* The LLVM_BUILD_LLVM_DYLIB and LLVM_LINK_LLVM_DYLIB CMake options are no longer
+  available on Windows.
+
 .. NOTE
    If you would like to document a larger change, then you can add a
    subsection about it right here. You can copy the following boilerplate
@@ -86,6 +89,9 @@ Non-comprehensive list of changes in this release
   indirect function calls. The previous behavior is still available with the 
   ``-cfguard-nochecks`` option. Note that this feature should always be used 
   with optimizations enabled.
+
+* ``Callbacks`` have been added to ``CommandLine Options``.  These can
+  be used to validate of selectively enable other options.
 
 Changes to the LLVM IR
 ----------------------
@@ -163,6 +169,16 @@ Changes to the OCaml bindings
 
 Changes to the C API
 --------------------
+* C DebugInfo API ``LLVMDIBuilderCreateTypedef`` is updated to include an extra
+argument ``AlignInBits``, to facilitate / propagate specified Alignment information
+present in a ``typedef`` to Debug information in LLVM IR.
+
+
+Changes to the Go bindings
+--------------------------
+* Go DebugInfo API ``CreateTypedef`` is updated to include an extra argument ``AlignInBits``,
+to facilitate / propagate specified Alignment information present in a ``typedef``
+to Debug information in LLVM IR.
 
 
 Changes to the DAG infrastructure

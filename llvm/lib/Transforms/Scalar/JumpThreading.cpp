@@ -55,6 +55,7 @@
 #include "llvm/IR/Use.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/BlockFrequency.h"
 #include "llvm/Support/BranchProbability.h"
@@ -305,14 +306,13 @@ bool JumpThreading::runOnFunction(Function &F) {
   DomTreeUpdater DTU(*DT, DomTreeUpdater::UpdateStrategy::Lazy);
   std::unique_ptr<BlockFrequencyInfo> BFI;
   std::unique_ptr<BranchProbabilityInfo> BPI;
-  bool HasProfileData = F.hasProfileData();
-  if (HasProfileData) {
+  if (F.hasProfileData()) {
     LoopInfo LI{DominatorTree(F)};
     BPI.reset(new BranchProbabilityInfo(F, LI, TLI));
     BFI.reset(new BlockFrequencyInfo(F, *BPI, LI));
   }
 
-  bool Changed = Impl.runImpl(F, TLI, LVI, AA, &DTU, HasProfileData,
+  bool Changed = Impl.runImpl(F, TLI, LVI, AA, &DTU, F.hasProfileData(),
                               std::move(BFI), std::move(BPI));
   if (PrintLVIAfterJumpThreading) {
     dbgs() << "LVI for function '" << F.getName() << "':\n";
@@ -339,7 +339,7 @@ PreservedAnalyses JumpThreadingPass::run(Function &F,
     BFI.reset(new BlockFrequencyInfo(F, *BPI, LI));
   }
 
-  bool Changed = runImpl(F, &TLI, &LVI, &AA, &DTU, HasProfileData,
+  bool Changed = runImpl(F, &TLI, &LVI, &AA, &DTU, F.hasProfileData(),
                          std::move(BFI), std::move(BPI));
 
   if (!Changed)
@@ -1717,7 +1717,7 @@ bool JumpThreadingPass::ProcessThreadableEdges(Value *Cond, BasicBlock *BB,
                             getSuccessor(GetBestDestForJumpOnUndef(BB));
 
   // Ok, try to thread it!
-  return ThreadEdge(BB, PredsToFactor, MostPopularDest);
+  return TryThreadEdge(BB, PredsToFactor, MostPopularDest);
 }
 
 /// ProcessBranchOnPHI - We have an otherwise unthreadable conditional branch on
@@ -1897,7 +1897,7 @@ bool JumpThreadingPass::MaybeMergeBasicBlockIntoOnlyPred(BasicBlock *BB) {
   LVI->eraseBlock(SinglePred);
   MergeBasicBlockIntoOnlyPred(BB, DTU);
 
-  // Now that BB is merged into SinglePred (i.e. SinglePred Code followed by
+  // Now that BB is merged into SinglePred (i.e. SinglePred code followed by
   // BB code within one basic block `BB`), we need to invalidate the LVI
   // information associated with BB, because the LVI information need not be
   // true for all of BB after the merge. For example,
@@ -1973,12 +1973,52 @@ void JumpThreadingPass::UpdateSSA(
   }
 }
 
-/// ThreadEdge - We have decided that it is safe and profitable to factor the
-/// blocks in PredBBs to one predecessor, then thread an edge from it to SuccBB
-/// across BB.  Transform the IR to reflect this change.
-bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
-                                   const SmallVectorImpl<BasicBlock *> &PredBBs,
-                                   BasicBlock *SuccBB) {
+/// Clone instructions in range [BI, BE) to NewBB.  For PHI nodes, we only clone
+/// arguments that come from PredBB.  Return the map from the variables in the
+/// source basic block to the variables in the newly created basic block.
+DenseMap<Instruction *, Value *>
+JumpThreadingPass::CloneInstructions(BasicBlock::iterator BI,
+                                     BasicBlock::iterator BE, BasicBlock *NewBB,
+                                     BasicBlock *PredBB) {
+  // We are going to have to map operands from the source basic block to the new
+  // copy of the block 'NewBB'.  If there are PHI nodes in the source basic
+  // block, evaluate them to account for entry from PredBB.
+  DenseMap<Instruction *, Value *> ValueMapping;
+
+  // Clone the phi nodes of the source basic block into NewBB.  The resulting
+  // phi nodes are trivial since NewBB only has one predecessor, but SSAUpdater
+  // might need to rewrite the operand of the cloned phi.
+  for (; PHINode *PN = dyn_cast<PHINode>(BI); ++BI) {
+    PHINode *NewPN = PHINode::Create(PN->getType(), 1, PN->getName(), NewBB);
+    NewPN->addIncoming(PN->getIncomingValueForBlock(PredBB), PredBB);
+    ValueMapping[PN] = NewPN;
+  }
+
+  // Clone the non-phi instructions of the source basic block into NewBB,
+  // keeping track of the mapping and using it to remap operands in the cloned
+  // instructions.
+  for (; BI != BE; ++BI) {
+    Instruction *New = BI->clone();
+    New->setName(BI->getName());
+    NewBB->getInstList().push_back(New);
+    ValueMapping[&*BI] = New;
+
+    // Remap operands to patch up intra-block references.
+    for (unsigned i = 0, e = New->getNumOperands(); i != e; ++i)
+      if (Instruction *Inst = dyn_cast<Instruction>(New->getOperand(i))) {
+        DenseMap<Instruction *, Value *>::iterator I = ValueMapping.find(Inst);
+        if (I != ValueMapping.end())
+          New->setOperand(i, I->second);
+      }
+  }
+
+  return ValueMapping;
+}
+
+/// TryThreadEdge - Thread an edge if it's safe and profitable to do so.
+bool JumpThreadingPass::TryThreadEdge(
+    BasicBlock *BB, const SmallVectorImpl<BasicBlock *> &PredBBs,
+    BasicBlock *SuccBB) {
   // If threading to the same block as we come from, we would infinite loop.
   if (SuccBB == BB) {
     LLVM_DEBUG(dbgs() << "  Not threading across BB '" << BB->getName()
@@ -2008,6 +2048,21 @@ bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
     return false;
   }
 
+  ThreadEdge(BB, PredBBs, SuccBB);
+  return true;
+}
+
+/// ThreadEdge - We have decided that it is safe and profitable to factor the
+/// blocks in PredBBs to one predecessor, then thread an edge from it to SuccBB
+/// across BB.  Transform the IR to reflect this change.
+void JumpThreadingPass::ThreadEdge(BasicBlock *BB,
+                                   const SmallVectorImpl<BasicBlock *> &PredBBs,
+                                   BasicBlock *SuccBB) {
+  assert(SuccBB != BB && "Don't create an infinite loop");
+
+  assert(!LoopHeaders.count(BB) && !LoopHeaders.count(SuccBB) &&
+         "Don't thread across loop headers");
+
   // And finally, do it!  Start by factoring the predecessors if needed.
   BasicBlock *PredBB;
   if (PredBBs.size() == 1)
@@ -2021,7 +2076,6 @@ bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
   // And finally, do it!
   LLVM_DEBUG(dbgs() << "  Threading edge from '" << PredBB->getName()
                     << "' to '" << SuccBB->getName()
-                    << "' with cost: " << JumpThreadCost
                     << ", across block:\n    " << *BB << "\n");
 
   if (DTU->hasPendingDomTreeUpdates())
@@ -2029,11 +2083,6 @@ bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
   else
     LVI->enableDT();
   LVI->threadEdge(PredBB, BB, SuccBB);
-
-  // We are going to have to map operands from the original BB block to the new
-  // copy of the block 'NewBB'.  If there are PHI nodes in BB, evaluate them to
-  // account for entry from PredBB.
-  DenseMap<Instruction*, Value*> ValueMapping;
 
   BasicBlock *NewBB = BasicBlock::Create(BB->getContext(),
                                          BB->getName()+".thread",
@@ -2047,32 +2096,9 @@ bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
     BFI->setBlockFreq(NewBB, NewBBFreq.getFrequency());
   }
 
-  BasicBlock::iterator BI = BB->begin();
-  // Clone the phi nodes of BB into NewBB. The resulting phi nodes are trivial,
-  // since NewBB only has one predecessor, but SSAUpdater might need to rewrite
-  // the operand of the cloned phi.
-  for (; PHINode *PN = dyn_cast<PHINode>(BI); ++BI) {
-    PHINode *NewPN = PHINode::Create(PN->getType(), 1, PN->getName(), NewBB);
-    NewPN->addIncoming(PN->getIncomingValueForBlock(PredBB), PredBB);
-    ValueMapping[PN] = NewPN;
-  }
-
-  // Clone the non-phi instructions of BB into NewBB, keeping track of the
-  // mapping and using it to remap operands in the cloned instructions.
-  for (; !BI->isTerminator(); ++BI) {
-    Instruction *New = BI->clone();
-    New->setName(BI->getName());
-    NewBB->getInstList().push_back(New);
-    ValueMapping[&*BI] = New;
-
-    // Remap operands to patch up intra-block references.
-    for (unsigned i = 0, e = New->getNumOperands(); i != e; ++i)
-      if (Instruction *Inst = dyn_cast<Instruction>(New->getOperand(i))) {
-        DenseMap<Instruction*, Value*>::iterator I = ValueMapping.find(Inst);
-        if (I != ValueMapping.end())
-          New->setOperand(i, I->second);
-      }
-  }
+  // Copy all the instructions from BB to NewBB except the terminator.
+  DenseMap<Instruction *, Value *> ValueMapping =
+      CloneInstructions(BB->begin(), std::prev(BB->end()), NewBB, PredBB);
 
   // We didn't copy the terminator from BB over to NewBB, because there is now
   // an unconditional jump to SuccBB.  Insert the unconditional jump.
@@ -2110,7 +2136,6 @@ bool JumpThreadingPass::ThreadEdge(BasicBlock *BB,
 
   // Threaded an edge!
   ++NumThreads;
-  return true;
 }
 
 /// Create a new basic block that will be the predecessor of BB and successor of

@@ -823,7 +823,8 @@ static void InsertOCLBuiltinDeclarationsFromTable(Sema &S, LookupResult &LR,
         NewOpenCLBuiltin->addAttr(ConstAttr::CreateImplicit(Context));
       if (OpenCLBuiltin.IsConv)
         NewOpenCLBuiltin->addAttr(ConvergentAttr::CreateImplicit(Context));
-      if ((GenTypeMaxCnt > 1 || Len > 1) && !S.getLangOpts().OpenCLCPlusPlus)
+
+      if (!S.getLangOpts().OpenCLCPlusPlus)
         NewOpenCLBuiltin->addAttr(OverloadableAttr::CreateImplicit(Context));
 
       LR.addDecl(NewOpenCLBuiltin);
@@ -3112,11 +3113,10 @@ Sema::SpecialMemberOverloadResult Sema::LookupSpecialMember(CXXRecordDecl *RD,
       });
     }
     CXXDestructorDecl *DD = RD->getDestructor();
-    assert(DD && "record without a destructor");
     Result->setMethod(DD);
-    Result->setKind(DD->isDeleted() ?
-                    SpecialMemberOverloadResult::NoMemberOrDeleted :
-                    SpecialMemberOverloadResult::Success);
+    Result->setKind(DD && !DD->isDeleted()
+                        ? SpecialMemberOverloadResult::Success
+                        : SpecialMemberOverloadResult::NoMemberOrDeleted);
     return *Result;
   }
 

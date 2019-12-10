@@ -75,6 +75,8 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::SELECT:      Res = PromoteIntRes_SELECT(N); break;
   case ISD::VSELECT:     Res = PromoteIntRes_VSELECT(N); break;
   case ISD::SELECT_CC:   Res = PromoteIntRes_SELECT_CC(N); break;
+  case ISD::STRICT_FSETCC:
+  case ISD::STRICT_FSETCCS:
   case ISD::SETCC:       Res = PromoteIntRes_SETCC(N); break;
   case ISD::SMIN:
   case ISD::SMAX:        Res = PromoteIntRes_SExtIntBinOp(N); break;
@@ -592,8 +594,9 @@ SDValue DAGTypeLegalizer::PromoteIntRes_MLOAD(MaskedLoadSDNode *N) {
 
   SDLoc dl(N);
   SDValue Res = DAG.getMaskedLoad(NVT, dl, N->getChain(), N->getBasePtr(),
-                                  N->getMask(), ExtPassThru, N->getMemoryVT(),
-                                  N->getMemOperand(), ISD::EXTLOAD);
+                                  N->getOffset(), N->getMask(), ExtPassThru,
+                                  N->getMemoryVT(), N->getMemOperand(),
+                                  N->getAddressingMode(), ISD::EXTLOAD);
   // Legalize the chain result - switch anything that used the old chain to
   // use the new one.
   ReplaceValueWith(SDValue(N, 1), Res.getValue(1));
@@ -816,7 +819,8 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SELECT_CC(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SETCC(SDNode *N) {
-  EVT InVT = N->getOperand(0).getValueType();
+  unsigned OpNo = N->isStrictFPOpcode() ? 1 : 0;
+  EVT InVT = N->getOperand(OpNo).getValueType();
   EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
 
   EVT SVT = getSetCCResultType(InVT);
@@ -835,12 +839,22 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SETCC(SDNode *N) {
   }
 
   SDLoc dl(N);
-  assert(SVT.isVector() == N->getOperand(0).getValueType().isVector() &&
+  assert(SVT.isVector() == N->getOperand(OpNo).getValueType().isVector() &&
          "Vector compare must return a vector result!");
 
   // Get the SETCC result using the canonical SETCC type.
-  SDValue SetCC = DAG.getNode(N->getOpcode(), dl, SVT, N->getOperand(0),
-                              N->getOperand(1), N->getOperand(2));
+  SDValue SetCC;
+  if (N->isStrictFPOpcode()) {
+    EVT VTs[] = {SVT, MVT::Other};
+    SDValue Opers[] = {N->getOperand(0), N->getOperand(1),
+                       N->getOperand(2), N->getOperand(3)};
+    SetCC = DAG.getNode(N->getOpcode(), dl, VTs, Opers);
+    // Legalize the chain result - switch anything that used the old chain to
+    // use the new one.
+    ReplaceValueWith(SDValue(N, 1), SetCC.getValue(1));
+  } else
+    SetCC = DAG.getNode(N->getOpcode(), dl, SVT, N->getOperand(0),
+                        N->getOperand(1), N->getOperand(2));
 
   // Convert to the expected type.
   return DAG.getSExtOrTrunc(SetCC, dl, NVT);
@@ -1485,11 +1499,11 @@ SDValue DAGTypeLegalizer::PromoteIntOp_MSTORE(MaskedStoreSDNode *N,
   SDLoc dl(N);
 
   bool TruncateStore = false;
-  if (OpNo == 3) {
+  if (OpNo == 4) {
     Mask = PromoteTargetBoolean(Mask, DataVT);
     // Update in place.
     SmallVector<SDValue, 4> NewOps(N->op_begin(), N->op_end());
-    NewOps[3] = Mask;
+    NewOps[4] = Mask;
     return SDValue(DAG.UpdateNodeOperands(N, NewOps), 0);
   } else { // Data operand
     assert(OpNo == 1 && "Unexpected operand for promotion");
@@ -1497,14 +1511,15 @@ SDValue DAGTypeLegalizer::PromoteIntOp_MSTORE(MaskedStoreSDNode *N,
     TruncateStore = true;
   }
 
-  return DAG.getMaskedStore(N->getChain(), dl, DataOp, N->getBasePtr(), Mask,
-                            N->getMemoryVT(), N->getMemOperand(),
+  return DAG.getMaskedStore(N->getChain(), dl, DataOp, N->getBasePtr(),
+                            N->getOffset(), Mask, N->getMemoryVT(),
+                            N->getMemOperand(), N->getAddressingMode(),
                             TruncateStore, N->isCompressingStore());
 }
 
 SDValue DAGTypeLegalizer::PromoteIntOp_MLOAD(MaskedLoadSDNode *N,
                                              unsigned OpNo) {
-  assert(OpNo == 2 && "Only know how to promote the mask!");
+  assert(OpNo == 3 && "Only know how to promote the mask!");
   EVT DataVT = N->getValueType(0);
   SDValue Mask = PromoteTargetBoolean(N->getOperand(OpNo), DataVT);
   SmallVector<SDValue, 4> NewOps(N->op_begin(), N->op_end());
@@ -1696,10 +1711,14 @@ void DAGTypeLegalizer::ExpandIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::CTTZ_ZERO_UNDEF:
   case ISD::CTTZ:        ExpandIntRes_CTTZ(N, Lo, Hi); break;
   case ISD::FLT_ROUNDS_: ExpandIntRes_FLT_ROUNDS(N, Lo, Hi); break;
+  case ISD::STRICT_FP_TO_SINT:
   case ISD::FP_TO_SINT:  ExpandIntRes_FP_TO_SINT(N, Lo, Hi); break;
+  case ISD::STRICT_FP_TO_UINT:
   case ISD::FP_TO_UINT:  ExpandIntRes_FP_TO_UINT(N, Lo, Hi); break;
-  case ISD::LLROUND:     ExpandIntRes_LLROUND(N, Lo, Hi); break;
-  case ISD::LLRINT:      ExpandIntRes_LLRINT(N, Lo, Hi); break;
+  case ISD::STRICT_LLROUND:
+  case ISD::STRICT_LLRINT:
+  case ISD::LLROUND:
+  case ISD::LLRINT:      ExpandIntRes_LLROUND_LLRINT(N, Lo, Hi); break;
   case ISD::LOAD:        ExpandIntRes_LOAD(cast<LoadSDNode>(N), Lo, Hi); break;
   case ISD::MUL:         ExpandIntRes_MUL(N, Lo, Hi); break;
   case ISD::READCYCLECOUNTER: ExpandIntRes_READCYCLECOUNTER(N, Lo, Hi); break;
@@ -1816,7 +1835,11 @@ std::pair <SDValue, SDValue> DAGTypeLegalizer::ExpandAtomic(SDNode *Node) {
   RTLIB::Libcall LC = RTLIB::getSYNC(Opc, VT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected atomic op or value type!");
 
-  return ExpandChainLibCall(LC, Node, false);
+  EVT RetVT = Node->getValueType(0);
+  SmallVector<SDValue, 4> Ops(Node->op_begin() + 1, Node->op_end());
+  TargetLowering::MakeLibCallOptions CallOptions;
+  return TLI.makeLibCall(DAG, LC, RetVT, Ops, CallOptions, SDLoc(Node),
+                         Node->getOperand(0));
 }
 
 /// N is a shift by a value that needs to be expanded,
@@ -2556,7 +2579,9 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_SINT(SDNode *N, SDValue &Lo,
   SDLoc dl(N);
   EVT VT = N->getValueType(0);
 
-  SDValue Op = N->getOperand(0);
+  bool IsStrict = N->isStrictFPOpcode();
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  SDValue Op = N->getOperand(IsStrict ? 1 : 0);
   if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
     Op = GetPromotedFloat(Op);
 
@@ -2564,8 +2589,12 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_SINT(SDNode *N, SDValue &Lo,
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected fp-to-sint conversion!");
   TargetLowering::MakeLibCallOptions CallOptions;
   CallOptions.setSExt(true);
-  SplitInteger(TLI.makeLibCall(DAG, LC, VT, Op, CallOptions, dl).first,
-               Lo, Hi);
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, VT, Op,
+                                                    CallOptions, dl, Chain);
+  SplitInteger(Tmp.first, Lo, Hi);
+
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
 }
 
 void DAGTypeLegalizer::ExpandIntRes_FP_TO_UINT(SDNode *N, SDValue &Lo,
@@ -2573,71 +2602,75 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_UINT(SDNode *N, SDValue &Lo,
   SDLoc dl(N);
   EVT VT = N->getValueType(0);
 
-  SDValue Op = N->getOperand(0);
+  bool IsStrict = N->isStrictFPOpcode();
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  SDValue Op = N->getOperand(IsStrict ? 1 : 0);
   if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
     Op = GetPromotedFloat(Op);
 
   RTLIB::Libcall LC = RTLIB::getFPTOUINT(Op.getValueType(), VT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected fp-to-uint conversion!");
   TargetLowering::MakeLibCallOptions CallOptions;
-  SplitInteger(TLI.makeLibCall(DAG, LC, VT, Op, CallOptions, dl).first,
-               Lo, Hi);
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, VT, Op,
+                                                    CallOptions, dl, Chain);
+  SplitInteger(Tmp.first, Lo, Hi);
+
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
 }
 
-void DAGTypeLegalizer::ExpandIntRes_LLROUND(SDNode *N, SDValue &Lo,
-                                            SDValue &Hi) {
-  RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
-  EVT VT = N->getOperand(0).getValueType().getSimpleVT().SimpleTy;
-  if (VT == MVT::f32)
-    LC = RTLIB::LLROUND_F32;
-  else if (VT == MVT::f64)
-    LC = RTLIB::LLROUND_F64;
-  else if (VT == MVT::f80)
-    LC = RTLIB::LLROUND_F80;
-  else if (VT == MVT::f128)
-    LC = RTLIB::LLROUND_F128;
-  else if (VT == MVT::ppcf128)
-    LC = RTLIB::LLROUND_PPCF128;
-  assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected llround input type!");
+void DAGTypeLegalizer::ExpandIntRes_LLROUND_LLRINT(SDNode *N, SDValue &Lo,
+                                                   SDValue &Hi) {
+  SDValue Op = N->getOperand(N->isStrictFPOpcode() ? 1 : 0);
 
-  SDValue Op = N->getOperand(0);
-  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
-    Op = GetPromotedFloat(Op);
+  assert(getTypeAction(Op.getValueType()) != TargetLowering::TypePromoteFloat &&
+         "Input type needs to be promoted!");
+
+  EVT VT = Op.getValueType();
+
+  RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
+  if (N->getOpcode() == ISD::LLROUND ||
+      N->getOpcode() == ISD::STRICT_LLROUND) {
+    if (VT == MVT::f32)
+      LC = RTLIB::LLROUND_F32;
+    else if (VT == MVT::f64)
+      LC = RTLIB::LLROUND_F64;
+    else if (VT == MVT::f80)
+      LC = RTLIB::LLROUND_F80;
+    else if (VT == MVT::f128)
+      LC = RTLIB::LLROUND_F128;
+    else if (VT == MVT::ppcf128)
+      LC = RTLIB::LLROUND_PPCF128;
+    assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected llround input type!");
+  } else if (N->getOpcode() == ISD::LLRINT ||
+             N->getOpcode() == ISD::STRICT_LLRINT) {
+    if (VT == MVT::f32)
+      LC = RTLIB::LLRINT_F32;
+    else if (VT == MVT::f64)
+      LC = RTLIB::LLRINT_F64;
+    else if (VT == MVT::f80)
+      LC = RTLIB::LLRINT_F80;
+    else if (VT == MVT::f128)
+      LC = RTLIB::LLRINT_F128;
+    else if (VT == MVT::ppcf128)
+      LC = RTLIB::LLRINT_PPCF128;
+    assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected llrint input type!");
+  } else
+    llvm_unreachable("Unexpected opcode!");
 
   SDLoc dl(N);
   EVT RetVT = N->getValueType(0);
+  SDValue Chain = N->isStrictFPOpcode() ? N->getOperand(0) : SDValue();
+
   TargetLowering::MakeLibCallOptions CallOptions;
   CallOptions.setSExt(true);
-  SplitInteger(TLI.makeLibCall(DAG, LC, RetVT, Op, CallOptions, dl).first,
-               Lo, Hi);
-}
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, RetVT,
+                                                    Op, CallOptions, dl,
+                                                    Chain);
+  SplitInteger(Tmp.first, Lo, Hi);
 
-void DAGTypeLegalizer::ExpandIntRes_LLRINT(SDNode *N, SDValue &Lo,
-                                            SDValue &Hi) {
-  RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
-  EVT VT = N->getOperand(0).getValueType().getSimpleVT().SimpleTy;
-  if (VT == MVT::f32)
-    LC = RTLIB::LLRINT_F32;
-  else if (VT == MVT::f64)
-    LC = RTLIB::LLRINT_F64;
-  else if (VT == MVT::f80)
-    LC = RTLIB::LLRINT_F80;
-  else if (VT == MVT::f128)
-    LC = RTLIB::LLRINT_F128;
-  else if (VT == MVT::ppcf128)
-    LC = RTLIB::LLRINT_PPCF128;
-  assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected llrint input type!");
-
-  SDValue Op = N->getOperand(0);
-  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
-    Op = GetPromotedFloat(Op);
-
-  SDLoc dl(N);
-  EVT RetVT = N->getValueType(0);
-  TargetLowering::MakeLibCallOptions CallOptions;
-  CallOptions.setSExt(true);
-  SplitInteger(TLI.makeLibCall(DAG, LC, RetVT, Op, CallOptions, dl).first,
-               Lo, Hi);
+  if (N->isStrictFPOpcode())
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
 }
 
 void DAGTypeLegalizer::ExpandIntRes_LOAD(LoadSDNode *N,

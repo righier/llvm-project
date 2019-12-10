@@ -58,6 +58,8 @@ using namespace lldb;
 using namespace lldb_private;
 using namespace llvm::pdb;
 
+char SymbolFilePDB::ID;
+
 namespace {
 lldb::LanguageType TranslateLanguage(PDB_Lang lang) {
   switch (lang) {
@@ -368,10 +370,6 @@ bool SymbolFilePDB::ParseSupportFiles(
     FileSpec spec(file->getFileName(), FileSpec::Style::windows);
     support_files.AppendIfUnique(spec);
   }
-
-  // LLDB uses the DWARF-like file numeration (one based),
-  // the zeroth file is the compile unit itself
-  support_files.Insert(0, comp_unit);
 
   return true;
 }
@@ -1562,9 +1560,10 @@ void SymbolFilePDB::FindTypesByName(
   }
 }
 
-void SymbolFilePDB::FindTypes(llvm::ArrayRef<CompilerContext> pattern,
-                              LanguageSet languages,
-                              lldb_private::TypeMap &types) {}
+void SymbolFilePDB::FindTypes(
+    llvm::ArrayRef<CompilerContext> pattern, LanguageSet languages,
+    llvm::DenseSet<SymbolFile *> &searched_symbol_files,
+    lldb_private::TypeMap &types) {}
 
 void SymbolFilePDB::GetTypesForPDBSymbol(const llvm::pdb::PDBSymbol &pdb_symbol,
                                          uint32_t type_mask,
@@ -1777,7 +1776,6 @@ bool SymbolFilePDB::ParseCompileUnitLineTable(CompileUnit &comp_unit,
   auto line_table = std::make_unique<LineTable>(&comp_unit);
 
   // Find contributions to `compiland` from all source and header files.
-  std::string path = comp_unit.GetPath();
   auto files = m_session_up->getSourceFilesForCompiland(*compiland_up);
   if (!files)
     return false;
@@ -1879,9 +1877,7 @@ void SymbolFilePDB::BuildSupportFileIdToSupportFileIndexMap(
   if (!source_files)
     return;
 
-  // LLDB uses the DWARF-like file numeration (one based)
-  int index = 1;
-
+  int index = 0;
   while (auto file = source_files->getNext()) {
     uint32_t source_id = file->getUniqueId();
     index_map[source_id] = index++;

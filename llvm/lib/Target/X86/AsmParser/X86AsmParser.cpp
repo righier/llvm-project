@@ -1112,9 +1112,10 @@ bool X86AsmParser::ParseRegister(unsigned &RegNo,
   if (RegNo == 0)
     RegNo = MatchRegisterName(Tok.getString().lower());
 
-  // The "flags" register cannot be referenced directly.
+  // The "flags" and "mxcsr" registers cannot be referenced directly.
   // Treat it as an identifier instead.
-  if (isParsingInlineAsm() && isParsingIntelSyntax() && RegNo == X86::EFLAGS)
+  if (isParsingInlineAsm() && isParsingIntelSyntax() &&
+      (RegNo == X86::EFLAGS || RegNo == X86::MXCSR))
     RegNo = 0;
 
   if (!is64BitMode()) {
@@ -3131,6 +3132,7 @@ unsigned X86AsmParser::checkTargetMatchPredicate(MCInst &Inst) {
   case X86::VCVTTSS2SI64Zrm: case X86::VCVTTSS2SI64Zrm_Int:
     if (ForcedVEXEncoding != VEXEncoding_EVEX)
       return Match_Unsupported;
+    break;
   }
 
   return Match_Success;

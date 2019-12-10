@@ -112,7 +112,14 @@ public:
   bool MaybeMergeBasicBlockIntoOnlyPred(BasicBlock *BB);
   void UpdateSSA(BasicBlock *BB, BasicBlock *NewBB,
                  DenseMap<Instruction *, Value *> &ValueMapping);
-  bool ThreadEdge(BasicBlock *BB, const SmallVectorImpl<BasicBlock *> &PredBBs,
+  DenseMap<Instruction *, Value *> CloneInstructions(BasicBlock::iterator BI,
+                                                     BasicBlock::iterator BE,
+                                                     BasicBlock *NewBB,
+                                                     BasicBlock *PredBB);
+  bool TryThreadEdge(BasicBlock *BB,
+                     const SmallVectorImpl<BasicBlock *> &PredBBs,
+                     BasicBlock *SuccBB);
+  void ThreadEdge(BasicBlock *BB, const SmallVectorImpl<BasicBlock *> &PredBBs,
                   BasicBlock *SuccBB);
   bool DuplicateCondBranchOnPHIIntoPred(
       BasicBlock *BB, const SmallVectorImpl<BasicBlock *> &PredBBs);

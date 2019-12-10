@@ -156,6 +156,12 @@ int AArch64TTIImpl::getIntImmCost(Intrinsic::ID IID, unsigned Idx,
   if (BitSize == 0)
     return TTI::TCC_Free;
 
+  // Most (all?) AArch64 intrinsics do not support folding immediates into the
+  // selected instruction, so we compute the materialization cost for the
+  // immediate directly.
+  if (IID >= Intrinsic::aarch64_addg && IID <= Intrinsic::aarch64_udiv)
+    return AArch64TTIImpl::getIntImmCost(Imm, Ty);
+
   switch (IID) {
   default:
     return TTI::TCC_Free;
@@ -478,7 +484,8 @@ int AArch64TTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
 int AArch64TTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::OperandValueKind Opd1Info,
     TTI::OperandValueKind Opd2Info, TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args) {
+    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args,
+    const Instruction *CxtI) {
   // Legalize the type.
   std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
 

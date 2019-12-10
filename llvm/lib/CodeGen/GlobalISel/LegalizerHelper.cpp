@@ -1675,7 +1675,15 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
   case TargetOpcode::G_CONSTANT: {
     MachineOperand &SrcMO = MI.getOperand(1);
     LLVMContext &Ctx = MIRBuilder.getMF().getFunction().getContext();
-    const APInt &Val = SrcMO.getCImm()->getValue().sext(WideTy.getSizeInBits());
+    unsigned ExtOpc = LI.getExtOpcodeForWideningConstant(
+        MRI.getType(MI.getOperand(0).getReg()));
+    assert((ExtOpc == TargetOpcode::G_ZEXT || ExtOpc == TargetOpcode::G_SEXT ||
+            ExtOpc == TargetOpcode::G_ANYEXT) &&
+           "Illegal Extend");
+    const APInt &SrcVal = SrcMO.getCImm()->getValue();
+    const APInt &Val = (ExtOpc == TargetOpcode::G_SEXT)
+                           ? SrcVal.sext(WideTy.getSizeInBits())
+                           : SrcVal.zext(WideTy.getSizeInBits());
     Observer.changingInstr(MI);
     SrcMO.setCImm(ConstantInt::get(Ctx, Val));
 
@@ -2109,7 +2117,7 @@ LegalizerHelper::lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
       default:
         llvm_unreachable("Unexpected opcode");
       case TargetOpcode::G_LOAD:
-        MIRBuilder.buildAnyExt(DstReg, TmpReg);
+        MIRBuilder.buildExtOrTrunc(TargetOpcode::G_ANYEXT, DstReg, TmpReg);
         break;
       case TargetOpcode::G_SEXTLOAD:
         MIRBuilder.buildSExt(DstReg, TmpReg);
@@ -3851,6 +3859,14 @@ LegalizerHelper::lowerUITOFP(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
   LLT DstTy = MRI.getType(Dst);
   LLT SrcTy = MRI.getType(Src);
 
+  if (SrcTy == LLT::scalar(1)) {
+    auto True = MIRBuilder.buildFConstant(DstTy, 1.0);
+    auto False = MIRBuilder.buildFConstant(DstTy, 0.0);
+    MIRBuilder.buildSelect(Dst, Src, True, False);
+    MI.eraseFromParent();
+    return Legalized;
+  }
+
   if (SrcTy != LLT::scalar(64))
     return UnableToLegalize;
 
@@ -3875,6 +3891,14 @@ LegalizerHelper::lowerSITOFP(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
   const LLT S64 = LLT::scalar(64);
   const LLT S32 = LLT::scalar(32);
   const LLT S1 = LLT::scalar(1);
+
+  if (SrcTy == S1) {
+    auto True = MIRBuilder.buildFConstant(DstTy, -1.0);
+    auto False = MIRBuilder.buildFConstant(DstTy, 0.0);
+    MIRBuilder.buildSelect(Dst, Src, True, False);
+    MI.eraseFromParent();
+    return Legalized;
+  }
 
   if (SrcTy != S64)
     return UnableToLegalize;

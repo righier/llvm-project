@@ -150,9 +150,9 @@ struct CopyConfig {
 
   // Main input/output options
   StringRef InputFilename;
-  FileFormat InputFormat;
+  FileFormat InputFormat = FileFormat::Unspecified;
   StringRef OutputFilename;
-  FileFormat OutputFormat;
+  FileFormat OutputFormat = FileFormat::Unspecified;
 
   // Only applicable when --output-format!=binary (e.g. elf64-x86-64).
   Optional<MachineInfo> OutputArch;
