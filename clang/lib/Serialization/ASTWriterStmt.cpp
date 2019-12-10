@@ -1971,7 +1971,6 @@ void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
   Record.AddSourceLocation(S->getLeaveLoc());
   Code = serialization::STMT_SEH_LEAVE;
 }
-
 //===----------------------------------------------------------------------===//
 // Transformation Directives.
 //===----------------------------------------------------------------------===//
@@ -1986,28 +1985,6 @@ void ASTStmtWriter::VisitTransformExecutableDirective(
   TransformClauseWriter ClauseWriter(Record);
   for (auto C : D->clauses())
     ClauseWriter.writeClause(C);
-
-#if 0
-  {
-    Record.push_back(C->getKind());
-    Record.AddSourceRange(C->getRange());
-    switch (C->getKind()) {
-    case TransformClause::UnknownKind:
-      llvm_unreachable("Cannot write unknown clause");
-    case TransformClause::FullKind:
-      break;
-    case TransformClause::FactorKind:
-      Record.AddStmt(static_cast<FactorClause *>(C)->getFactor());
-      break;
-    case TransformClause::WidthKind:
-      Record.AddStmt(static_cast<WidthClause *>(C)->getWidth());
-      break;
-    case TransformClause::PartialKind:
-            Record.AddStmt(static_cast<PartialClause *>(C)->getFactor());
-      break;
-    }
-  }
-#endif
 
   Record.AddStmt(D->getAssociated());
 }
