@@ -2564,16 +2564,20 @@ enum CXCursorKind {
 
   /** OpenMP master taskloop simd directive.
    */
-  CXCursor_OMPMasterTaskLoopSimdDirective = 283,
+  CXCursor_OMPMasterTaskLoopSimdDirective      = 283,
 
   /** OpenMP parallel master taskloop simd directive.
    */
-  CXCursor_OMPParallelMasterTaskLoopSimdDirective = 284,
+  CXCursor_OMPParallelMasterTaskLoopSimdDirective      = 284,
+
+  /** OpenMP parallel master directive.
+   */
+  CXCursor_OMPParallelMasterDirective      = 285,
 
   /** Transformation directive.
    */
   CXCursor_TransformExecutableDirective = 285,
-
+  
   CXCursor_LastStmt = CXCursor_TransformExecutableDirective,
 
   /**
@@ -2582,15 +2586,15 @@ enum CXCursorKind {
    * The translation unit cursor exists primarily to act as the root
    * cursor for traversing the contents of a translation unit.
    */
-  CXCursor_TranslationUnit = 300,
+  CXCursor_TranslationUnit               = 300,
 
   /* Attributes */
-  CXCursor_FirstAttr = 400,
+  CXCursor_FirstAttr                     = 400,
   /**
    * An attribute whose specific kind is not exposed via this
    * interface.
    */
-  CXCursor_UnexposedAttr = 400,
+  CXCursor_UnexposedAttr                 = 400,
 
   CXCursor_IBActionAttr = 401,
   CXCursor_IBOutletAttr = 402,

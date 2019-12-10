@@ -29,162 +29,6 @@ namespace clang {
 namespace clangd {
 namespace {
 
-// Query apple's `xcrun` launcher, which is the source of truth for "how should"
-// clang be invoked on this system.
-llvm::Optional<std::string> queryXcrun(llvm::ArrayRef<llvm::StringRef> Argv) {
-  auto Xcrun = llvm::sys::findProgramByName("xcrun");
-  if (!Xcrun) {
-    log("Couldn't find xcrun. Hopefully you have a non-apple toolchain...");
-    return llvm::None;
-  }
-  llvm::SmallString<64> OutFile;
-  llvm::sys::fs::createTemporaryFile("clangd-xcrun", "", OutFile);
-  llvm::FileRemover OutRemover(OutFile);
-  llvm::Optional<llvm::StringRef> Redirects[3] = {
-      /*stdin=*/{""}, /*stdout=*/{OutFile}, /*stderr=*/{""}};
-  vlog("Invoking {0} to find clang installation", *Xcrun);
-  int Ret = llvm::sys::ExecuteAndWait(*Xcrun, Argv,
-                                      /*Env=*/llvm::None, Redirects,
-                                      /*SecondsToWait=*/10);
-  if (Ret != 0) {
-    log("xcrun exists but failed with code {0}. "
-        "If you have a non-apple toolchain, this is OK. "
-        "Otherwise, try xcode-select --install.",
-        Ret);
-    return llvm::None;
-  }
-
-  auto Buf = llvm::MemoryBuffer::getFile(OutFile);
-  if (!Buf) {
-    log("Can't read xcrun output: {0}", Buf.getError().message());
-    return llvm::None;
-  }
-  StringRef Path = Buf->get()->getBuffer().trim();
-  if (Path.empty()) {
-    log("xcrun produced no output");
-    return llvm::None;
-  }
-  return Path.str();
-}
-
-// On Mac, `which clang` is /usr/bin/clang. It runs `xcrun clang`, which knows
-// where the real clang is kept. We need to do the same thing,
-// because cc1 (not the driver!) will find libc++ relative to argv[0].
-llvm::Optional<std::string> queryMacClangPath() {
-#ifndef __APPLE__
-  return llvm::None;
-#endif
-
-  return queryXcrun({"xcrun", "--find", "clang"});
-}
-
-// Resolve symlinks if possible.
-std::string resolve(std::string Path) {
-  llvm::SmallString<128> Resolved;
-  if (llvm::sys::fs::real_path(Path, Resolved))
-    return Path; // On error;
-  return Resolved.str();
-}
-
-// Get a plausible full `clang` path.
-// This is used in the fallback compile command, or when the CDB returns a
-// generic driver with no path.
-llvm::StringRef getFallbackClangPath() {
-  static const std::string &MemoizedFallbackPath = [&]() -> std::string {
-    // The driver and/or cc1 sometimes depend on the binary name to compute
-    // useful things like the standard library location.
-    // We need to emulate what clang on this system is likely to see.
-    // cc1 in particular looks at the "real path" of the running process, and
-    // so if /usr/bin/clang is a symlink, it sees the resolved path.
-    // clangd doesn't have that luxury, so we resolve symlinks ourselves.
-
-    // /usr/bin/clang on a mac is a program that redirects to the right clang.
-    // We resolve it as if it were a symlink.
-    if (auto MacClang = queryMacClangPath())
-      return resolve(std::move(*MacClang));
-    // On other platforms, just look for compilers on the PATH.
-    for (const char* Name : {"clang", "gcc", "cc"})
-      if (auto PathCC = llvm::sys::findProgramByName(Name))
-        return resolve(std::move(*PathCC));
-    // Fallback: a nonexistent 'clang' binary next to clangd.
-    static int Dummy;
-    std::string ClangdExecutable =
-        llvm::sys::fs::getMainExecutable("clangd", (void *)&Dummy);
-    SmallString<128> ClangPath;
-    ClangPath = llvm::sys::path::parent_path(ClangdExecutable);
-    llvm::sys::path::append(ClangPath, "clang");
-    return ClangPath.str();
-  }();
-  return MemoizedFallbackPath;
-}
-
-// On mac, /usr/bin/clang sets SDKROOT and then invokes the real clang.
-// The effect of this is to set -isysroot correctly. We do the same.
-const std::string *getMacSysroot() {
-#ifndef __APPLE__
-  return nullptr;
-#endif
-
-  // SDKROOT overridden in environment, respect it. Driver will set isysroot.
-  if (::getenv("SDKROOT"))
-    return nullptr;
-  static const llvm::Optional<std::string> &Sysroot =
-      queryXcrun({"xcrun", "--show-sdk-path"});
-  return Sysroot ? Sysroot.getPointer() : nullptr;
-}
-
-// Transform a command into the form we want to send to the driver.
-// The command was originally either from the CDB or is the fallback command,
-// and may have been modified by OverlayCDB.
-void adjustArguments(tooling::CompileCommand &Cmd,
-                     llvm::StringRef ResourceDir) {
-  tooling::ArgumentsAdjuster ArgsAdjuster = tooling::combineAdjusters(
-      // clangd should not write files to disk, including dependency files
-      // requested on the command line.
-      tooling::getClangStripDependencyFileAdjuster(),
-      // Strip plugin related command line arguments. Clangd does
-      // not support plugins currently. Therefore it breaks if
-      // compiler tries to load plugins.
-      tooling::combineAdjusters(tooling::getStripPluginsAdjuster(),
-                                tooling::getClangSyntaxOnlyAdjuster()));
-
-  Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, Cmd.Filename);
-  // Check whether the flag exists, either as -flag or -flag=*
-  auto Has = [&](llvm::StringRef Flag) {
-    for (llvm::StringRef Arg : Cmd.CommandLine) {
-      if (Arg.consume_front(Flag) && (Arg.empty() || Arg[0] == '='))
-        return true;
-    }
-    return false;
-  };
-  // Inject the resource dir.
-  if (!ResourceDir.empty() && !Has("-resource-dir"))
-    Cmd.CommandLine.push_back(("-resource-dir=" + ResourceDir).str());
-  if (!Has("-isysroot"))
-    if (const std::string *MacSysroot = getMacSysroot()) {
-      Cmd.CommandLine.push_back("-isysroot");
-      Cmd.CommandLine.push_back(*MacSysroot);
-    }
-
-  // If the driver is a generic name like "g++" with no path, add a clang path.
-  // This makes it easier for us to find the standard libraries on mac.
-  if (!Cmd.CommandLine.empty()) {
-    std::string &Driver = Cmd.CommandLine.front();
-    if (Driver == "clang" || Driver == "clang++" || Driver == "gcc" ||
-        Driver == "g++" || Driver == "cc" || Driver == "c++") {
-      llvm::SmallString<128> QualifiedDriver =
-          llvm::sys::path::parent_path(getFallbackClangPath());
-      llvm::sys::path::append(QualifiedDriver, Driver);
-      Driver = QualifiedDriver.str();
-    }
-  }
-}
-
-std::string getStandardResourceDir() {
-  static int Dummy; // Just an address in this process.
-  return CompilerInvocation::GetResourcesPath("clangd", (void *)&Dummy);
-}
-
 // Runs the given action on all parent directories of filename, starting from
 // deepest directory and going up to root. Stops whenever action succeeds.
 void actOnAllParentDirectories(PathRef FileName,
@@ -387,9 +231,8 @@ DirectoryBasedGlobalCompilationDatabase::getProjectInfo(PathRef File) const {
 
 OverlayCDB::OverlayCDB(const GlobalCompilationDatabase *Base,
                        std::vector<std::string> FallbackFlags,
-                       llvm::Optional<std::string> ResourceDir)
-    : Base(Base), ResourceDir(ResourceDir ? std::move(*ResourceDir)
-                                          : getStandardResourceDir()),
+                       tooling::ArgumentsAdjuster Adjuster)
+    : Base(Base), ArgsAdjuster(std::move(Adjuster)),
       FallbackFlags(std::move(FallbackFlags)) {
   if (Base)
     BaseChanged = Base->watch([this](const std::vector<std::string> Changes) {
@@ -410,7 +253,8 @@ OverlayCDB::getCompileCommand(PathRef File) const {
     Cmd = Base->getCompileCommand(File);
   if (!Cmd)
     return llvm::None;
-  adjustArguments(*Cmd, ResourceDir);
+  if (ArgsAdjuster)
+    Cmd->CommandLine = ArgsAdjuster(Cmd->CommandLine, Cmd->Filename);
   return Cmd;
 }
 
@@ -420,7 +264,8 @@ tooling::CompileCommand OverlayCDB::getFallbackCommand(PathRef File) const {
   std::lock_guard<std::mutex> Lock(Mutex);
   Cmd.CommandLine.insert(Cmd.CommandLine.end(), FallbackFlags.begin(),
                          FallbackFlags.end());
-  adjustArguments(Cmd, ResourceDir);
+  if (ArgsAdjuster)
+    Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, Cmd.Filename);
   return Cmd;
 }
 

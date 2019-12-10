@@ -75,6 +75,7 @@ class ObjCAtTryStmt;
 class ObjCAtThrowStmt;
 class ObjCAtSynchronizedStmt;
 class ObjCAutoreleasePoolStmt;
+class ReturnsNonNullAttr;
 
 namespace analyze_os_log {
 class OSLogBufferLayout;
@@ -1598,11 +1599,7 @@ private:
   Address ReturnLocation = Address::invalid();
 
   /// Check if the return value of this function requires sanitization.
-  bool requiresReturnValueCheck() const {
-    return requiresReturnValueNullabilityCheck() ||
-           (SanOpts.has(SanitizerKind::ReturnsNonnullAttribute) &&
-            CurCodeDecl && CurCodeDecl->getAttr<ReturnsNonNullAttr>());
-  }
+  bool requiresReturnValueCheck() const;
 
   llvm::BasicBlock *TerminateLandingPad = nullptr;
   llvm::BasicBlock *TerminateHandler = nullptr;
@@ -3150,6 +3147,7 @@ public:
   void EmitOMPParallelForDirective(const OMPParallelForDirective &S);
   void EmitOMPParallelForSimdDirective(const OMPParallelForSimdDirective &S);
   void EmitOMPParallelSectionsDirective(const OMPParallelSectionsDirective &S);
+  void EmitOMPParallelMasterDirective(const OMPParallelMasterDirective &S);
   void EmitOMPTaskDirective(const OMPTaskDirective &S);
   void EmitOMPTaskyieldDirective(const OMPTaskyieldDirective &S);
   void EmitOMPBarrierDirective(const OMPBarrierDirective &S);
@@ -4180,6 +4178,9 @@ public:
   /// SetFPAccuracy - Set the minimum required accuracy of the given floating
   /// point operation, expressed as the maximum relative error in ulp.
   void SetFPAccuracy(llvm::Value *Val, float Accuracy);
+
+  /// SetFPModel - Control floating point behavior via fp-model settings.
+  void SetFPModel();
 
 private:
   llvm::MDNode *getRangeForLoadFromType(QualType Ty);
