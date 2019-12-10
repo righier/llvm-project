@@ -143,6 +143,11 @@ Improvements to clang-tidy
   Finds Objective-C implementations that implement ``-isEqual:`` without also
   appropriately implementing ``-hash``.
 
+- New :doc:`performance-no-automatic-move
+  <clang-tidy/checks/performance-no-automatic-move>` check.
+
+  Finds local variables that cannot be automatically moved due to constness.
+
 - New :doc:`performance-trivially-destructible
   <clang-tidy/checks/performance-trivially-destructible>` check.
 
@@ -168,6 +173,12 @@ Improvements to clang-tidy
   Finds classes, structs, and unions that contain redundant member
   access specifiers.
 
+- Improved :doc:`readability-magic-numbers
+  <clang-tidy/checks/readability-magic-numbers>` check.
+
+  The check now supports the ``IgnoreBitFieldsWidths`` option to suppress
+  the warning for numbers used to specify bit field widths.
+
 - New :doc:`readability-make-member-function-const
   <clang-tidy/checks/readability-make-member-function-const>` check.
 
@@ -190,6 +201,14 @@ Improvements to clang-tidy
 - The :doc:`readability-redundant-string-init
   <clang-tidy/checks/readability-redundant-string-init>` check now supports a
   `StringNames` option enabling its application to custom string classes.
+
+- Improved :doc:`modernize-avoid-bind
+  <clang-tidy/checks/modernize-avoid-bind>` check.
+
+  The check now supports supports diagnosing and fixing arbitrary callables instead of
+  only simple free functions. The `PermissiveParameterList` option has also been
+  added to address situations where the existing fix-it logic would sometimes generate
+  code that no longer compiles.
 
 Improvements to include-fixer
 -----------------------------

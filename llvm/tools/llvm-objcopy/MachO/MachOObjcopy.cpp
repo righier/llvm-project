@@ -29,7 +29,7 @@ static void removeSections(const CopyConfig &Config, Object &Obj) {
     };
   }
 
-  if (Config.StripAll) {
+  if (Config.StripAll || Config.StripDebug) {
     // Remove all debug sections.
     RemovePred = [RemovePred](const Section &Sec) {
       if (Sec.Segname == "__DWARF")
@@ -84,23 +84,44 @@ static LoadCommand buildRPathLoadCommand(StringRef Path) {
   return LC;
 }
 
+static Error dumpSectionToFile(StringRef SecName, StringRef Filename,
+                               Object &Obj) {
+  for (LoadCommand &LC : Obj.LoadCommands)
+    for (Section &Sec : LC.Sections) {
+      if (Sec.CanonicalName == SecName) {
+        Expected<std::unique_ptr<FileOutputBuffer>> BufferOrErr =
+            FileOutputBuffer::create(Filename, Sec.Content.size());
+        if (!BufferOrErr)
+          return BufferOrErr.takeError();
+        std::unique_ptr<FileOutputBuffer> Buf = std::move(*BufferOrErr);
+        llvm::copy(Sec.Content, Buf->getBufferStart());
+
+        if (Error E = Buf->commit())
+          return E;
+        return Error::success();
+      }
+    }
+
+  return createStringError(object_error::parse_failed, "section '%s' not found",
+                           SecName.str().c_str());
+}
+
 static Error handleArgs(const CopyConfig &Config, Object &Obj) {
   if (Config.AllowBrokenLinks || !Config.BuildIdLinkDir.empty() ||
       Config.BuildIdLinkInput || Config.BuildIdLinkOutput ||
       !Config.SplitDWO.empty() || !Config.SymbolsPrefix.empty() ||
       !Config.AllocSectionsPrefix.empty() || !Config.AddSection.empty() ||
-      !Config.DumpSection.empty() || !Config.KeepSection.empty() ||
-      Config.NewSymbolVisibility || !Config.SymbolsToGlobalize.empty() ||
-      !Config.SymbolsToKeep.empty() || !Config.SymbolsToLocalize.empty() ||
-      !Config.SymbolsToWeaken.empty() || !Config.SymbolsToKeepGlobal.empty() ||
-      !Config.SectionsToRename.empty() ||
+      !Config.KeepSection.empty() || Config.NewSymbolVisibility ||
+      !Config.SymbolsToGlobalize.empty() || !Config.SymbolsToKeep.empty() ||
+      !Config.SymbolsToLocalize.empty() || !Config.SymbolsToWeaken.empty() ||
+      !Config.SymbolsToKeepGlobal.empty() || !Config.SectionsToRename.empty() ||
       !Config.UnneededSymbolsToRemove.empty() ||
       !Config.SetSectionAlignment.empty() || !Config.SetSectionFlags.empty() ||
       Config.ExtractDWO || Config.KeepFileSymbols || Config.LocalizeHidden ||
       Config.PreserveDates || Config.StripAllGNU || Config.StripDWO ||
       Config.StripNonAlloc || Config.StripSections || Config.Weaken ||
-      Config.DecompressDebugSections || Config.StripDebug ||
-      Config.StripNonAlloc || Config.StripSections || Config.StripUnneeded ||
+      Config.DecompressDebugSections || Config.StripNonAlloc ||
+      Config.StripSections || Config.StripUnneeded ||
       Config.DiscardMode != DiscardType::None || !Config.SymbolsToAdd.empty() ||
       Config.EntryExpr) {
     return createStringError(llvm::errc::invalid_argument,
@@ -118,6 +139,14 @@ static Error handleArgs(const CopyConfig &Config, Object &Obj) {
     for (LoadCommand &LC : Obj.LoadCommands)
       for (Section &Sec : LC.Sections)
         Sec.Relocations.clear();
+
+  for (const StringRef &Flag : Config.DumpSection) {
+    std::pair<StringRef, StringRef> SecPair = Flag.split("=");
+    StringRef SecName = SecPair.first;
+    StringRef File = SecPair.second;
+    if (Error E = dumpSectionToFile(SecName, File, Obj))
+      return E;
+  }
 
   for (StringRef RPath : Config.RPathToAdd) {
     for (LoadCommand &LC : Obj.LoadCommands) {

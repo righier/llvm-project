@@ -16,8 +16,8 @@
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
-#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
@@ -25,6 +25,7 @@
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
+#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -4027,7 +4028,7 @@ llvm::Function *CGObjCCommonMac::GenerateMethod(const ObjCMethodDecl *OMD,
 llvm::Function *
 CGObjCCommonMac::GenerateDirectMethod(const ObjCMethodDecl *OMD,
                                       const ObjCContainerDecl *CD) {
-  auto I = DirectMethodDefinitions.find(OMD);
+  auto I = DirectMethodDefinitions.find(OMD->getCanonicalDecl());
   if (I != DirectMethodDefinitions.end())
     return I->second;
 
@@ -4040,7 +4041,7 @@ CGObjCCommonMac::GenerateDirectMethod(const ObjCMethodDecl *OMD,
   llvm::Function *Method =
       llvm::Function::Create(MethodTy, llvm::GlobalValue::ExternalLinkage,
                              Name.str(), &CGM.getModule());
-  DirectMethodDefinitions.insert(std::make_pair(OMD, Method));
+  DirectMethodDefinitions.insert(std::make_pair(OMD->getCanonicalDecl(), Method));
 
   return Method;
 }

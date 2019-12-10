@@ -24,6 +24,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/BlockFrequencyInfo.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -63,6 +65,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/Transforms/Utils/SizeOpts.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -1005,7 +1008,9 @@ SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
 void SelectionDAG::init(MachineFunction &NewMF,
                         OptimizationRemarkEmitter &NewORE,
                         Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-                        LegacyDivergenceAnalysis * Divergence) {
+                        LegacyDivergenceAnalysis * Divergence,
+                        ProfileSummaryInfo *PSIin,
+                        BlockFrequencyInfo *BFIin) {
   MF = &NewMF;
   SDAGISelPass = PassPtr;
   ORE = &NewORE;
@@ -1014,6 +1019,8 @@ void SelectionDAG::init(MachineFunction &NewMF,
   LibInfo = LibraryInfo;
   Context = &MF->getFunction().getContext();
   DA = Divergence;
+  PSI = PSIin;
+  BFI = BFIin;
 }
 
 SelectionDAG::~SelectionDAG() {
@@ -1021,6 +1028,11 @@ SelectionDAG::~SelectionDAG() {
   allnodes_clear();
   OperandRecycler.clear(OperandAllocator);
   delete DbgInfo;
+}
+
+bool SelectionDAG::shouldOptForSize() const {
+  return MF->getFunction().hasOptSize() ||
+      llvm::shouldOptimizeForSize(FLI->MBB->getBasicBlock(), PSI, BFI);
 }
 
 void SelectionDAG::allnodes_clear() {
@@ -1427,7 +1439,7 @@ SDValue SelectionDAG::getConstantPool(const Constant *C, EVT VT,
   assert((TargetFlags == 0 || isTarget) &&
          "Cannot set target flags on target-independent globals");
   if (Alignment == 0)
-    Alignment = MF->getFunction().hasOptSize()
+    Alignment = shouldOptForSize()
                     ? getDataLayout().getABITypeAlignment(C->getType())
                     : getDataLayout().getPrefTypeAlignment(C->getType());
   unsigned Opc = isTarget ? ISD::TargetConstantPool : ISD::ConstantPool;
@@ -2786,12 +2798,16 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
       Known.Zero.setBitsFrom(1);
     break;
   case ISD::SETCC:
+  case ISD::STRICT_FSETCC:
+  case ISD::STRICT_FSETCCS: {
+    unsigned OpNo = Op->isStrictFPOpcode() ? 1 : 0;
     // If we know the result of a setcc has the top bits zero, use this info.
-    if (TLI->getBooleanContents(Op.getOperand(0).getValueType()) ==
+    if (TLI->getBooleanContents(Op.getOperand(OpNo).getValueType()) ==
             TargetLowering::ZeroOrOneBooleanContent &&
         BitWidth > 1)
       Known.Zero.setBitsFrom(1);
     break;
+  }
   case ISD::SHL:
     if (const APInt *ShAmt = getValidShiftAmountConstant(Op)) {
       Known = computeKnownBits(Op.getOperand(0), DemandedElts, Depth + 1);
@@ -3338,20 +3354,20 @@ SelectionDAG::OverflowKind SelectionDAG::computeOverflowKind(SDValue N0,
     KnownBits N0Known = computeKnownBits(N0);
 
     bool overflow;
-    (void)(~N0Known.Zero).uadd_ov(~N1Known.Zero, overflow);
+    (void)N0Known.getMaxValue().uadd_ov(N1Known.getMaxValue(), overflow);
     if (!overflow)
       return OFK_Never;
   }
 
   // mulhi + 1 never overflow
   if (N0.getOpcode() == ISD::UMUL_LOHI && N0.getResNo() == 1 &&
-      (~N1Known.Zero & 0x01) == ~N1Known.Zero)
+      (N1Known.getMaxValue() & 0x01) == N1Known.getMaxValue())
     return OFK_Never;
 
   if (N1.getOpcode() == ISD::UMUL_LOHI && N1.getResNo() == 1) {
     KnownBits N0Known = computeKnownBits(N0);
 
-    if ((~N0Known.Zero & 0x01) == ~N0Known.Zero)
+    if ((N0Known.getMaxValue() & 0x01) == N0Known.getMaxValue())
       return OFK_Never;
   }
 
@@ -3650,11 +3666,15 @@ unsigned SelectionDAG::ComputeNumSignBits(SDValue Op, const APInt &DemandedElts,
       return VTBits;
     break;
   case ISD::SETCC:
+  case ISD::STRICT_FSETCC:
+  case ISD::STRICT_FSETCCS: {
+    unsigned OpNo = Op->isStrictFPOpcode() ? 1 : 0;
     // If setcc returns 0/-1, all bits are sign bits.
-    if (TLI->getBooleanContents(Op.getOperand(0).getValueType()) ==
+    if (TLI->getBooleanContents(Op.getOperand(OpNo).getValueType()) ==
         TargetLowering::ZeroOrNegativeOneBooleanContent)
       return VTBits;
     break;
+  }
   case ISD::ROTL:
   case ISD::ROTR:
     if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op.getOperand(1))) {
@@ -5733,12 +5753,13 @@ static bool isMemSrcFromConstant(SDValue Src, ConstantDataArraySlice &Slice) {
                                   SrcDelta + G->getOffset());
 }
 
-static bool shouldLowerMemFuncForSize(const MachineFunction &MF) {
+static bool shouldLowerMemFuncForSize(const MachineFunction &MF,
+                                      SelectionDAG &DAG) {
   // On Darwin, -Os means optimize for size without hurting performance, so
   // only really optimize for size when -Oz (MinSize) is used.
   if (MF.getTarget().getTargetTriple().isOSDarwin())
     return MF.getFunction().hasMinSize();
-  return MF.getFunction().hasOptSize();
+  return DAG.shouldOptForSize();
 }
 
 static void chainLoadsAndStoresForMemcpy(SelectionDAG &DAG, const SDLoc &dl,
@@ -5788,7 +5809,7 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  bool OptSize = shouldLowerMemFuncForSize(MF);
+  bool OptSize = shouldLowerMemFuncForSize(MF, DAG);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
   if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
@@ -5971,7 +5992,7 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl,
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  bool OptSize = shouldLowerMemFuncForSize(MF);
+  bool OptSize = shouldLowerMemFuncForSize(MF, DAG);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
   if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
@@ -6077,7 +6098,7 @@ static SDValue getMemsetStores(SelectionDAG &DAG, const SDLoc &dl,
   bool DstAlignCanChange = false;
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  bool OptSize = shouldLowerMemFuncForSize(MF);
+  bool OptSize = shouldLowerMemFuncForSize(MF, DAG);
   FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Dst);
   if (FI && !MFI.isFixedObjectIndex(FI->getIndex()))
     DstAlignCanChange = true;
@@ -6962,16 +6983,22 @@ SDValue SelectionDAG::getIndexedStore(SDValue OrigStore, const SDLoc &dl,
 }
 
 SDValue SelectionDAG::getMaskedLoad(EVT VT, const SDLoc &dl, SDValue Chain,
-                                    SDValue Ptr, SDValue Mask, SDValue PassThru,
-                                    EVT MemVT, MachineMemOperand *MMO,
+                                    SDValue Base, SDValue Offset, SDValue Mask,
+                                    SDValue PassThru, EVT MemVT,
+                                    MachineMemOperand *MMO,
+                                    ISD::MemIndexedMode AM,
                                     ISD::LoadExtType ExtTy, bool isExpanding) {
-  SDVTList VTs = getVTList(VT, MVT::Other);
-  SDValue Ops[] = { Chain, Ptr, Mask, PassThru };
+  bool Indexed = AM != ISD::UNINDEXED;
+  assert((Indexed || Offset.isUndef()) &&
+         "Unindexed masked load with an offset!");
+  SDVTList VTs = Indexed ? getVTList(VT, Base.getValueType(), MVT::Other)
+                         : getVTList(VT, MVT::Other);
+  SDValue Ops[] = {Chain, Base, Offset, Mask, PassThru};
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MLOAD, VTs, Ops);
   ID.AddInteger(MemVT.getRawBits());
   ID.AddInteger(getSyntheticNodeSubclassData<MaskedLoadSDNode>(
-      dl.getIROrder(), VTs, ExtTy, isExpanding, MemVT, MMO));
+      dl.getIROrder(), VTs, AM, ExtTy, isExpanding, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
@@ -6979,7 +7006,7 @@ SDValue SelectionDAG::getMaskedLoad(EVT VT, const SDLoc &dl, SDValue Chain,
     return SDValue(E, 0);
   }
   auto *N = newSDNode<MaskedLoadSDNode>(dl.getIROrder(), dl.getDebugLoc(), VTs,
-                                        ExtTy, isExpanding, MemVT, MMO);
+                                        AM, ExtTy, isExpanding, MemVT, MMO);
   createOperands(N, Ops);
 
   CSEMap.InsertNode(N, IP);
@@ -6989,27 +7016,45 @@ SDValue SelectionDAG::getMaskedLoad(EVT VT, const SDLoc &dl, SDValue Chain,
   return V;
 }
 
+SDValue SelectionDAG::getIndexedMaskedLoad(SDValue OrigLoad, const SDLoc &dl,
+                                           SDValue Base, SDValue Offset,
+                                           ISD::MemIndexedMode AM) {
+  MaskedLoadSDNode *LD = cast<MaskedLoadSDNode>(OrigLoad);
+  assert(LD->getOffset().isUndef() && "Masked load is already a indexed load!");
+  return getMaskedLoad(OrigLoad.getValueType(), dl, LD->getChain(), Base,
+                       Offset, LD->getMask(), LD->getPassThru(),
+                       LD->getMemoryVT(), LD->getMemOperand(), AM,
+                       LD->getExtensionType(), LD->isExpandingLoad());
+}
+
 SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
-                                     SDValue Val, SDValue Ptr, SDValue Mask,
-                                     EVT MemVT, MachineMemOperand *MMO,
-                                     bool IsTruncating, bool IsCompressing) {
+                                     SDValue Val, SDValue Base, SDValue Offset,
+                                     SDValue Mask, EVT MemVT,
+                                     MachineMemOperand *MMO,
+                                     ISD::MemIndexedMode AM, bool IsTruncating,
+                                     bool IsCompressing) {
   assert(Chain.getValueType() == MVT::Other &&
         "Invalid chain type");
-  SDVTList VTs = getVTList(MVT::Other);
-  SDValue Ops[] = { Chain, Val, Ptr, Mask };
+  bool Indexed = AM != ISD::UNINDEXED;
+  assert((Indexed || Offset.isUndef()) &&
+         "Unindexed masked store with an offset!");
+  SDVTList VTs = Indexed ? getVTList(Base.getValueType(), MVT::Other)
+                         : getVTList(MVT::Other);
+  SDValue Ops[] = {Chain, Val, Base, Offset, Mask};
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, ISD::MSTORE, VTs, Ops);
   ID.AddInteger(MemVT.getRawBits());
   ID.AddInteger(getSyntheticNodeSubclassData<MaskedStoreSDNode>(
-      dl.getIROrder(), VTs, IsTruncating, IsCompressing, MemVT, MMO));
+      dl.getIROrder(), VTs, AM, IsTruncating, IsCompressing, MemVT, MMO));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
   if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<MaskedStoreSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
-  auto *N = newSDNode<MaskedStoreSDNode>(dl.getIROrder(), dl.getDebugLoc(), VTs,
-                                         IsTruncating, IsCompressing, MemVT, MMO);
+  auto *N =
+      newSDNode<MaskedStoreSDNode>(dl.getIROrder(), dl.getDebugLoc(), VTs, AM,
+                                   IsTruncating, IsCompressing, MemVT, MMO);
   createOperands(N, Ops);
 
   CSEMap.InsertNode(N, IP);
@@ -7017,6 +7062,17 @@ SDValue SelectionDAG::getMaskedStore(SDValue Chain, const SDLoc &dl,
   SDValue V(N, 0);
   NewSDValueDbgMsg(V, "Creating new node: ", this);
   return V;
+}
+
+SDValue SelectionDAG::getIndexedMaskedStore(SDValue OrigStore, const SDLoc &dl,
+                                            SDValue Base, SDValue Offset,
+                                            ISD::MemIndexedMode AM) {
+  MaskedStoreSDNode *ST = cast<MaskedStoreSDNode>(OrigStore);
+  assert(ST->getOffset().isUndef() &&
+         "Masked store is already a indexed store!");
+  return getMaskedStore(ST->getChain(), dl, ST->getValue(), Base, Offset,
+                        ST->getMask(), ST->getMemoryVT(), ST->getMemOperand(),
+                        AM, ST->isTruncatingStore(), ST->isCompressingStore());
 }
 
 SDValue SelectionDAG::getMaskedGather(SDVTList VTs, EVT VT, const SDLoc &dl,
@@ -7274,8 +7330,40 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, SDVTList VTList,
   if (VTList.NumVTs == 1)
     return getNode(Opcode, DL, VTList.VTs[0], Ops);
 
-#if 0
   switch (Opcode) {
+  case ISD::STRICT_FP_EXTEND:
+    assert(VTList.NumVTs == 2 && Ops.size() == 2 &&
+           "Invalid STRICT_FP_EXTEND!");
+    assert(VTList.VTs[0].isFloatingPoint() &&
+           Ops[1].getValueType().isFloatingPoint() && "Invalid FP cast!");
+    assert(VTList.VTs[0].isVector() == Ops[1].getValueType().isVector() &&
+           "STRICT_FP_EXTEND result type should be vector iff the operand "
+           "type is vector!");
+    assert((!VTList.VTs[0].isVector() ||
+            VTList.VTs[0].getVectorNumElements() ==
+            Ops[1].getValueType().getVectorNumElements()) &&
+           "Vector element count mismatch!");
+    assert(Ops[1].getValueType().bitsLT(VTList.VTs[0]) &&
+           "Invalid fpext node, dst <= src!");
+    break;
+  case ISD::STRICT_FP_ROUND:
+    assert(VTList.NumVTs == 2 && Ops.size() == 3 && "Invalid STRICT_FP_ROUND!");
+    assert(VTList.VTs[0].isVector() == Ops[1].getValueType().isVector() &&
+           "STRICT_FP_ROUND result type should be vector iff the operand "
+           "type is vector!");
+    assert((!VTList.VTs[0].isVector() ||
+            VTList.VTs[0].getVectorNumElements() ==
+            Ops[1].getValueType().getVectorNumElements()) &&
+           "Vector element count mismatch!");
+    assert(VTList.VTs[0].isFloatingPoint() &&
+           Ops[1].getValueType().isFloatingPoint() &&
+           VTList.VTs[0].bitsLT(Ops[1].getValueType()) &&
+           isa<ConstantSDNode>(Ops[2]) &&
+           (cast<ConstantSDNode>(Ops[2])->getZExtValue() == 0 ||
+            cast<ConstantSDNode>(Ops[2])->getZExtValue() == 1) &&
+           "Invalid STRICT_FP_ROUND!");
+    break;
+#if 0
   // FIXME: figure out how to safely handle things like
   // int foo(int x) { return 1 << (x & 255); }
   // int bar() { return foo(256); }
@@ -7294,8 +7382,8 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, SDVTList VTList,
           return getNode(Opcode, DL, VT, N1, N2, N3.getOperand(0));
       }
     break;
-  }
 #endif
+  }
 
   // Memoize the node unless it returns a flag.
   SDNode *N;
@@ -7753,6 +7841,8 @@ SDNode* SelectionDAG::mutateStrictFPToFP(SDNode *Node) {
     llvm_unreachable("mutateStrictFPToFP called with unexpected opcode!");
 #define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
   case ISD::STRICT_##DAGN: NewOpc = ISD::DAGN; break;
+#define CMP_INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)               \
+  case ISD::STRICT_##DAGN: NewOpc = ISD::SETCC; break;
 #include "llvm/IR/ConstrainedOps.def"
   }
 

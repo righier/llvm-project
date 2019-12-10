@@ -19,32 +19,30 @@ using namespace clang;
 
 Transform::Kind Transform ::getTransformDirectiveKind(llvm::StringRef Str) {
   return llvm::StringSwitch<Transform::Kind>(Str)
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  .Case(#Keyword, Transform::Kind::Name##Kind)
-#include "clang/Basic/TransformKinds.def"
-      .Default(Transform::UnknownKind);
+      .Case("unroll", LoopUnrollingKind)
+      .Case("unrollandjam", LoopUnrollAndJamKind)
+      .Case("vectorize", LoopVectorizationKind)
+      .Case("interleave", LoopInterleavingKind)
+      .Case("distribute", LoopDistributionKind)
+      .Default(UnknownKind);
 }
 
 llvm::StringRef Transform ::getTransformDirectiveKeyword(Kind K) {
-  assert(K >= UnknownKind);
-  assert(K <= LastKind);
-  const char *Keywords[LastKind + 1] = {
-      "<<Unknown>>",
-#define TRANSFORM_DIRECTIVE(Keyword, Name) #Keyword,
-#include "clang/Basic/TransformKinds.def"
-  };
-  return Keywords[K];
-}
-
-llvm::StringRef Transform ::getTransformDirectiveName(Kind K) {
-  assert(K >= UnknownKind);
-  assert(K <= LastKind);
-  const char *Keywords[LastKind + 1] = {
-      "<<Unknown>>",
-#define TRANSFORM_DIRECTIVE(Keyword, Name) #Name,
-#include "clang/Basic/TransformKinds.def"
-  };
-  return Keywords[K];
+  switch (K) {
+  case UnknownKind:
+    break;
+  case LoopUnrollingKind:
+    return "unroll";
+  case LoopUnrollAndJamKind:
+    return "unrollandjam";
+  case LoopVectorizationKind:
+    return "vectorize";
+  case LoopInterleavingKind:
+    return "interleave";
+  case LoopDistributionKind:
+    return "distribute";
+  }
+  llvm_unreachable("Not a known transformation");
 }
 
 int Transform::getLoopPipelineStage() const {
@@ -55,37 +53,10 @@ int Transform::getLoopPipelineStage() const {
     return cast<LoopUnrollingTransform>(this)->isFull() ? 0 : 4;
   case Transform::Kind::LoopInterleavingKind:
   case Transform::Kind::LoopVectorizationKind:
-  case Transform::Kind::LoopVectorizationInterleavingKind:
     return 2;
   case Transform::Kind::LoopUnrollAndJamKind:
     return 3;
   default:
     return -1;
   }
-}
-
-int Transform::getNumInputs() const {
-  assert(getKind() > UnknownKind);
-  assert(getKind() <= LastKind);
-  static const decltype(
-      &Transform::getNumInputs) GetNumInputFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  static_cast<decltype(&Transform::getNumInputs)>(                             \
-      &Name##Transform ::getNumInputs),
-#include "clang/Basic/TransformKinds.def"
-  };
-  return (this->*GetNumInputFuncs[getKind() - 1])();
-}
-
-int Transform::getNumFollowups() const {
-  assert(getKind() > UnknownKind);
-  assert(getKind() <= LastKind);
-  static const decltype(&Transform::getNumInputs)
-      GetNumFollowupFuncs[Transform::Kind::LastKind] = {
-#define TRANSFORM_DIRECTIVE(Keyword, Name)                                     \
-  static_cast<decltype(&Transform::getNumFollowups)>(                          \
-      &Name##Transform ::getNumFollowups),
-#include "clang/Basic/TransformKinds.def"
-      };
-  return (this->*GetNumFollowupFuncs[getKind() - 1])();
 }

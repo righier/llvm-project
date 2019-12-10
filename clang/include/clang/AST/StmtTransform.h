@@ -49,8 +49,8 @@ public:
   SourceRange getRange() const { return LocRange; }
   SourceLocation getBeginLoc() const { return LocRange.getBegin(); }
   SourceLocation getEndLoc() const { return LocRange.getEnd(); }
-  void setLoc(SourceRange L) { LocRange = L; }
-  void setLoc(SourceLocation BeginLoc, SourceLocation EndLoc) {
+  void setRange(SourceRange L) { LocRange = L; }
+  void setRange(SourceLocation BeginLoc, SourceLocation EndLoc) {
     LocRange = SourceRange(BeginLoc, EndLoc);
   }
 
@@ -200,6 +200,51 @@ public:
 
   void print(llvm::raw_ostream &OS, const PrintingPolicy &Policy) const;
 };
+
+/// Visitor pattern for transform clauses.
+template <class ImplClass, template <typename> class Ptr, typename RetTy>
+class TransformClauseVisitorBase {
+protected:
+  ImplClass &getDerived() { return *static_cast<ImplClass *>(this); }
+  const ImplClass &getDerived() const {
+    return *static_cast<const ImplClass *>(this);
+  }
+
+public:
+#define PTR(CLASS) typename Ptr<CLASS>::type
+
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  RetTy Visit##Name##Clause(PTR(Name##Clause) S) {                             \
+    return getDerived().VisitTransformClause(S);                               \
+  }
+#include "clang/AST/TransformClauseKinds.def"
+
+  RetTy Visit(PTR(TransformClause) C) {
+    switch (C->getKind()) {
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  case TransformClause::Kind::Name##Kind:                                      \
+    return getDerived().Visit##Name##Clause(static_cast<PTR(Name##Clause)>(C));
+      // return Visit ##  Name  ## Clause(static_cast<PTR(Name ## Clause)>(C));
+#include "clang/AST/TransformClauseKinds.def"
+    default:
+      llvm_unreachable("Unknown transform clause kind!");
+    }
+  }
+
+  // Base case
+  RetTy VisitTransformClause(PTR(TransformClause) C) { return RetTy(); }
+
+#undef PTR
+};
+
+template <class ImplClass, typename RetTy = void>
+class TransformClauseVisitor
+    : public TransformClauseVisitorBase<ImplClass, std::add_pointer, RetTy> {};
+
+template <class ImplClass, typename RetTy = void>
+class ConstTransformClauseVisitor
+    : public TransformClauseVisitorBase<ImplClass, llvm::make_const_ptr,
+                                        RetTy> {};
 
 /// Represents
 ///

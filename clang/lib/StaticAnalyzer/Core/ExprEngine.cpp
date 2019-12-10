@@ -728,7 +728,8 @@ void ExprEngine::removeDead(ExplodedNode *Pred, ExplodedNodeSet &Out,
   // Create a state in which dead bindings are removed from the environment
   // and the store. TODO: The function should just return new env and store,
   // not a new state.
-  CleanedState = StateMgr.removeDeadBindings(CleanedState, SFC, SymReaper);
+  CleanedState = StateMgr.removeDeadBindingsFromEnvironmentAndStore(
+      CleanedState, SFC, SymReaper);
 
   // Process any special transfer function for dead symbols.
   // A tag to track convenience transitions, which can be removed at cleanup.
@@ -1245,6 +1246,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OMPParallelForDirectiveClass:
     case Stmt::OMPParallelForSimdDirectiveClass:
     case Stmt::OMPParallelSectionsDirectiveClass:
+    case Stmt::OMPParallelMasterDirectiveClass:
     case Stmt::OMPTaskDirectiveClass:
     case Stmt::OMPTaskyieldDirectiveClass:
     case Stmt::OMPBarrierDirectiveClass:

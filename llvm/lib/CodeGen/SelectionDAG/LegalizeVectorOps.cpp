@@ -319,9 +319,9 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
     // best approach, except in the case where the resulting strict (scalar)
     // operations would themselves use the fallback mutation to non-strict.
     // In that specific case, just do the fallback on the vector op.
-    if (Action == TargetLowering::Expand &&
+    if (Action == TargetLowering::Expand && !TLI.isStrictFPEnabled() &&
         TLI.getStrictFPOperationAction(Node->getOpcode(),
-                                       Node->getValueType(0))
+                                   Node->getValueType(0))
         == TargetLowering::Legal) {
       EVT EltVT = Node->getValueType(0).getVectorElementType();
       if (TLI.getOperationAction(Node->getOpcode(), EltVT)
@@ -1323,7 +1323,14 @@ SDValue VectorLegalizer::ExpandStrictFPOp(SDValue Op) {
   unsigned NumElems = VT.getVectorNumElements();
   unsigned NumOpers = Op.getNumOperands();
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-  EVT ValueVTs[] = {EltVT, MVT::Other};
+
+  EVT TmpEltVT = EltVT;
+  if (Op->getOpcode() == ISD::STRICT_FSETCC ||
+      Op->getOpcode() == ISD::STRICT_FSETCCS)
+    TmpEltVT = TLI.getSetCCResultType(DAG.getDataLayout(),
+                                      *DAG.getContext(), TmpEltVT);
+
+  EVT ValueVTs[] = {TmpEltVT, MVT::Other};
   SDValue Chain = Op.getOperand(0);
   SDLoc dl(Op);
 
@@ -1350,9 +1357,18 @@ SDValue VectorLegalizer::ExpandStrictFPOp(SDValue Op) {
     }
 
     SDValue ScalarOp = DAG.getNode(Op->getOpcode(), dl, ValueVTs, Opers);
+    SDValue ScalarResult = ScalarOp.getValue(0);
+    SDValue ScalarChain = ScalarOp.getValue(1);
 
-    OpValues.push_back(ScalarOp.getValue(0));
-    OpChains.push_back(ScalarOp.getValue(1));
+    if (Op->getOpcode() == ISD::STRICT_FSETCC ||
+        Op->getOpcode() == ISD::STRICT_FSETCCS)
+      ScalarResult = DAG.getSelect(dl, EltVT, ScalarResult,
+                           DAG.getConstant(APInt::getAllOnesValue
+                                           (EltVT.getSizeInBits()), dl, EltVT),
+                           DAG.getConstant(0, dl, EltVT));
+
+    OpValues.push_back(ScalarResult);
+    OpChains.push_back(ScalarChain);
   }
 
   SDValue Result = DAG.getBuildVector(VT, dl, OpValues);
