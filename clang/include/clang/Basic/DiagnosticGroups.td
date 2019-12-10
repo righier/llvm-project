@@ -1129,5 +1129,5 @@ def CTADMaybeUnsupported : DiagGroup<"ctad-maybe-unsupported">;
 
 def FortifySource : DiagGroup<"fortify-source">;
 
-
+// Warnings for #pragma clang transform
 def ClangTransform : DiagGroup<"pragma-transform">;
