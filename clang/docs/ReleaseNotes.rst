@@ -100,6 +100,10 @@ New Compiler Flags
 - vzeroupper insertion on X86 targets can now be disabled with -mno-vzeroupper.
   You can also force vzeroupper insertion to be used on CPUs that normally
   wouldn't with -mvzeroupper.
+  
+- The -fexperimental-transform-pragma flag controls whether
+  ``#pragma clang transform`` pragmas are parsed. Otherwise, the they
+  are handled like an unknown pragma.
 
 Deprecated Compiler Flags
 -------------------------
@@ -122,7 +126,12 @@ Modified Compiler Flags
 New Pragmas in Clang
 --------------------
 
-- ...
+- The ``#pragma clang transform`` directive has been added. The
+  directive instructs the compiler to apply code transformations.
+  Compared to ``#pragma clang loop``, it allows to chain multiple
+  transformations. See
+  `User-Directed Code Transformations <http://clang.llvm.org/docs/PragmaClangTransform.html`_
+  for more information.
 
 Attribute Changes in Clang
 --------------------------
