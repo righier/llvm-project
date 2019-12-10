@@ -270,6 +270,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::STRICT_FPOWI:               return "strict_fpowi";
   case ISD::SETCC:                      return "setcc";
   case ISD::SETCCCARRY:                 return "setcccarry";
+  case ISD::STRICT_FSETCC:              return "strict_fsetcc";
+  case ISD::STRICT_FSETCCS:             return "strict_fsetccs";
   case ISD::SELECT:                     return "select";
   case ISD::VSELECT:                    return "vselect";
   case ISD::SELECT_CC:                  return "select_cc";
@@ -685,6 +687,10 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
     if (doExt)
       OS << " from " << MLd->getMemoryVT().getEVTString();
 
+    const char *AM = getIndexedModeName(MLd->getAddressingMode());
+    if (*AM)
+      OS << ", " << AM;
+
     if (MLd->isExpandingLoad())
       OS << ", expanding";
 
@@ -695,6 +701,10 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
 
     if (MSt->isTruncatingStore())
       OS << ", trunc to " << MSt->getMemoryVT().getEVTString();
+
+    const char *AM = getIndexedModeName(MSt->getAddressingMode());
+    if (*AM)
+      OS << ", " << AM;
 
     if (MSt->isCompressingStore())
       OS << ", compressing";
