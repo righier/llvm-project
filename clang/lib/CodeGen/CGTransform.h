@@ -46,6 +46,7 @@ public:
 
   bool IsDefault = true;
   bool DisableHeuristic = false;
+  bool IsCodeGenned;
 
   llvm::SmallVector<llvm::Metadata *, 8> Attributes;
   llvm::SmallVector<llvm::Metadata *, 4> Transforms;
@@ -87,7 +88,6 @@ public:
   llvm::MDNode *makeLoopID(llvm::LLVMContext &Ctx, bool HasAllDisableNonforced);
 
   bool isCodeGenned() const { return IsCodeGenned; }
-  bool IsCodeGenned;
 };
 
 class CGTransformedTreeBuilder

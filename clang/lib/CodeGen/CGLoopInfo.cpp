@@ -596,10 +596,6 @@ void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
                                      nullptr));
   }
 
-#if 0
-  Active.emplace_back(  new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,      Active.empty() ? nullptr : Active.back().get()));
-#endif
-
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
   Staging = nullptr;

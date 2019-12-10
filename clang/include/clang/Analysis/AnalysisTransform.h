@@ -162,7 +162,7 @@ template <typename Derived> struct ExtractTransform {
         Simdlen = WidthInt.getValue();
       }
 
-      return wrap(LoopVectorizationTransform::Create(Loc, true, Simdlen, None));
+      return wrap(LoopVectorizationTransform::create(Loc, true, Simdlen, None));
     }
 
     case clang::Transform::LoopInterleavingKind: {
@@ -180,7 +180,7 @@ template <typename Derived> struct ExtractTransform {
       }
 
       return wrap(
-          LoopInterleavingTransform::Create(Loc, true, InterleaveFactor));
+          LoopInterleavingTransform::create(Loc, true, InterleaveFactor));
     }
     default:
       llvm_unreachable("unimplemented");

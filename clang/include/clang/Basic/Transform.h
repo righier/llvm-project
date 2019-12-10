@@ -33,10 +33,6 @@ public:
   static Kind getTransformDirectiveKind(llvm::StringRef Str);
   static llvm::StringRef getTransformDirectiveKeyword(Kind K);
 
-#if 0
-  static llvm::StringRef getTransformDirectiveName(Kind K);
-#endif
-
 private:
   Kind TransformKind;
   SourceRange LocRange;
@@ -71,9 +67,11 @@ public:
   virtual int getNumFollowups() const { return 0; }
   /// @}
 
-  /// The "all" follow-up role is a meta output whose' attributes are added to
-  /// all generated loops.
-  bool isAllRole(int R) const { return R == 0; }
+  /// A meta role may apply to multiple output loops, its attributes are added
+  /// to each of them. A typical axample is the 'all' followup which applies to
+  /// all loops emitted by a transformation. The "all" follow-up role is a meta
+  /// output whose' attributes are added to all generated loops.
+  bool isMetaRole(int R) const { return R == 0; }
 
   /// Used to warn users that the current LLVM pass pipeline cannot apply
   /// arbitrary transformation orders yet.
@@ -227,7 +225,7 @@ public:
   }
 
   static LoopVectorizationTransform *
-  Create(SourceRange Loc, llvm::Optional<bool> EnableVectorization,
+  create(SourceRange Loc, llvm::Optional<bool> EnableVectorization,
          int VectorizeWidth, llvm::Optional<bool> VectorizePredicateEnable) {
     assert(EnableVectorization.getValueOr(true));
     return new LoopVectorizationTransform(
@@ -271,7 +269,7 @@ public:
   }
 
   static LoopInterleavingTransform *
-  Create(SourceRange Loc, llvm::Optional<bool> EnableInterleaving,
+  create(SourceRange Loc, llvm::Optional<bool> EnableInterleaving,
          int InterleaveCount) {
     assert(EnableInterleaving.getValueOr(true));
     return new LoopInterleavingTransform(Loc, EnableInterleaving,

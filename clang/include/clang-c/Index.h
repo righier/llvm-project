@@ -2576,7 +2576,7 @@ enum CXCursorKind {
 
   /** Transformation directive.
    */
-  CXCursor_TransformExecutableDirective = 285,
+  CXCursor_TransformExecutableDirective = 286,
 
   CXCursor_LastStmt = CXCursor_TransformExecutableDirective,
 

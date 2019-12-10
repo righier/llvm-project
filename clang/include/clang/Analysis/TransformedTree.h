@@ -448,15 +448,6 @@ private:
         if (!PrevSourceTrans)
           continue;
 
-#if 0
-        // Cannot combine legacy constructs (#pragma clang loop, ...) with new
-        // ones (#pragma clang transform).
-        if (NewTrans->isLegacy() != PrevSourceTrans->isLegacy()) {
-          Builder.Diag(NewTrans->getBeginLoc(),diag::err_sema_transform_legacy_mix);
-          return;
-        }
-#endif
-
         int PrevStage = PrevSourceTrans->getLoopPipelineStage();
         int NewStage = NewTrans->getLoopPipelineStage();
         if (PrevStage >= 0 && NewStage >= 0 && PrevStage > NewStage) {
@@ -598,12 +589,6 @@ private:
 
     NodeTy *applyVectorize(LoopVectorizationTransform *Trans,
                            NodeTy *MainLoop) {
-#if 0
-      auto *VecInterleaveTrans = LoopVectorizationInterleavingTransform::create(
-          Trans->getRange(), false, false, true, false, Trans->getWidth(),
-          Trans->isPredicateEnabled(), 1);
-      return applyVectorizeInterleave(VecInterleaveTrans, MainLoop);
-#endif
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *All =
@@ -627,12 +612,6 @@ private:
 
     NodeTy *applyInterleave(LoopInterleavingTransform *Trans,
                             NodeTy *MainLoop) {
-#if 0
-      auto *VecInterleaveTrans = LoopVectorizationInterleavingTransform::create(
-          Trans->getRange(), false, false, false, true, 1, None,
-          Trans->getInterleaveCount());
-      return applyVectorizeInterleave(VecInterleaveTrans, MainLoop);
-#endif
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *All = Builder.createFollowup(
@@ -662,17 +641,6 @@ private:
         for (auto SubL : Latest)
           traverse(SubL);
       }
-
-#if 0
-      // Transform subloops first.
-      // TODO: Instead of recursively traversing the entire subtree, in case we are re-traversing after a transformation, only traverse followups of that transformation.
-      for (NodeTy *SubL : L->getSubLoops()) {
-        SubL = SubL->getLatestSuccessor();
-        if (!SubL)
-          continue;
-        traverse(SubL);
-      }
-#endif
     }
 
     bool applyTransform(NodeTy *L) {
@@ -715,24 +683,6 @@ private:
         return true;
       }
 
-#if 0
-      if (auto LatestTransform = L->getTransformedBy()) {
-        auto Chained = TransformByFollowup.find(LatestTransform);
-        if (Chained != TransformByFollowup.end()) {
-          auto &List = Chained->second;
-          NodeTransform *NT = List  .front();
-          auto MainInput = NT->Inputs[0];
-          assert(MainInput.isByFollowup());
-          assert(MainInput.getPrecTrans()==LatestTransform);
-          auto FollowupNode = L->Followups[MainInput.getFollowupIdx()];
-            assert(FollowupNode);
-          applyTransform(NT->Trans, FollowupNode);
-          List. erase(List.begin());
-          return true;
-        }
-      }
-#endif
-
       return false;
     }
 
@@ -746,16 +696,6 @@ private:
         }
       }
     }
-
-#if 0
-      do {
-        L = L->getLatestSuccessor();
-        if (!L)
-          break;
-        traverseSubloops(L);
-      } while (applyTransform(L));
-    }
-#endif
   };
 
 protected:

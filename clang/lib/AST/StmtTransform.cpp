@@ -139,20 +139,9 @@ const Stmt *clang::getAssociatedLoop(const Stmt *S) {
   case Stmt::DoStmtClass:
   case Stmt::CXXForRangeStmtClass:
     return S;
-#if 0
-  case Stmt::CapturedStmtClass:
-    return getAssociatedLoop(cast<CapturedStmt>(S)->getCapturedStmt());
-  case Stmt::AttributedStmtClass:
-    return getAssociatedLoop(cast<AttributedStmt>(S)->getSubStmt());
-#endif
   case Stmt::TransformExecutableDirectiveClass:
     return getAssociatedLoop(
         cast<TransformExecutableDirective>(S)->getAssociated());
-#if 0
-  default:
-    if (auto LD = dyn_cast<OMPLoopDirective>(S))
-      return getAssociatedLoop(LD->getAssociatedStmt());
-#endif
   default:
     return nullptr;
   }

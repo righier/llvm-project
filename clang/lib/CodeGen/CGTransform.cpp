@@ -153,7 +153,7 @@ llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx,
   bool OtherIsNondefault = false;
   for (auto P : FollowupAttributes) {
     int Role = P.second->FollowupRole;
-    if (TransformedBy->isAllRole(Role)) {
+    if (TransformedBy->isMetaRole(Role)) {
       if (P.second->DisableHeuristic)
         AllIsDisableHeuristic = true;
     } else {
@@ -166,7 +166,7 @@ llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx,
     StringRef FollowupName = P.first;
     NodeTy *FollowupNode = P.second;
     llvm::MDNode *FollowupId;
-    if (TransformedBy->isAllRole(FollowupNode->FollowupRole)) {
+    if (TransformedBy->isMetaRole(FollowupNode->FollowupRole)) {
       if (OtherIsNondefault)
         FollowupNode->markNondefault();
       FollowupId = FollowupNode->makeLoopID(Ctx, false);
@@ -200,8 +200,6 @@ void CGTransformedTreeBuilder::applyOriginal(CGTransformedTree *L) {
 
   L->BeginLoc = DbgInfo->SourceLocToDebugLoc(L->getOriginal()->getBeginLoc());
   L->EndLoc = DbgInfo->SourceLocToDebugLoc(L->getOriginal()->getEndLoc());
-  // if (L->BeginLoc || L->EndLoc)
-  //  L->markNondefault();
 }
 
 void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
@@ -215,13 +213,6 @@ void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
     // TOOD: Check for duplicates?
     Dst->Attributes.push_back(A);
   }
-
-#if 0
-  // We currently assume that every transformation of a parallel loop also
-  // results in a parallel loop.
-  Dst->ParallelAccessGroups.insert(Src->ParallelAccessGroups.begin(),
-                                   Src->ParallelAccessGroups.end());
-#endif
 }
 
 void CGTransformedTreeBuilder::applyUnroll(LoopUnrollingTransform *Trans,
@@ -257,7 +248,6 @@ void CGTransformedTreeBuilder::applyUnroll(LoopUnrollingTransform *Trans,
   }
 
   OriginalLoop->markNondefault();
-
   OriginalLoop->markDisableHeuristic();
 }
 
@@ -277,15 +267,11 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
     case LoopUnrollAndJamTransform::FollowupAll:
       OuterLoop->FollowupAttributes.emplace_back(
           "llvm.loop.unroll_and_jam.followup_all", F);
-
       F->markDisableHeuristic();
       break;
     case LoopUnrollAndJamTransform::FollowupOuter:
       OuterLoop->FollowupAttributes.emplace_back(
           "llvm.loop.unroll_and_jam.followup_outer", F);
-
-      F->markDisableHeuristic();
-
       break;
     }
   }
@@ -294,7 +280,6 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
     for (CGTransformedTree *F : InnerLoop->Followups) {
       switch (F->FollowupRole) {
       case LoopUnrollAndJamTransform::FollowupInner:
-
         F->markDisableHeuristic();
         OuterLoop->FollowupAttributes.emplace_back(
             "llvm.loop.unroll_and_jam.followup_inner", F);
@@ -304,7 +289,6 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
   }
 
   OuterLoop->markNondefault();
-
   OuterLoop->markDisableHeuristic();
   if (InnerLoop)
     InnerLoop->markDisableHeuristic();
@@ -320,14 +304,12 @@ void CGTransformedTreeBuilder::applyDistribution(
     case LoopDistributionTransform::FollowupAll:
       OriginalLoop->FollowupAttributes.emplace_back(
           "llvm.loop.distribute.followup_all", F);
-
       F->markDisableHeuristic();
       break;
     }
   }
 
   OriginalLoop->markNondefault();
-
   OriginalLoop->markDisableHeuristic();
 }
 
@@ -388,12 +370,10 @@ void CGTransformedTreeBuilder::applyInterleaving(
     case LoopInterleavingTransform ::FollowupVectorized:
       MainLoop->FollowupAttributes.emplace_back(
           "llvm.loop.vectorize.followup_vectorized", F);
-      //  F->markDisableHeuristic();
       break;
     case LoopInterleavingTransform ::FollowupEpilogue:
       MainLoop->FollowupAttributes.emplace_back(
           "llvm.loop.vectorize.followup_epilogue", F);
-      // F->markDisableHeuristic();
       break;
     }
   }

@@ -119,6 +119,7 @@ private:
   /// Loop ID metadata.
   llvm::TempMDTuple TempLoopID;
   llvm::MDNode *LoopMD = nullptr;
+
   /// Header block of this loop.
   llvm::BasicBlock *Header;
   /// The attributes for this loop.
