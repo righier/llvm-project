@@ -102,7 +102,7 @@ template <typename Derived> struct ExtractTransform {
     SourceRange Loc = Directive->getRange();
 
     switch (Kind) {
-    case Transform::LoopUnrollingKind: {
+    case Transform::LoopUnrollKind: {
       allowedClauses({TransformClause::FullKind, TransformClause::PartialKind});
       FullClause *Full = assumeSingleClause<FullClause>();
       PartialClause *Partial = assumeSingleClause<PartialClause>();
@@ -114,16 +114,15 @@ template <typename Derived> struct ExtractTransform {
         return nullptr;
 
       if (Full) {
-        return wrap(LoopUnrollingTransform::createFull(Loc, true, true));
+        return wrap(LoopUnrollTransform::createFull(Loc));
       } else if (Partial) {
         llvm::Optional<int64_t> Factor = evalIntArg(Partial->getFactor(), 2);
         if (AnyError || !Factor.hasValue())
           return nullptr;
-        return wrap(LoopUnrollingTransform::createPartial(Loc, true, true,
-                                                          Factor.getValue()));
+        return wrap(LoopUnrollTransform::createPartial(Loc, Factor.getValue()));
       }
 
-      return wrap(LoopUnrollingTransform::create(Loc, true, true));
+      return wrap(LoopUnrollTransform::createHeuristic(Loc));
     }
 
     case Transform::LoopUnrollAndJamKind: {
@@ -137,11 +136,11 @@ template <typename Derived> struct ExtractTransform {
         llvm::Optional<int64_t> Factor = evalIntArg(Partial->getFactor(), 2);
         if (AnyError || !Factor.hasValue())
           return nullptr;
-        return wrap(LoopUnrollAndJamTransform::createPartial(
-            Loc, true, Factor.getValue()));
+        return wrap(
+            LoopUnrollAndJamTransform::createPartial(Loc, Factor.getValue()));
       }
 
-      return wrap(LoopUnrollAndJamTransform::create(Loc, true));
+      return wrap(LoopUnrollAndJamTransform::createHeuristic(Loc));
     }
 
     case clang::Transform::LoopDistributionKind:
@@ -162,7 +161,7 @@ template <typename Derived> struct ExtractTransform {
         Simdlen = WidthInt.getValue();
       }
 
-      return wrap(LoopVectorizationTransform::create(Loc, true, Simdlen, None));
+      return wrap(LoopVectorizationTransform::create(Loc, Simdlen));
     }
 
     case clang::Transform::LoopInterleavingKind: {
@@ -179,8 +178,7 @@ template <typename Derived> struct ExtractTransform {
         InterleaveFactor = FactorInt.getValue();
       }
 
-      return wrap(
-          LoopInterleavingTransform::create(Loc, true, InterleaveFactor));
+      return wrap(LoopInterleavingTransform::create(Loc, InterleaveFactor));
     }
     default:
       llvm_unreachable("unimplemented");

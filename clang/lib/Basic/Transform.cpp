@@ -19,7 +19,7 @@ using namespace clang;
 
 Transform::Kind Transform ::getTransformDirectiveKind(llvm::StringRef Str) {
   return llvm::StringSwitch<Transform::Kind>(Str)
-      .Case("unroll", LoopUnrollingKind)
+      .Case("unroll", LoopUnrollKind)
       .Case("unrollandjam", LoopUnrollAndJamKind)
       .Case("vectorize", LoopVectorizationKind)
       .Case("interleave", LoopInterleavingKind)
@@ -31,7 +31,7 @@ llvm::StringRef Transform ::getTransformDirectiveKeyword(Kind K) {
   switch (K) {
   case UnknownKind:
     break;
-  case LoopUnrollingKind:
+  case LoopUnrollKind:
     return "unroll";
   case LoopUnrollAndJamKind:
     return "unrollandjam";
@@ -47,10 +47,10 @@ llvm::StringRef Transform ::getTransformDirectiveKeyword(Kind K) {
 
 int Transform::getLoopPipelineStage() const {
   switch (getKind()) {
+  case Transform::Kind::LoopUnrollKind:
+    return cast<LoopUnrollTransform>(this)->isFull() ? 0 : 4;
   case Transform::Kind::LoopDistributionKind:
     return 1;
-  case Transform::Kind::LoopUnrollingKind:
-    return cast<LoopUnrollingTransform>(this)->isFull() ? 0 : 4;
   case Transform::Kind::LoopInterleavingKind:
   case Transform::Kind::LoopVectorizationKind:
     return 2;

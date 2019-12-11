@@ -462,8 +462,8 @@ private:
 
     NodeTy *applyTransform(Transform *Trans, NodeTy *MainLoop) {
       switch (Trans->getKind()) {
-      case Transform::Kind::LoopUnrollingKind:
-        return applyUnrolling(cast<LoopUnrollingTransform>(Trans), MainLoop);
+      case Transform::Kind::LoopUnrollKind:
+        return applyUnrolling(cast<LoopUnrollTransform>(Trans), MainLoop);
       case Transform::Kind::LoopUnrollAndJamKind:
         return applyUnrollAndJam(cast<LoopUnrollAndJamTransform>(Trans),
                                  MainLoop);
@@ -486,7 +486,7 @@ private:
       Builder.inheritLoopAttributes(Dst, Src, IsAll, IsSuccessor);
     }
 
-    NodeTy *applyUnrolling(LoopUnrollingTransform *Trans, NodeTy *MainLoop) {
+    NodeTy *applyUnrolling(LoopUnrollTransform *Trans, NodeTy *MainLoop) {
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *Successor = nullptr;
@@ -494,14 +494,14 @@ private:
         // Full unrolling has no followup-loop.
         MainLoop->applyTransformation(Trans, {}, {});
       } else {
-        NodeTy *All = Builder.createFollowup(
-            MainLoop->Subloops, MainLoop, LoopUnrollingTransform::FollowupAll);
+        NodeTy *All = Builder.createFollowup(MainLoop->Subloops, MainLoop,
+                                             LoopUnrollTransform::FollowupAll);
         NodeTy *Unrolled =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollingTransform::FollowupUnrolled);
+                                   LoopUnrollTransform::FollowupUnrolled);
         NodeTy *Remainder =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollingTransform::FollowupRemainder);
+                                   LoopUnrollTransform::FollowupRemainder);
         Successor = Unrolled;
         inheritLoopAttributes(All, MainLoop, true, All == Successor);
         MainLoop->applyTransformation(Trans, {All, Unrolled, Remainder},
@@ -616,9 +616,9 @@ private:
 
       NodeTy *All = Builder.createFollowup(
           MainLoop->Subloops, MainLoop, LoopInterleavingTransform::FollowupAll);
-      NodeTy *Vectorized =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopInterleavingTransform::FollowupVectorized);
+      NodeTy *Vectorized = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop,
+          LoopInterleavingTransform::FollowupInterleaved);
       NodeTy *Epilogue =
           Builder.createFollowup(MainLoop->Subloops, MainLoop,
                                  LoopInterleavingTransform::FollowupEpilogue);

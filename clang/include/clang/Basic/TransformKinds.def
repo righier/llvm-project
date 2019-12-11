@@ -7,7 +7,7 @@
 #endif
 
 // Loop transformations accessible through "#pragma clang transform".
-TRANSFORM_DIRECTIVE(LoopUnrolling)
+TRANSFORM_DIRECTIVE(LoopUnroll)
 TRANSFORM_DIRECTIVE(LoopUnrollAndJam)
 TRANSFORM_DIRECTIVE(LoopDistribution)
 TRANSFORM_DIRECTIVE(LoopVectorization)

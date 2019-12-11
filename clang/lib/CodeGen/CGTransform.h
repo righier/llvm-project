@@ -123,8 +123,7 @@ public:
   void inheritLoopAttributes(CGTransformedTree *Dst, CGTransformedTree *Src,
                              bool IsAll, bool IsSuccessor);
 
-  void applyUnroll(LoopUnrollingTransform *Trans,
-                   CGTransformedTree *OriginalLoop);
+  void applyUnroll(LoopUnrollTransform *Trans, CGTransformedTree *OriginalLoop);
   void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
                          CGTransformedTree *OuterLoop,
                          CGTransformedTree *InnerLoop);
