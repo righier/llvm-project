@@ -90,8 +90,7 @@ public:
   /// Construct a new LoopInfo for the loop with entry Header.
   LoopInfo(llvm::BasicBlock *Header, const LoopAttributes &Attrs,
            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
-           LoopInfo *Parent, CGTransformedTree *Current,
-           CGTransformedTree *Syntactical);
+           LoopInfo *Parent, CGTransformedTree *TN);
 
   /// Get the loop id metadata for this loop.
   llvm::MDNode *getLoopID() const {
@@ -213,58 +212,11 @@ public:
   ~LoopInfoStack();
 
   CGTransformedTree *lookupTransformedNode(const Stmt *S);
-  static CGTransformedTree *
-  getFollowupAtIdx(CGTransformedTree *TN,
-                   Transform::Kind ExpectedTransformation, int FollowupIdx);
 
-  void setNextTransformedNode(CGTransformedTree *TN) {
-    assert(!Staging && "Conflicting staging transformed node");
-    Staging = TN;
-  }
-
-  void followTransformation(Transform::Kind ExpectedTransformation,
-                            int FollowupIdx);
   void initAsOutlined(LoopInfoStack &ParentLIS) {
     StmtToTree = ParentLIS.StmtToTree;
   }
 
-  class TransformScope {
-    LoopInfoStack &LIS;
-    bool Active;
-
-  public:
-    TransformScope(LoopInfoStack &LIS, const Stmt *S) : LIS(LIS) {
-      auto &SyntacticalParent = LIS.getTopSyntacticalParent();
-      if (SyntacticalParent) {
-        Active = false;
-        return;
-      }
-
-      SyntacticalParent = LIS.lookupTransformedNode(S);
-      Active = true;
-    }
-    ~TransformScope() {
-      if (Active)
-        LIS.getTopSyntacticalParent() = nullptr;
-    }
-  };
-
-  class FollowupScope {
-    LoopInfoStack &LIS;
-
-  public:
-    FollowupScope(LoopInfoStack &LIS, Transform::Kind ExpectedTransformation,
-                  int FollowupIdx)
-        : LIS(LIS) {
-      auto &SyntacticalParent = LIS.getTopSyntacticalParent();
-      assert(SyntacticalParent);
-      assert(!LIS.Staging && "Conflicting syntactic node for staging");
-
-      LIS.Staging = LIS.getFollowupAtIdx(SyntacticalParent,
-                                         ExpectedTransformation, FollowupIdx);
-    }
-    ~FollowupScope() { LIS.Staging = nullptr; }
-  };
 
   void initBuild(ASTContext &ASTCtx, const LangOptions &LangOpts,
                  llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo, Stmt *Body);
@@ -356,20 +308,17 @@ private:
   /// Stack of active loops.
   llvm::SmallVector<std::unique_ptr<LoopInfo>, 4> Active;
 
-  /// Return the syntactical transformation node of the topmost loop.
-  CGTransformedTree *&getTopSyntacticalParent() {
-    return Active.empty() ? SyntacticalRootNode : Active.back()->Syntactical;
-  }
 
-  CGTransformedTree *Staging = nullptr;
+  //CGTransformedTree *TransformedStructure = nullptr;
 
-  CGTransformedTree *SyntacticalRootNode = nullptr;
-
-  llvm::SmallVector<CGTransformedTree *, 64> AllNodes;
-  llvm::SmallVector<Transform *, 64> AllTransforms;
+/// Dictionary to find the TransformedNode representation for any loop.
   llvm::DenseMap<Stmt *, CGTransformedTree *> StmtToTree;
 
-  CGTransformedTree *TransformedStructure = nullptr;
+  /// Objects to free later.
+  /// @{
+  llvm::SmallVector<CGTransformedTree *, 64> AllNodes;
+  llvm::SmallVector<Transform *, 64> AllTransforms;
+/// @}
 };
 
 } // end namespace CodeGen

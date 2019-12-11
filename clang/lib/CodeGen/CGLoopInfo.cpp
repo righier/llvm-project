@@ -456,16 +456,14 @@ void LoopAttributes::clear() {
 
 LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
-                   LoopInfo *Parent, CGTransformedTree *Current,
-                   CGTransformedTree *Syntactical)
+                   LoopInfo *Parent, CGTransformedTree *TN)
     : Header(Header), Attrs(Attrs), StartLoc(StartLoc), EndLoc(EndLoc),
-      Parent(Parent), Syntactical(Syntactical) {
+      Parent(Parent){
 
-  if (Current) {
-    assert(Current->isCodeGenned() &&
-           "Emitted loop must be marked as code-genned");
-    LoopMD = Current->makeLoopID(Header->getContext(), false);
-    AccGroup = Current->getAccessGroupOrNull();
+  if (TN) {
+    assert(TN->isCodeGenned() &&           "Emitted loop must be marked as code-genned");
+    LoopMD = TN->makeLoopID(Header->getContext(), false);
+    AccGroup = TN->getAccessGroupOrNull();
   }
 
   if (Attrs.IsParallel) {
@@ -586,19 +584,10 @@ void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
                          const clang::Stmt *LoopStmt) {
 
   LoopInfo *Parent = Active.empty() ? nullptr : Active.back().get();
-  if (Staging) {
-    Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,
-                                     Parent, Staging, Staging));
-
-  } else {
-    Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,
-                                     Parent, lookupTransformedNode(LoopStmt),
-                                     nullptr));
-  }
-
+    Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,                                     Parent, lookupTransformedNode(LoopStmt)                                     ));
+ 
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
-  Staging = nullptr;
 }
 
 void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
@@ -610,6 +599,7 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
   // Identify loop hint attributes from Attrs.
   for (const auto *Attr : Attrs) {
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
+
     const OpenCLUnrollHintAttr *OpenCLHint =
         dyn_cast<OpenCLUnrollHintAttr>(Attr);
 
@@ -800,46 +790,14 @@ CGTransformedTree *LoopInfoStack::lookupTransformedNode(const clang::Stmt *S) {
   return StmtToTree.lookup(Loop);
 }
 
-clang::CodeGen::CGTransformedTree *
-clang::CodeGen::LoopInfoStack::getFollowupAtIdx(
-    clang::CodeGen::CGTransformedTree *TN,
-    clang::Transform::Kind ExpectedTransformation, int FollowupIdx) {
-  assert(TN->isTransformationInput());
-  assert(TN->getTransformedBy()->getKind() == ExpectedTransformation);
-  return TN->getFollowups()[FollowupIdx];
-}
-
-void clang::CodeGen::LoopInfoStack::followTransformation(
-    Transform::Kind ExpectedTransformation, int FollowupIdx) {
-  assert(Staging && "Must have resolved a staging transformation");
-  assert(Staging->isTransformationInput());
-  assert(Staging->getSourceTransformation()->getKind() ==
-         ExpectedTransformation);
-  Staging = Staging->getFollowups()[FollowupIdx];
-}
-
 void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               const clang::LangOptions &LangOpts,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
                               clang::Stmt *Body) {
-  CGTransformedTreeBuilder Builder(ASTCtx, LangOpts, LLVMCtx, AllNodes,
-                                   AllTransforms, DbgInfo);
-  TransformedStructure = Builder.computeTransformedStructure(Body, StmtToTree);
-  TransformedStructure->finalize(LLVMCtx);
+  CGTransformedTreeBuilder Builder(ASTCtx, LangOpts, LLVMCtx, AllNodes,                                   AllTransforms, DbgInfo);
+ Builder.computeTransformedStructure(Body, StmtToTree);
 }
 
-#if 0
-void LoopInfoStack::push(BasicBlock *Header, const clang::Stmt *LoopStmt) {
-  if (Staging) {
-    Active.emplace_back(new LoopInfo(Header, Staging, Staging));
-    Staging = nullptr;
-  } else {
-    Active.emplace_back(new LoopInfo(Header, lookupTransformedNode( LoopStmt), nullptr));
-  }
-  //CGTransformedTree *TreeNode = Staging ? Staging :   lookupTransformedNode( LoopStmt);
- // Active.emplace_back(new LoopInfo(Header, TreeNode));
-}
-#endif
 
 void LoopInfoStack::InsertHelper(Instruction *I) const {
   if (I->mayReadOrWriteMemory()) {
