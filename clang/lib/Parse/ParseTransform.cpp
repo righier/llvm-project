@@ -31,7 +31,7 @@ Parser::tryParsePragmaTransform(SourceLocation BeginLoc,
   ConsumeToken();
 
   switch (DirectiveKind) {
-  case Transform::LoopUnrollingKind:
+  case Transform::LoopUnrollKind:
   case Transform::LoopUnrollAndJamKind:
   case Transform::LoopDistributionKind:
   case Transform::LoopVectorizationKind:

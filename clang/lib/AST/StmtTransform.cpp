@@ -46,7 +46,7 @@ llvm::StringRef TransformClause::getClauseName(Kind K) {
 bool TransformClause::isValidForTransform(Transform::Kind TransformKind,
                                           TransformClause::Kind ClauseKind) {
   switch (TransformKind) {
-  case clang::Transform::LoopUnrollingKind:
+  case clang::Transform::LoopUnrollKind:
     return ClauseKind == PartialKind || ClauseKind == FullKind;
   case clang::Transform::LoopUnrollAndJamKind:
     return ClauseKind == PartialKind;
