@@ -20,7 +20,7 @@ using namespace clang;
 bool TransformClause::isValidForTransform(Transform::Kind TransformKind,
                                           TransformClause::Kind ClauseKind) {
   switch (TransformKind) {
-  case clang::Transform::LoopUnrollingKind:
+  case clang::Transform::LoopUnrollKind:
     return ClauseKind == PartialKind || ClauseKind == FullKind;
   case clang::Transform::LoopUnrollAndJamKind:
     return ClauseKind == PartialKind;
@@ -63,14 +63,10 @@ const Stmt *clang::getAssociatedLoop(const Stmt *S) {
   case Stmt::DoStmtClass:
   case Stmt::CXXForRangeStmtClass:
     return S;
-  case Stmt::CapturedStmtClass:
-    return getAssociatedLoop(cast<CapturedStmt>(S)->getCapturedStmt());
-  case Stmt::AttributedStmtClass:
-    return getAssociatedLoop(cast<AttributedStmt>(S)->getSubStmt());
+  case Stmt::TransformExecutableDirectiveClass:
+    return getAssociatedLoop(
+        cast<TransformExecutableDirective>(S)->getAssociated());
   default:
-    if (auto LD = dyn_cast<OMPLoopDirective>(S))
-      return getAssociatedLoop(LD->getAssociatedStmt());
+    return nullptr;
   }
-
-  return nullptr;
 }
