@@ -68,7 +68,7 @@ public:
                          SemaTransformedTree *InputLoop) {}
 
   void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,
-                             bool IsAll, bool IsSuccessor) {}
+                             bool IsMeta, bool IsSuccessor) {}
 
   void finalize(NodeTy *Root) {}
 };

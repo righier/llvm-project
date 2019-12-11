@@ -121,7 +121,7 @@ void CGTransformedTree::collectAccessGroups(
 
 llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx,
                                             bool HasAllDisableNonforced) {
-  assert(Finalized);
+  assert(Finalized && isCodeGenned());
   if (IsDefault && (!DisableHeuristic || HasAllDisableNonforced))
     return nullptr;
 
@@ -204,15 +204,14 @@ void CGTransformedTreeBuilder::applyOriginal(CGTransformedTree *L) {
 
 void CGTransformedTreeBuilder::inheritLoopAttributes(CGTransformedTree *Dst,
                                                      CGTransformedTree *Src,
-                                                     bool IsAll,
+                                                     bool IsMeta,
                                                      bool IsSuccessor) {
   Dst->BeginLoc = Src->BeginLoc;
   Dst->EndLoc = Src->EndLoc;
 
-  for (auto A : Src->Attributes) {
-    // TOOD: Check for duplicates?
-    Dst->Attributes.push_back(A);
-  }
+  if (!IsMeta)
+    for (llvm::Metadata *A : Src->Attributes)
+      Dst->Attributes.push_back(A);
 }
 
 void CGTransformedTreeBuilder::applyUnroll(LoopUnrollTransform *Trans,
@@ -271,25 +270,18 @@ void CGTransformedTreeBuilder::applyUnrollAndJam(
       OuterLoop->FollowupAttributes.emplace_back(
           "llvm.loop.unroll_and_jam.followup_outer", F);
       break;
-    }
-  }
-
-  if (InnerLoop) {
-    for (CGTransformedTree *F : InnerLoop->Followups) {
-      switch (F->FollowupRole) {
-      case LoopUnrollAndJamTransform::FollowupInner:
-        F->markDisableHeuristic();
-        OuterLoop->FollowupAttributes.emplace_back(
-            "llvm.loop.unroll_and_jam.followup_inner", F);
-        break;
-      }
+    case LoopUnrollAndJamTransform::FollowupInner:
+      // LLVM's LoopUnrollAndJam pass expects the followup attributes for the
+      // inner loop to be attached to the outer loop.
+      OuterLoop->FollowupAttributes.emplace_back(
+          "llvm.loop.unroll_and_jam.followup_inner", F);
+      break;
     }
   }
 
   OuterLoop->markNondefault();
   OuterLoop->markDisableHeuristic();
-  if (InnerLoop)
-    InnerLoop->markDisableHeuristic();
+  InnerLoop->markDisableHeuristic();
 }
 
 void CGTransformedTreeBuilder::applyDistribution(

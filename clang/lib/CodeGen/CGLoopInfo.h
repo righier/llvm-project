@@ -217,7 +217,6 @@ public:
     StmtToTree = ParentLIS.StmtToTree;
   }
 
-
   void initBuild(ASTContext &ASTCtx, const LangOptions &LangOpts,
                  llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo, Stmt *Body);
 
@@ -308,17 +307,16 @@ private:
   /// Stack of active loops.
   llvm::SmallVector<std::unique_ptr<LoopInfo>, 4> Active;
 
+  // CGTransformedTree *TransformedStructure = nullptr;
 
-  //CGTransformedTree *TransformedStructure = nullptr;
-
-/// Dictionary to find the TransformedNode representation for any loop.
+  /// Dictionary to find the TransformedNode representation for any loop.
   llvm::DenseMap<Stmt *, CGTransformedTree *> StmtToTree;
 
   /// Objects to free later.
   /// @{
   llvm::SmallVector<CGTransformedTree *, 64> AllNodes;
   llvm::SmallVector<Transform *, 64> AllTransforms;
-/// @}
+  /// @}
 };
 
 } // end namespace CodeGen

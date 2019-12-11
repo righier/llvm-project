@@ -250,6 +250,7 @@ public:
                            ArrayRef<Derived *> Successors) {
     assert(!isTransformationInput());
     assert(llvm::find(Successors, nullptr) == Successors.end());
+    assert(Trans->getNumFollowups() == Followups.size());
 
     this->TransformedBy = Trans;
     this->Followups.insert(this->Followups.end(), Followups.begin(),
@@ -538,32 +539,23 @@ private:
         return nullptr;
       }
 
-      // Having no loop to jam does not make a lot of sense, but fixes
-      // regression tests.
-      if (!Inner) {
-        checkStageOrder({MainLoop}, Trans);
-
-        NodeTy *UnrolledOuter = Builder.createFollowup(
-            {}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
-        inheritLoopAttributes(UnrolledOuter, MainLoop, true, false);
-
-        MainLoop->applyTransformation(Trans, {UnrolledOuter}, UnrolledOuter);
-        Builder.applyUnrollAndJam(Trans, MainLoop, nullptr);
-        return UnrolledOuter;
-      }
-
       checkStageOrder({MainLoop, Inner}, Trans);
+
+      NodeTy *TransformedAll = Builder.createFollowup(
+          {}, nullptr, LoopUnrollAndJamTransform::FollowupAll);
+      inheritLoopAttributes(TransformedAll, MainLoop, true, false);
+
+      NodeTy *UnrolledOuter = Builder.createFollowup(
+          {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
+      inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
 
       NodeTy *TransformedInner = Builder.createFollowup(
           Inner->Subloops, Inner, LoopUnrollAndJamTransform::FollowupInner);
       inheritLoopAttributes(TransformedInner, Inner, false, false);
 
-      // TODO: Handle full unrolling
-      NodeTy *UnrolledOuter = Builder.createFollowup(
-          {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
-      inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
-
-      MainLoop->applyTransformation(Trans, {UnrolledOuter}, UnrolledOuter);
+      MainLoop->applyTransformation(
+          Trans, {TransformedAll, UnrolledOuter, TransformedInner},
+          UnrolledOuter);
       Inner->applySuccessors(MainLoop, LoopUnrollAndJamTransform::InputInner,
                              {TransformedInner}, TransformedInner);
 
@@ -722,7 +714,6 @@ protected:
 
   NodeTy *createFollowup(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
                          int FollowupRole) {
-    assert(BasedOn);
     auto *Result = new NodeTy(SubLoops, BasedOn, nullptr, FollowupRole);
     AllNodes.push_back(Result);
     return Result;

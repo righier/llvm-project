@@ -159,14 +159,14 @@ public:
   bool isHeuristic() const { return Factor == -3; }
 
   enum Input { InputToUnroll };
-  int getNumInputs() const { return 1; }
+  int getNumInputs() const override { return 1; }
 
   enum Followup {
     FollowupAll,
     FollowupUnrolled, // only for partial unrolling
     FollowupRemainder // only for partial unrolling
   };
-  int getNumFollowups() const {
+  int getNumFollowups() const override {
     if (isPartial())
       return 3;
     return 0;
@@ -232,10 +232,10 @@ public:
   bool isHeuristic() const { return Factor == -3; }
 
   enum Input { InputOuter, InputInner };
-  int getNumInputs() const { return 2; }
+  int getNumInputs() const override { return 2; }
 
   enum Followup { FollowupAll, FollowupOuter, FollowupInner };
-  int getNumFollowups() const {
+  int getNumFollowups() const override {
     if (isPartial())
       return 3;
     return 0;
@@ -278,10 +278,10 @@ public:
   }
 
   enum Input { InputToDistribute };
-  int getNumInputs() const { return 1; }
+  int getNumInputs() const override { return 1; }
 
   enum Followup { FollowupAll };
-  int getNumFollowups() const { return 1; }
+  int getNumFollowups() const override { return 1; }
 };
 
 /// Vectorize a loop by executing multiple loop iterations at the same time in
@@ -321,10 +321,10 @@ public:
   }
 
   enum Input { InputToVectorize };
-  int getNumInputs() const { return 1; }
+  int getNumInputs() const override { return 1; }
 
   enum Followup { FollowupAll, FollowupVectorized, FollowupEpilogue };
-  int getNumFollowups() const { return 3; }
+  int getNumFollowups() const override { return 3; }
 
   int64_t getWidth() const { return VectorizeWidth; }
 };
@@ -376,10 +376,10 @@ public:
   }
 
   enum Input { InputToVectorize };
-  int getNumInputs() const { return 1; }
+  int getNumInputs() const override { return 1; }
 
   enum Followup { FollowupAll, FollowupInterleaved, FollowupEpilogue };
-  int getNumFollowups() const { return 3; }
+  int getNumFollowups() const override { return 3; }
 
   int64_t getFactor() const { return Factor; }
 };

@@ -459,10 +459,10 @@ LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
                    LoopInfo *Parent, CGTransformedTree *TN)
     : Header(Header), Attrs(Attrs), StartLoc(StartLoc), EndLoc(EndLoc),
-      Parent(Parent){
+      Parent(Parent) {
 
   if (TN) {
-    assert(TN->isCodeGenned() &&           "Emitted loop must be marked as code-genned");
+    assert(TN->isCodeGenned() && "Emitted loop must be marked as code-genned");
     LoopMD = TN->makeLoopID(Header->getContext(), false);
     AccGroup = TN->getAccessGroupOrNull();
   }
@@ -585,8 +585,9 @@ void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
                          const clang::Stmt *LoopStmt) {
 
   LoopInfo *Parent = Active.empty() ? nullptr : Active.back().get();
-    Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,                                     Parent, lookupTransformedNode(LoopStmt)                                     ));
- 
+  Active.emplace_back(new LoopInfo(Header, StagedAttrs, StartLoc, EndLoc,
+                                   Parent, lookupTransformedNode(LoopStmt)));
+
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
 }
@@ -795,10 +796,10 @@ void LoopInfoStack::initBuild(clang::ASTContext &ASTCtx,
                               const clang::LangOptions &LangOpts,
                               llvm::LLVMContext &LLVMCtx, CGDebugInfo *DbgInfo,
                               clang::Stmt *Body) {
-  CGTransformedTreeBuilder Builder(ASTCtx, LangOpts, LLVMCtx, AllNodes,                                   AllTransforms, DbgInfo);
- Builder.computeTransformedStructure(Body, StmtToTree);
+  CGTransformedTreeBuilder Builder(ASTCtx, LangOpts, LLVMCtx, AllNodes,
+                                   AllTransforms, DbgInfo);
+  Builder.computeTransformedStructure(Body, StmtToTree);
 }
-
 
 void LoopInfoStack::InsertHelper(Instruction *I) const {
   if (I->mayReadOrWriteMemory()) {
