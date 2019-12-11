@@ -449,15 +449,15 @@ public:
   /// If the pointer isn't an i8*, it will be converted. If a TBAA tag is
   /// specified, it will be added to the instruction. Likewise with alias.scope
   /// and noalias tags.
-  CallInst *CreateMemSet(Value *Ptr, Value *Val, uint64_t Size, unsigned Align,
-                         bool isVolatile = false, MDNode *TBAATag = nullptr,
-                         MDNode *ScopeTag = nullptr,
+  CallInst *CreateMemSet(Value *Ptr, Value *Val, uint64_t Size,
+                         MaybeAlign Align, bool isVolatile = false,
+                         MDNode *TBAATag = nullptr, MDNode *ScopeTag = nullptr,
                          MDNode *NoAliasTag = nullptr) {
     return CreateMemSet(Ptr, Val, getInt64(Size), Align, isVolatile,
                         TBAATag, ScopeTag, NoAliasTag);
   }
 
-  CallInst *CreateMemSet(Value *Ptr, Value *Val, Value *Size, unsigned Align,
+  CallInst *CreateMemSet(Value *Ptr, Value *Val, Value *Size, MaybeAlign Align,
                          bool isVolatile = false, MDNode *TBAATag = nullptr,
                          MDNode *ScopeTag = nullptr,
                          MDNode *NoAliasTag = nullptr);
@@ -501,6 +501,17 @@ public:
                         isVolatile, TBAATag, TBAAStructTag, ScopeTag,
                         NoAliasTag);
   }
+  CallInst *CreateMemCpy(Value *Dst, MaybeAlign DstAlign, Value *Src,
+                         MaybeAlign SrcAlign, uint64_t Size,
+                         bool isVolatile = false, MDNode *TBAATag = nullptr,
+                         MDNode *TBAAStructTag = nullptr,
+                         MDNode *ScopeTag = nullptr,
+                         MDNode *NoAliasTag = nullptr) {
+    return CreateMemCpy(Dst, DstAlign ? DstAlign->value() : 0, Src,
+                        SrcAlign ? SrcAlign->value() : 0, getInt64(Size),
+                        isVolatile, TBAATag, TBAAStructTag, ScopeTag,
+                        NoAliasTag);
+  }
 
   CallInst *CreateMemCpy(Value *Dst, unsigned DstAlign, Value *Src,
                          unsigned SrcAlign, Value *Size,
@@ -508,6 +519,16 @@ public:
                          MDNode *TBAAStructTag = nullptr,
                          MDNode *ScopeTag = nullptr,
                          MDNode *NoAliasTag = nullptr);
+  CallInst *CreateMemCpy(Value *Dst, MaybeAlign DstAlign, Value *Src,
+                         MaybeAlign SrcAlign, Value *Size,
+                         bool isVolatile = false, MDNode *TBAATag = nullptr,
+                         MDNode *TBAAStructTag = nullptr,
+                         MDNode *ScopeTag = nullptr,
+                         MDNode *NoAliasTag = nullptr) {
+    return CreateMemCpy(Dst, DstAlign ? DstAlign->value() : 0, Src,
+                        SrcAlign ? SrcAlign->value() : 0, Size, isVolatile,
+                        TBAATag, TBAAStructTag, ScopeTag, NoAliasTag);
+  }
 
   /// Create and insert an element unordered-atomic memcpy between the
   /// specified pointers.
@@ -1627,11 +1648,20 @@ public:
     LI->setAlignment(MaybeAlign(Align));
     return LI;
   }
+  LoadInst *CreateAlignedLoad(Type *Ty, Value *Ptr, MaybeAlign Align,
+                              const Twine &Name = "") {
+    return CreateAlignedLoad(Ty, Ptr, Align ? Align->value() : 0, Name);
+  }
   LoadInst *CreateAlignedLoad(Type *Ty, Value *Ptr, unsigned Align,
                               bool isVolatile, const Twine &Name = "") {
     LoadInst *LI = CreateLoad(Ty, Ptr, isVolatile, Name);
     LI->setAlignment(MaybeAlign(Align));
     return LI;
+  }
+  LoadInst *CreateAlignedLoad(Type *Ty, Value *Ptr, MaybeAlign Align,
+                              bool isVolatile, const Twine &Name = "") {
+    return CreateAlignedLoad(Ty, Ptr, Align ? Align->value() : 0, isVolatile,
+                             Name);
   }
 
   // Deprecated [opaque pointer types]
@@ -1658,7 +1688,10 @@ public:
     SI->setAlignment(MaybeAlign(Align));
     return SI;
   }
-
+  StoreInst *CreateAlignedStore(Value *Val, Value *Ptr, MaybeAlign Align,
+                                bool isVolatile = false) {
+    return CreateAlignedStore(Val, Ptr, Align ? Align->value() : 0, isVolatile);
+  }
   FenceInst *CreateFence(AtomicOrdering Ordering,
                          SyncScope::ID SSID = SyncScope::System,
                          const Twine &Name = "") {
@@ -2087,6 +2120,8 @@ public:
     case Intrinsic::experimental_constrained_fpext:
     case Intrinsic::experimental_constrained_fptoui:
     case Intrinsic::experimental_constrained_fptosi:
+    case Intrinsic::experimental_constrained_lround:
+    case Intrinsic::experimental_constrained_llround:
       C = CreateIntrinsic(ID, {DestTy, V->getType()}, {V, ExceptV}, nullptr,
                           Name);
       break;
@@ -2295,6 +2330,37 @@ public:
     return CreateCall(
         cast<FunctionType>(Callee->getType()->getPointerElementType()), Callee,
         Args, OpBundles, Name, FPMathTag);
+  }
+
+  // Deprecated [opaque pointer types]
+  CallInst *CreateConstrainedFPCall(
+      Value *Callee, ArrayRef<Value *> Args, const Twine &Name = "",
+      Optional<fp::RoundingMode> Rounding = None,
+      Optional<fp::ExceptionBehavior> Except = None) {
+    llvm::SmallVector<Value *, 6> UseArgs;
+
+    for (auto *OneArg : Args)
+      UseArgs.push_back(OneArg);
+    Function *F = cast<Function>(Callee);
+    switch (F->getIntrinsicID()) {
+    default:
+      UseArgs.push_back(getConstrainedFPRounding(Rounding));
+      break;
+    case Intrinsic::experimental_constrained_fpext:
+    case Intrinsic::experimental_constrained_fptoui:
+    case Intrinsic::experimental_constrained_fptosi:
+    case Intrinsic::experimental_constrained_lround:
+    case Intrinsic::experimental_constrained_llround:
+      // No rounding metadata for these intrinsics.
+      break;
+    }
+    UseArgs.push_back(getConstrainedFPExcept(Except));
+
+    CallInst *C = CreateCall(
+        cast<FunctionType>(Callee->getType()->getPointerElementType()), Callee,
+        UseArgs, Name);
+    setConstrainedFPCallAttr(C);
+    return C;
   }
 
   Value *CreateSelect(Value *C, Value *True, Value *False,

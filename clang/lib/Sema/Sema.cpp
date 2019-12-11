@@ -924,8 +924,7 @@ void Sema::ActOnEndOfTranslationUnitFragment(TUFragmentKind Kind) {
   }
 
   {
-    llvm::TimeTraceScope TimeScope("PerformPendingInstantiations",
-                                   StringRef(""));
+    llvm::TimeTraceScope TimeScope("PerformPendingInstantiations");
     PerformPendingInstantiations();
   }
 
@@ -1135,6 +1134,13 @@ void Sema::ActOnEndOfTranslationUnit() {
     // Notify the consumer that we've completed a tentative definition.
     if (!VD->isInvalidDecl())
       Consumer.CompleteTentativeDefinition(VD);
+  }
+
+  for (auto D : ExternalDeclarations) {
+    if (!D || D->isInvalidDecl() || D->getPreviousDecl() || !D->isUsed())
+      continue;
+
+    Consumer.CompleteExternalDeclaration(D);
   }
 
   // If there were errors, disable 'unused' warnings since they will mostly be
