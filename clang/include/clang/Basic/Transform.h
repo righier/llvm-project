@@ -138,7 +138,7 @@ public:
                                             int64_t Factor = -1) {
     assert(Factor >= 2 || Factor == -1);
     LoopUnrollTransform *Instance = new LoopUnrollTransform(Loc, Factor);
-    assert(Instance->isFull());
+    assert(Instance->isPartial());
     return Instance;
   }
 
@@ -214,7 +214,6 @@ public:
   /// unroll factor of 0 or 1 is not valid.
   static LoopUnrollAndJamTransform *createPartial(SourceRange Loc,
                                                   int64_t Factor = -1) {
-    assert(Factor >= 2 || Factor == -1);
     LoopUnrollAndJamTransform *Instance =
         new LoopUnrollAndJamTransform(Loc, Factor);
     assert(Instance->isPartial());
