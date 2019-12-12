@@ -737,7 +737,8 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
     K = CXCursor_BuiltinBitCastExpr;
     break;
   case Stmt::TransformExecutableDirectiveClass:
-    llvm_unreachable("not implemented");
+    K = CXCursor_TransformExecutableDirective;
+    break;
   }
 
   CXCursor C = { K, 0, { Parent, S, TU } };

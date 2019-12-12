@@ -2574,7 +2574,11 @@ enum CXCursorKind {
    */
   CXCursor_OMPParallelMasterDirective = 285,
 
-  CXCursor_LastStmt = CXCursor_OMPParallelMasterDirective,
+  /** Transformation directive.
+   */
+  CXCursor_TransformExecutableDirective = 286,
+
+  CXCursor_LastStmt = CXCursor_TransformExecutableDirective,
 
   /**
    * Cursor that represents the translation unit itself.
