@@ -250,6 +250,7 @@ public:
                            ArrayRef<Derived *> Successors) {
     assert(!isTransformationInput());
     assert(llvm::find(Successors, nullptr) == Successors.end());
+    assert(Trans->getNumFollowups() == Followups.size());
 
     this->TransformedBy = Trans;
     this->Followups.insert(this->Followups.end(), Followups.begin(),
@@ -462,8 +463,8 @@ private:
 
     NodeTy *applyTransform(Transform *Trans, NodeTy *MainLoop) {
       switch (Trans->getKind()) {
-      case Transform::Kind::LoopUnrollingKind:
-        return applyUnrolling(cast<LoopUnrollingTransform>(Trans), MainLoop);
+      case Transform::Kind::LoopUnrollKind:
+        return applyUnrolling(cast<LoopUnrollTransform>(Trans), MainLoop);
       case Transform::Kind::LoopUnrollAndJamKind:
         return applyUnrollAndJam(cast<LoopUnrollAndJamTransform>(Trans),
                                  MainLoop);
@@ -486,7 +487,7 @@ private:
       Builder.inheritLoopAttributes(Dst, Src, IsAll, IsSuccessor);
     }
 
-    NodeTy *applyUnrolling(LoopUnrollingTransform *Trans, NodeTy *MainLoop) {
+    NodeTy *applyUnrolling(LoopUnrollTransform *Trans, NodeTy *MainLoop) {
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *Successor = nullptr;
@@ -494,14 +495,14 @@ private:
         // Full unrolling has no followup-loop.
         MainLoop->applyTransformation(Trans, {}, {});
       } else {
-        NodeTy *All = Builder.createFollowup(
-            MainLoop->Subloops, MainLoop, LoopUnrollingTransform::FollowupAll);
+        NodeTy *All = Builder.createFollowup(MainLoop->Subloops, MainLoop,
+                                             LoopUnrollTransform::FollowupAll);
         NodeTy *Unrolled =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollingTransform::FollowupUnrolled);
+                                   LoopUnrollTransform::FollowupUnrolled);
         NodeTy *Remainder =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollingTransform::FollowupRemainder);
+                                   LoopUnrollTransform::FollowupRemainder);
         Successor = Unrolled;
         inheritLoopAttributes(All, MainLoop, true, All == Successor);
         MainLoop->applyTransformation(Trans, {All, Unrolled, Remainder},
@@ -538,32 +539,23 @@ private:
         return nullptr;
       }
 
-      // Having no loop to jam does not make a lot of sense, but fixes
-      // regression tests.
-      if (!Inner) {
-        checkStageOrder({MainLoop}, Trans);
-
-        NodeTy *UnrolledOuter = Builder.createFollowup(
-            {}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
-        inheritLoopAttributes(UnrolledOuter, MainLoop, true, false);
-
-        MainLoop->applyTransformation(Trans, {UnrolledOuter}, UnrolledOuter);
-        Builder.applyUnrollAndJam(Trans, MainLoop, nullptr);
-        return UnrolledOuter;
-      }
-
       checkStageOrder({MainLoop, Inner}, Trans);
+
+      NodeTy *TransformedAll = Builder.createFollowup(
+          {}, nullptr, LoopUnrollAndJamTransform::FollowupAll);
+      inheritLoopAttributes(TransformedAll, MainLoop, true, false);
+
+      NodeTy *UnrolledOuter = Builder.createFollowup(
+          {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
+      inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
 
       NodeTy *TransformedInner = Builder.createFollowup(
           Inner->Subloops, Inner, LoopUnrollAndJamTransform::FollowupInner);
       inheritLoopAttributes(TransformedInner, Inner, false, false);
 
-      // TODO: Handle full unrolling
-      NodeTy *UnrolledOuter = Builder.createFollowup(
-          {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
-      inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
-
-      MainLoop->applyTransformation(Trans, {UnrolledOuter}, UnrolledOuter);
+      MainLoop->applyTransformation(
+          Trans, {TransformedAll, UnrolledOuter, TransformedInner},
+          UnrolledOuter);
       Inner->applySuccessors(MainLoop, LoopUnrollAndJamTransform::InputInner,
                              {TransformedInner}, TransformedInner);
 
@@ -616,9 +608,9 @@ private:
 
       NodeTy *All = Builder.createFollowup(
           MainLoop->Subloops, MainLoop, LoopInterleavingTransform::FollowupAll);
-      NodeTy *Vectorized =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopInterleavingTransform::FollowupVectorized);
+      NodeTy *Vectorized = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop,
+          LoopInterleavingTransform::FollowupInterleaved);
       NodeTy *Epilogue =
           Builder.createFollowup(MainLoop->Subloops, MainLoop,
                                  LoopInterleavingTransform::FollowupEpilogue);
@@ -722,7 +714,6 @@ protected:
 
   NodeTy *createFollowup(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
                          int FollowupRole) {
-    assert(BasedOn);
     auto *Result = new NodeTy(SubLoops, BasedOn, nullptr, FollowupRole);
     AllNodes.push_back(Result);
     return Result;
