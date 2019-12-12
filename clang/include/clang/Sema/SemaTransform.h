@@ -58,7 +58,7 @@ public:
   void applyUnrollAndJam(LoopUnrollAndJamTransform *Trans,
                          SemaTransformedTree *OuterLoop,
                          SemaTransformedTree *InnerLoop) {}
-  void applyUnroll(LoopUnrollingTransform *Trans,
+  void applyUnroll(LoopUnrollTransform *Trans,
                    SemaTransformedTree *OriginalLoop) {}
   void applyDistribution(LoopDistributionTransform *Trans,
                          SemaTransformedTree *InputLoop) {}
@@ -68,7 +68,7 @@ public:
                          SemaTransformedTree *InputLoop) {}
 
   void inheritLoopAttributes(SemaTransformedTree *Dst, SemaTransformedTree *Src,
-                             bool IsAll, bool IsSuccessor) {}
+                             bool IsMeta, bool IsSuccessor) {}
 
   void finalize(NodeTy *Root) {}
 };
