@@ -63,9 +63,6 @@ const Stmt *clang::getAssociatedLoop(const Stmt *S) {
   case Stmt::DoStmtClass:
   case Stmt::CXXForRangeStmtClass:
     return S;
-  case Stmt::TransformExecutableDirectiveClass:
-    return getAssociatedLoop(
-        cast<TransformExecutableDirective>(S)->getAssociated());
   default:
     return nullptr;
   }
