@@ -138,7 +138,7 @@ public:
                                             int64_t Factor = -1) {
     assert(Factor >= 2 || Factor == -1);
     LoopUnrollTransform *Instance = new LoopUnrollTransform(Loc, Factor);
-    assert(Instance->isFull());
+    assert(Instance->isPartial());
     return Instance;
   }
 
