@@ -256,9 +256,10 @@ bool CursorVisitor::visitFileRegion() {
   ASTUnit *Unit = cxtu::getASTUnit(TU);
   SourceManager &SM = Unit->getSourceManager();
 
-  std::pair<FileID, unsigned>
-    Begin = SM.getDecomposedLoc(SM.getFileLoc(RegionOfInterest.getBegin())),
-    End = SM.getDecomposedLoc(SM.getFileLoc(RegionOfInterest.getEnd()));
+  std::pair<FileID, unsigned> Begin = SM.getDecomposedLoc(
+                                  SM.getFileLoc(RegionOfInterest.getBegin())),
+                              End = SM.getDecomposedLoc(
+                                  SM.getFileLoc(RegionOfInterest.getEnd()));
 
   if (End.first != Begin.first) {
     // If the end does not reside in the same file, try to recover by
@@ -432,8 +433,7 @@ bool CursorVisitor::visitPreprocessedEntitiesInRegion() {
     return visitPreprocessedEntitiesInRange(SourceRange(B, E), PPRec, *this);
   }
 
-  bool OnlyLocalDecls
-    = !AU->isMainFileAST() && AU->getOnlyLocalDecls();
+  bool OnlyLocalDecls = !AU->isMainFileAST() && AU->getOnlyLocalDecls();
 
   if (OnlyLocalDecls)
     return visitPreprocessedEntities(PPRec.local_begin(), PPRec.local_end(),
@@ -1366,8 +1366,8 @@ bool CursorVisitor::VisitNestedNameSpecifier(NestedNameSpecifier *NNS,
   return false;
 }
 
-bool
-CursorVisitor::VisitNestedNameSpecifierLoc(NestedNameSpecifierLoc Qualifier) {
+bool CursorVisitor::VisitNestedNameSpecifierLoc(
+    NestedNameSpecifierLoc Qualifier) {
   SmallVector<NestedNameSpecifierLoc, 4> Qualifiers;
   for (; Qualifier; Qualifier = Qualifier.getPrefix())
     Qualifiers.push_back(Qualifier);
@@ -1378,16 +1378,14 @@ CursorVisitor::VisitNestedNameSpecifierLoc(NestedNameSpecifierLoc Qualifier) {
     switch (NNS->getKind()) {
     case NestedNameSpecifier::Namespace:
       if (Visit(MakeCursorNamespaceRef(NNS->getAsNamespace(),
-                                       Q.getLocalBeginLoc(),
-                                       TU)))
+                                       Q.getLocalBeginLoc(), TU)))
         return true;
 
       break;
 
     case NestedNameSpecifier::NamespaceAlias:
       if (Visit(MakeCursorNamespaceRef(NNS->getAsNamespaceAlias(),
-                                       Q.getLocalBeginLoc(),
-                                       TU)))
+                                       Q.getLocalBeginLoc(), TU)))
         return true;
 
       break;
@@ -1447,8 +1445,7 @@ bool CursorVisitor::VisitTemplateName(TemplateName Name, SourceLocation Loc) {
   case TemplateName::QualifiedTemplate:
     // FIXME: Visit nested-name-specifier.
     return Visit(MakeCursorTemplateRef(
-                                  Name.getAsQualifiedTemplateName()->getDecl(),
-                                       Loc, TU));
+        Name.getAsQualifiedTemplateName()->getDecl(), Loc, TU));
 
   case TemplateName::SubstTemplateTemplateParm:
     return Visit(MakeCursorTemplateRef(
@@ -1905,7 +1902,8 @@ public:
     return static_cast<const LabelDecl *>(data[0]);
   }
   SourceLocation getLoc() const {
-    return SourceLocation::getFromPtrEncoding(data[1]); }
+    return SourceLocation::getFromPtrEncoding(data[1]);
+  }
 };
 
 class NestedNameSpecifierLocVisit : public VisitorJob {
@@ -2106,8 +2104,8 @@ void EnqueueVisitor::AddDeclarationNameInfo(const Stmt *S) {
   WL.push_back(DeclarationNameInfoVisit(S, Parent));
 }
 
-void
-EnqueueVisitor::AddNestedNameSpecifierLoc(NestedNameSpecifierLoc Qualifier) {
+void EnqueueVisitor::AddNestedNameSpecifierLoc(
+    NestedNameSpecifierLoc Qualifier) {
   if (Qualifier)
     WL.push_back(NestedNameSpecifierLocVisit(Qualifier, Parent));
 }
@@ -2862,8 +2860,8 @@ void EnqueueVisitor::VisitOMPTargetDirective(const OMPTargetDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPTargetDataDirective(const
-                                                 OMPTargetDataDirective *D) {
+void EnqueueVisitor::VisitOMPTargetDataDirective(
+    const OMPTargetDataDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -4434,8 +4432,8 @@ unsigned clang_visitChildren(CXCursor parent,
 #define __has_feature(x) 0
 #endif
 #if __has_feature(blocks)
-typedef enum CXChildVisitResult
-     (^CXCursorVisitorBlock)(CXCursor cursor, CXCursor parent);
+typedef enum CXChildVisitResult (^CXCursorVisitorBlock)(CXCursor cursor,
+                                                        CXCursor parent);
 
 static enum CXChildVisitResult visitWithBlock(CXCursor cursor, CXCursor parent,
     CXClientData client_data) {
@@ -6398,8 +6396,8 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   }
 
   case Decl::Using:
-    return MakeCursorOverloadedDeclRef(cast<UsingDecl>(D),
-                                       D->getLocation(), TU);
+    return MakeCursorOverloadedDeclRef(cast<UsingDecl>(D), D->getLocation(),
+                                       TU);
 
   case Decl::UsingShadow:
   case Decl::ConstructorUsingShadow:
@@ -6598,7 +6596,7 @@ CXSourceRange clang_getCursorReferenceNameRange(CXCursor C, unsigned NameFlags,
 
   case CXCursor_CallExpr:
     if (const CXXOperatorCallExpr *OCE =
-        dyn_cast<CXXOperatorCallExpr>(getCursorExpr(C))) {
+            dyn_cast<CXXOperatorCallExpr>(getCursorExpr(C))) {
       const Expr *Callee = OCE->getCallee();
       if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Callee))
         Callee = ICE->getSubExpr();
@@ -7112,8 +7110,8 @@ bool AnnotateTokensWorker::annotateAndAdvanceFunctionMacroTokens(
   return true;
 }
 
-enum CXChildVisitResult
-AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
+enum CXChildVisitResult AnnotateTokensWorker::Visit(CXCursor cursor,
+                                                    CXCursor parent) {
   SourceRange cursorRange = getRawCursorExtent(cursor);
   if (cursorRange.isInvalid())
     return CXChildVisit_Recurse;
@@ -8807,7 +8805,7 @@ void cxindex::printDiagsToStderr(ASTUnit *Unit) {
     return;
 
   for (ASTUnit::stored_diag_iterator D = Unit->stored_diag_begin(),
-                                  DEnd = Unit->stored_diag_end();
+                                     DEnd = Unit->stored_diag_end();
        D != DEnd; ++D) {
     CXStoredDiagnostic Diag(*D, Unit->getLangOpts());
     CXString Msg = clang_formatDiagnostic(&Diag,
