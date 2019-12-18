@@ -84,10 +84,10 @@ int PPCTTIImpl::getIntImmCost(const APInt &Imm, Type *Ty) {
   return 4 * TTI::TCC_Basic;
 }
 
-int PPCTTIImpl::getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                              Type *Ty) {
+int PPCTTIImpl::getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx,
+                                    const APInt &Imm, Type *Ty) {
   if (DisablePPCConstHoist)
-    return BaseT::getIntImmCost(IID, Idx, Imm, Ty);
+    return BaseT::getIntImmCostIntrin(IID, Idx, Imm, Ty);
 
   assert(Ty->isIntegerTy());
 
@@ -118,10 +118,10 @@ int PPCTTIImpl::getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
   return PPCTTIImpl::getIntImmCost(Imm, Ty);
 }
 
-int PPCTTIImpl::getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm,
-                              Type *Ty) {
+int PPCTTIImpl::getIntImmCostInst(unsigned Opcode, unsigned Idx,
+                                  const APInt &Imm, Type *Ty) {
   if (DisablePPCConstHoist)
-    return BaseT::getIntImmCost(Opcode, Idx, Imm, Ty);
+    return BaseT::getIntImmCostInst(Opcode, Idx, Imm, Ty);
 
   assert(Ty->isIntegerTy());
 
@@ -941,6 +941,20 @@ int PPCTTIImpl::getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
   Cost += Factor*(LT.first-1);
 
   return Cost;
+}
+
+unsigned PPCTTIImpl::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
+      ArrayRef<Value*> Args, FastMathFlags FMF, unsigned VF) {
+  return BaseT::getIntrinsicInstrCost(ID, RetTy, Args, FMF, VF);
+}
+
+unsigned PPCTTIImpl::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
+      ArrayRef<Type*> Tys, FastMathFlags FMF,
+      unsigned ScalarizationCostPassed) {
+  if (ID == Intrinsic::bswap && ST->hasP9Vector())
+    return TLI->getTypeLegalizationCost(DL, RetTy).first;
+  return BaseT::getIntrinsicInstrCost(ID, RetTy, Tys, FMF,
+                                      ScalarizationCostPassed);
 }
 
 bool PPCTTIImpl::canSaveCmp(Loop *L, BranchInst **BI, ScalarEvolution *SE,

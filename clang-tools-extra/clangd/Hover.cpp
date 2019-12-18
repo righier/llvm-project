@@ -11,6 +11,7 @@
 #include "AST.h"
 #include "CodeCompletionStrings.h"
 #include "FindTarget.h"
+#include "FormattedString.h"
 #include "Logger.h"
 #include "Selection.h"
 #include "SourceCode.h"
@@ -18,9 +19,13 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTTypeTraits.h"
+#include "clang/AST/Decl.h"
+#include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/Index/IndexSymbol.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace clang {
@@ -71,12 +76,17 @@ std::string getLocalScope(const Decl *D) {
 std::string getNamespaceScope(const Decl *D) {
   const DeclContext *DC = D->getDeclContext();
 
-  if (const TypeDecl *TD = dyn_cast<TypeDecl>(DC))
+  if (const TagDecl *TD = dyn_cast<TagDecl>(DC))
     return getNamespaceScope(TD);
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(DC))
     return getNamespaceScope(FD);
+  if (const NamespaceDecl *NSD = dyn_cast<NamespaceDecl>(DC)) {
+    // Skip inline/anon namespaces.
+    if (NSD->isInline() || NSD->isAnonymousNamespace())
+      return getNamespaceScope(NSD);
+  }
   if (const NamedDecl *ND = dyn_cast<NamedDecl>(DC))
-    return ND->getQualifiedNameAsString();
+    return printQualifiedName(*ND);
 
   return "";
 }
@@ -94,7 +104,7 @@ std::string printDefinition(const Decl *D) {
 }
 
 void printParams(llvm::raw_ostream &OS,
-                        const std::vector<HoverInfo::Param> &Params) {
+                 const std::vector<HoverInfo::Param> &Params) {
   for (size_t I = 0, E = Params.size(); I != E; ++I) {
     if (I)
       OS << ", ";
@@ -242,12 +252,13 @@ void fillFunctionTypeAndParams(HoverInfo &HI, const Decl *D,
   // FIXME: handle variadics.
 }
 
-llvm::Optional<std::string> printExprValue(const Expr *E, const ASTContext &Ctx) {
+llvm::Optional<std::string> printExprValue(const Expr *E,
+                                           const ASTContext &Ctx) {
   Expr::EvalResult Constant;
   // Evaluating [[foo]]() as "&foo" isn't useful, and prevents us walking up
   // to the enclosing call.
   QualType T = E->getType();
-  if (T->isFunctionType() || T->isFunctionPointerType() ||
+  if (T.isNull() || T->isFunctionType() || T->isFunctionPointerType() ||
       T->isFunctionReferenceType())
     return llvm::None;
   // Attempt to evaluate. If expr is dependent, evaluation crashes!
@@ -340,17 +351,21 @@ HoverInfo getHoverContents(const Decl *D, const SymbolIndex *Index) {
 }
 
 /// Generate a \p Hover object given the type \p T.
-HoverInfo getHoverContents(QualType T, const Decl *D, ASTContext &ASTCtx,
-                                  const SymbolIndex *Index) {
+HoverInfo getHoverContents(QualType T, ASTContext &ASTCtx,
+                           const SymbolIndex *Index) {
   HoverInfo HI;
-  llvm::raw_string_ostream OS(HI.Name);
-  PrintingPolicy Policy = printingPolicyForDecls(ASTCtx.getPrintingPolicy());
-  T.print(OS, Policy);
-  OS.flush();
 
-  if (D) {
+  if (const auto *D = T->getAsTagDecl()) {
+    HI.Name = printName(ASTCtx, *D);
     HI.Kind = index::getSymbolInfo(D).Kind;
     enhanceFromIndex(HI, D, Index);
+  }
+
+  if (HI.Name.empty()) {
+    // Builtin types
+    llvm::raw_string_ostream OS(HI.Name);
+    PrintingPolicy Policy = printingPolicyForDecls(ASTCtx.getPrintingPolicy());
+    T.print(OS, Policy);
   }
   return HI;
 }
@@ -394,12 +409,7 @@ llvm::Optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
       getBeginningOfIdentifier(Pos, SM, AST.getLangOpts()));
 
   if (auto Deduced = getDeducedType(AST.getASTContext(), SourceLocationBeg)) {
-    // Find the corresponding decl to populate kind and fetch documentation.
-    DeclRelationSet Rel = DeclRelation::TemplatePattern | DeclRelation::Alias;
-    auto Decls =
-        targetDecl(ast_type_traits::DynTypedNode::create(*Deduced), Rel);
-    HI = getHoverContents(*Deduced, Decls.empty() ? nullptr : Decls.front(),
-                          AST.getASTContext(), Index);
+    HI = getHoverContents(*Deduced, AST.getASTContext(), Index);
   } else if (auto M = locateMacroAt(SourceLocationBeg, AST.getPreprocessor())) {
     HI = getHoverContents(*M, AST);
   } else {
@@ -440,28 +450,29 @@ llvm::Optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
   return HI;
 }
 
-FormattedString HoverInfo::present() const {
-  FormattedString Output;
+markup::Document HoverInfo::present() const {
+  markup::Document Output;
   if (NamespaceScope) {
-    Output.appendText("Declared in");
+    auto &P = Output.addParagraph();
+    P.appendText("Declared in");
     // Drop trailing "::".
     if (!LocalScope.empty())
-      Output.appendInlineCode(llvm::StringRef(LocalScope).drop_back(2));
+      P.appendCode(llvm::StringRef(LocalScope).drop_back(2));
     else if (NamespaceScope->empty())
-      Output.appendInlineCode("global namespace");
+      P.appendCode("global namespace");
     else
-      Output.appendInlineCode(llvm::StringRef(*NamespaceScope).drop_back(2));
+      P.appendCode(llvm::StringRef(*NamespaceScope).drop_back(2));
   }
 
   if (!Definition.empty()) {
-    Output.appendCodeBlock(Definition);
+    Output.addCodeBlock(Definition);
   } else {
     // Builtin types
-    Output.appendCodeBlock(Name);
+    Output.addCodeBlock(Name);
   }
 
   if (!Documentation.empty())
-    Output.appendText(Documentation);
+    Output.addParagraph().appendText(Documentation);
   return Output;
 }
 

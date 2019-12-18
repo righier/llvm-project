@@ -298,6 +298,48 @@ namespace clang {
       return nullptr;
     }
 
+    void addDeclToContexts(Decl *FromD, Decl *ToD) {
+      if (Importer.isMinimalImport()) {
+        // In minimal import case the decl must be added even if it is not
+        // contained in original context, for LLDB compatibility.
+        // FIXME: Check if a better solution is possible.
+        if (!FromD->getDescribedTemplate() &&
+            FromD->getFriendObjectKind() == Decl::FOK_None)
+          ToD->getLexicalDeclContext()->addDeclInternal(ToD);
+        return;
+      }
+
+      DeclContext *FromDC = FromD->getDeclContext();
+      DeclContext *FromLexicalDC = FromD->getLexicalDeclContext();
+      DeclContext *ToDC = ToD->getDeclContext();
+      DeclContext *ToLexicalDC = ToD->getLexicalDeclContext();
+
+      bool Visible = false;
+      if (FromDC->containsDeclAndLoad(FromD)) {
+        ToDC->addDeclInternal(ToD);
+        Visible = true;
+      }
+      if (ToDC != ToLexicalDC && FromLexicalDC->containsDeclAndLoad(FromD)) {
+        ToLexicalDC->addDeclInternal(ToD);
+        Visible = true;
+      }
+
+      // If the Decl was added to any context, it was made already visible.
+      // Otherwise it is still possible that it should be visible.
+      if (!Visible) {
+        if (auto *FromNamed = dyn_cast<NamedDecl>(FromD)) {
+          auto *ToNamed = cast<NamedDecl>(ToD);
+          DeclContextLookupResult FromLookup =
+              FromDC->lookup(FromNamed->getDeclName());
+          for (NamedDecl *ND : FromLookup)
+            if (ND == FromNamed) {
+              ToDC->makeDeclVisibleInContext(ToNamed);
+              break;
+            }
+        }
+      }
+    }
+
   public:
     explicit ASTNodeImporter(ASTImporter &Importer) : Importer(Importer) {}
 
@@ -648,6 +690,11 @@ namespace clang {
 
     Expected<FunctionDecl *> FindFunctionTemplateSpecialization(
         FunctionDecl *FromFD);
+
+    // Returns true if the given function has a placeholder return type and
+    // that type is declared inside the body of the function.
+    // E.g. auto f() { struct X{}; return X(); }
+    bool hasAutoReturnTypeDeclaredInside(FunctionDecl *D);
   };
 
 template <typename InContainerTy>
@@ -1547,6 +1594,10 @@ Error ASTNodeImporter::ImportDeclParts(
     DeclarationName &Name, NamedDecl *&ToD, SourceLocation &Loc) {
   // Check if RecordDecl is in FunctionDecl parameters to avoid infinite loop.
   // example: int struct_in_proto(struct data_t{int a;int b;} *d);
+  // FIXME: We could support these constructs by importing a different type of
+  // this parameter and by importing the original type of the parameter only
+  // after the FunctionDecl is created. See
+  // VisitFunctionDecl::UsedDifferentProtoType.
   DeclContext *OrigDC = D->getDeclContext();
   FunctionDecl *FunDecl;
   if (isa<RecordDecl>(D) && (FunDecl = dyn_cast<FunctionDecl>(OrigDC)) &&
@@ -2728,11 +2779,7 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
     D2 = D2CXX;
     D2->setAccess(D->getAccess());
     D2->setLexicalDeclContext(LexicalDC);
-    if (!DCXX->getDescribedClassTemplate() || DCXX->isImplicit())
-      LexicalDC->addDeclInternal(D2);
-
-    if (LexicalDC != DC && D->isInIdentifierNamespace(Decl::IDNS_TagFriend))
-      DC->makeDeclVisibleInContext(D2);
+    addDeclToContexts(D, D2);
 
     if (ClassTemplateDecl *FromDescribed =
         DCXX->getDescribedClassTemplate()) {
@@ -2798,7 +2845,7 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
                                 Name.getAsIdentifierInfo(), PrevDecl))
       return D2;
     D2->setLexicalDeclContext(LexicalDC);
-    LexicalDC->addDeclInternal(D2);
+    addDeclToContexts(D, D2);
   }
 
   if (auto BraceRangeOrErr = import(D->getBraceRange()))
@@ -3005,6 +3052,46 @@ Error ASTNodeImporter::ImportFunctionDeclBody(FunctionDecl *FromFD,
   return Error::success();
 }
 
+// Returns true if the given D has a DeclContext up to the TranslationUnitDecl
+// which is equal to the given DC.
+bool isAncestorDeclContextOf(const DeclContext *DC, const Decl *D) {
+  const DeclContext *DCi = D->getDeclContext();
+  while (DCi != D->getTranslationUnitDecl()) {
+    if (DCi == DC)
+      return true;
+    DCi = DCi->getParent();
+  }
+  return false;
+}
+
+bool ASTNodeImporter::hasAutoReturnTypeDeclaredInside(FunctionDecl *D) {
+  QualType FromTy = D->getType();
+  const FunctionProtoType *FromFPT = FromTy->getAs<FunctionProtoType>();
+  assert(FromFPT && "Must be called on FunctionProtoType");
+  if (AutoType *AutoT = FromFPT->getReturnType()->getContainedAutoType()) {
+    QualType DeducedT = AutoT->getDeducedType();
+    if (const RecordType *RecordT =
+            DeducedT.isNull() ? nullptr : dyn_cast<RecordType>(DeducedT)) {
+      RecordDecl *RD = RecordT->getDecl();
+      assert(RD);
+      if (isAncestorDeclContextOf(D, RD)) {
+        assert(RD->getLexicalDeclContext() == RD->getDeclContext());
+        return true;
+      }
+    }
+  }
+  if (const TypedefType *TypedefT =
+          dyn_cast<TypedefType>(FromFPT->getReturnType())) {
+    TypedefNameDecl *TD = TypedefT->getDecl();
+    assert(TD);
+    if (isAncestorDeclContextOf(D, TD)) {
+      assert(TD->getLexicalDeclContext() == TD->getDeclContext());
+      return true;
+    }
+  }
+  return false;
+}
+
 ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
 
   SmallVector<Decl *, 2> Redecls = getCanonicalForwardRedeclChain(D);
@@ -3128,22 +3215,37 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     return std::move(Err);
 
   QualType FromTy = D->getType();
-  bool usedDifferentExceptionSpec = false;
-
-  if (const auto *FromFPT = D->getType()->getAs<FunctionProtoType>()) {
+  // Set to true if we do not import the type of the function as is. There are
+  // cases when the original type would result in an infinite recursion during
+  // the import. To avoid an infinite recursion when importing, we create the
+  // FunctionDecl with a simplified function type and update it only after the
+  // relevant AST nodes are already imported.
+  bool UsedDifferentProtoType = false;
+  if (const auto *FromFPT = FromTy->getAs<FunctionProtoType>()) {
+    QualType FromReturnTy = FromFPT->getReturnType();
+    // Functions with auto return type may define a struct inside their body
+    // and the return type could refer to that struct.
+    // E.g.: auto foo() { struct X{}; return X(); }
+    // To avoid an infinite recursion when importing, create the FunctionDecl
+    // with a simplified return type.
+    if (hasAutoReturnTypeDeclaredInside(D)) {
+      FromReturnTy = Importer.getFromContext().VoidTy;
+      UsedDifferentProtoType = true;
+    }
     FunctionProtoType::ExtProtoInfo FromEPI = FromFPT->getExtProtoInfo();
     // FunctionProtoType::ExtProtoInfo's ExceptionSpecDecl can point to the
     // FunctionDecl that we are importing the FunctionProtoType for.
     // To avoid an infinite recursion when importing, create the FunctionDecl
-    // with a simplified function type and update it afterwards.
+    // with a simplified function type.
     if (FromEPI.ExceptionSpec.SourceDecl ||
         FromEPI.ExceptionSpec.SourceTemplate ||
         FromEPI.ExceptionSpec.NoexceptExpr) {
       FunctionProtoType::ExtProtoInfo DefaultEPI;
-      FromTy = Importer.getFromContext().getFunctionType(
-          FromFPT->getReturnType(), FromFPT->getParamTypes(), DefaultEPI);
-      usedDifferentExceptionSpec = true;
+      FromEPI = DefaultEPI;
+      UsedDifferentProtoType = true;
     }
+    FromTy = Importer.getFromContext().getFunctionType(
+        FromReturnTy, FromFPT->getParamTypes(), FromEPI);
   }
 
   QualType T;
@@ -3277,14 +3379,6 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     }
   }
 
-  if (usedDifferentExceptionSpec) {
-    // Update FunctionProtoType::ExtProtoInfo.
-    if (ExpectedType TyOrErr = import(D->getType()))
-      ToFunction->setType(*TyOrErr);
-    else
-      return TyOrErr.takeError();
-  }
-
   // Import the describing template function, if any.
   if (FromFT) {
     auto ToFTOrErr = import(FromFT);
@@ -3316,29 +3410,21 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
       return std::move(Err);
   }
 
+  // Import and set the original type in case we used another type.
+  if (UsedDifferentProtoType) {
+    if (ExpectedType TyOrErr = import(D->getType()))
+      ToFunction->setType(*TyOrErr);
+    else
+      return TyOrErr.takeError();
+  }
+
   // FIXME: Other bits to merge?
 
   // If it is a template, import all related things.
   if (Error Err = ImportTemplateInformation(D, ToFunction))
     return std::move(Err);
 
-  bool IsFriend = D->isInIdentifierNamespace(Decl::IDNS_OrdinaryFriend);
-
-  // TODO Can we generalize this approach to other AST nodes as well?
-  if (D->getDeclContext()->containsDeclAndLoad(D))
-    DC->addDeclInternal(ToFunction);
-  if (DC != LexicalDC && D->getLexicalDeclContext()->containsDeclAndLoad(D))
-    LexicalDC->addDeclInternal(ToFunction);
-
-  // Friend declaration's lexical context is the befriending class, but the
-  // semantic context is the enclosing scope of the befriending class.
-  // We want the friend functions to be found in the semantic context by lookup.
-  // FIXME should we handle this generically in VisitFriendDecl?
-  // In Other cases when LexicalDC != DC we don't want it to be added,
-  // e.g out-of-class definitions like void B::f() {} .
-  if (LexicalDC != DC && IsFriend) {
-    DC->makeDeclVisibleInContext(ToFunction);
-  }
+  addDeclToContexts(D, ToFunction);
 
   if (auto *FromCXXMethod = dyn_cast<CXXMethodDecl>(D))
     if (Error Err = ImportOverriddenMethods(cast<CXXMethodDecl>(ToFunction),
@@ -3786,10 +3872,7 @@ ExpectedDecl ASTNodeImporter::VisitVarDecl(VarDecl *D) {
   if (D->isConstexpr())
     ToVar->setConstexpr(true);
 
-  if (D->getDeclContext()->containsDeclAndLoad(D))
-    DC->addDeclInternal(ToVar);
-  if (DC != LexicalDC && D->getLexicalDeclContext()->containsDeclAndLoad(D))
-    LexicalDC->addDeclInternal(ToVar);
+  addDeclToContexts(D, ToVar);
 
   // Import the rest of the chain. I.e. import all subsequent declarations.
   for (++RedeclIt; RedeclIt != Redecls.end(); ++RedeclIt) {
@@ -5069,7 +5152,6 @@ template <typename T> static auto getTemplateDefinition(T *D) -> T * {
 }
 
 ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
-  bool IsFriend = D->getFriendObjectKind() != Decl::FOK_None;
 
   // Import the major distinguishing characteristics of this class template.
   DeclContext *DC, *LexicalDC;
@@ -5146,10 +5228,7 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
   D2->setAccess(D->getAccess());
   D2->setLexicalDeclContext(LexicalDC);
 
-  if (D->getDeclContext()->containsDeclAndLoad(D))
-    DC->addDeclInternal(D2);
-  if (DC != LexicalDC && D->getLexicalDeclContext()->containsDeclAndLoad(D))
-    LexicalDC->addDeclInternal(D2);
+  addDeclToContexts(D, D2);
 
   if (FoundByLookup) {
     auto *Recent =
@@ -5174,9 +5253,6 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
 
     D2->setPreviousDecl(Recent);
   }
-
-  if (LexicalDC != DC && IsFriend)
-    DC->makeDeclVisibleInContext(D2);
 
   if (FromTemplated->isCompleteDefinition() &&
       !ToTemplated->isCompleteDefinition()) {
