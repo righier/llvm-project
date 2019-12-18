@@ -12471,6 +12471,26 @@ void OMPClauseReader::VisitOMPNontemporalClause(OMPNontemporalClause *C) {
 //===----------------------------------------------------------------------===//
 // TransformClauseReader implementation
 //===----------------------------------------------------------------------===//
+namespace {
+class TransformClauseReader {
+  ASTRecordReader &Record;
+  ASTContext &Context;
+
+public:
+  TransformClauseReader(ASTRecordReader &Record)
+      : Record(Record), Context(Record.getContext()) {}
+
+  TransformClause *readClause();
+
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  Name##Clause *read##Name##Clause(SourceRange);
+#include "clang/AST/TransformClauseKinds.def"
+};
+}; // namespace
+
+TransformClause *ASTRecordReader::readTransformClause() {
+  return TransformClauseReader(*this).readClause();
+}
 
 TransformClause *TransformClauseReader::readClause() {
   uint64_t Kind = Record.readInt();

@@ -6546,15 +6546,38 @@ void OMPClauseWriter::VisitOMPNontemporalClause(OMPNontemporalClause *C) {
     Record.AddStmt(VE);
 }
 
+//===----------------------------------------------------------------------===//
+// TransformClause Serialization
+//===----------------------------------------------------------------------===//
+namespace {
+class TransformClauseWriter
+    : public ConstTransformClauseVisitor<TransformClauseWriter> {
+  ASTRecordWriter &Record;
+
+public:
+  TransformClauseWriter(ASTRecordWriter &Record) : Record(Record) {}
+
+  void writeClause(const TransformClause *C);
+
+#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
+  void Visit##Name##Clause(const Name##Clause *);
+#include "clang/AST/TransformClauseKinds.def"
+
+  void VisitTransformClause(const TransformClause *C) {
+    llvm_unreachable("Serialization of this clause not implemented");
+  }
+};
+} // namespace
+
+void ASTRecordWriter::writeTransformClause(TransformClause *C) {
+  TransformClauseWriter(*this).Visit(C);
+}
+
 void TransformClauseWriter::writeClause(const TransformClause *C) {
   Record.push_back(C->getKind());
   Record.AddSourceRange(C->getRange());
   Visit(C);
 }
-
-//===----------------------------------------------------------------------===//
-// TransformClause Serialization
-//===----------------------------------------------------------------------===//
 
 void TransformClauseWriter::VisitFullClause(const FullClause *C) {
   // The full clause has no arguments.

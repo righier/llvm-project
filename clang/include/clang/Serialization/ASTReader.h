@@ -2265,21 +2265,6 @@ public:
   bool isProcessingUpdateRecords() { return ProcessingUpdateRecords; }
 };
 
-class TransformClauseReader {
-  ASTRecordReader &Record;
-  ASTContext &Context;
-
-public:
-  TransformClauseReader(ASTRecordReader &Record)
-      : Record(Record), Context(Record.getContext()) {}
-
-  TransformClause *readClause();
-
-#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
-  Name##Clause *read##Name##Clause(SourceRange);
-#include "clang/AST/TransformClauseKinds.def"
-};
-
 } // namespace clang
 
 #endif // LLVM_CLANG_SERIALIZATION_ASTREADER_H

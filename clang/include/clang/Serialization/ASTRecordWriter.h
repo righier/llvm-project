@@ -268,6 +268,8 @@ public:
 
   void writeOMPClause(OMPClause *C);
 
+  void writeTransformClause(TransformClause *C);
+
   /// Emit a string.
   void AddString(StringRef Str) {
     return Writer->AddString(Str, *Record);

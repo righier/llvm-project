@@ -1982,9 +1982,8 @@ void ASTStmtWriter::VisitTransformExecutableDirective(
   Record.push_back(D->getNumClauses());
 
   Record.AddSourceRange(D->getRange());
-  TransformClauseWriter ClauseWriter(Record);
   for (auto C : D->clauses())
-    ClauseWriter.writeClause(C);
+    Record.writeTransformClause(C);
 
   Record.AddStmt(D->getAssociated());
 }

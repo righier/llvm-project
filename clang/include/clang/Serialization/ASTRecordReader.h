@@ -261,6 +261,9 @@ public:
   /// Read an OpenMP clause, advancing Idx.
   OMPClause *readOMPClause();
 
+  /// Read an transform clause, advancing Idx.
+  TransformClause *readTransformClause();
+
   /// Read a source location, advancing Idx.
   SourceLocation readSourceLocation() {
     return Reader->ReadSourceLocation(*F, Record, Idx);
