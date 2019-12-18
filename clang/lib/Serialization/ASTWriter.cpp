@@ -6570,7 +6570,7 @@ public:
 } // namespace
 
 void ASTRecordWriter::writeTransformClause(TransformClause *C) {
-  TransformClauseWriter(*this).Visit(C);
+  TransformClauseWriter(*this).writeClause(C);
 }
 
 void TransformClauseWriter::writeClause(const TransformClause *C) {

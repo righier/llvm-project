@@ -224,7 +224,6 @@ public:
 #define TRANSFORM_CLAUSE(Keyword, Name)                                        \
   case TransformClause::Kind::Name##Kind:                                      \
     return getDerived().Visit##Name##Clause(static_cast<PTR(Name##Clause)>(C));
-      // return Visit ##  Name  ## Clause(static_cast<PTR(Name ## Clause)>(C));
 #include "clang/AST/TransformClauseKinds.def"
     default:
       llvm_unreachable("Unknown transform clause kind!");

@@ -121,7 +121,7 @@ void CGTransformedTree::collectAccessGroups(
 
 llvm::MDNode *CGTransformedTree::makeLoopID(llvm::LLVMContext &Ctx,
                                             bool HasAllDisableNonforced) {
-  assert(Finalized && isCodeGenned());
+  assert(Finalized);
   if (IsDefault && (!DisableHeuristic || HasAllDisableNonforced))
     return nullptr;
 

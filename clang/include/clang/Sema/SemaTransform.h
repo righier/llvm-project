@@ -30,8 +30,10 @@ class SemaTransformedTree : public TransformedTree<SemaTransformedTree> {
 
 public:
   SemaTransformedTree(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
-                      clang::Stmt *Original, int FollowupRole)
-      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole) {}
+                      clang::Stmt *Original, int FollowupRole,
+                      NodeTy *Predecessor)
+      : TransformedTree(SubLoops, BasedOn, Original, FollowupRole,
+                        Predecessor) {}
 };
 
 class SemaTransformedTreeBuilder
