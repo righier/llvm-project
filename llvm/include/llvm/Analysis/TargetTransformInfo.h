@@ -36,7 +36,7 @@
 namespace llvm {
 
 namespace Intrinsic {
-enum ID : unsigned;
+typedef unsigned ID;
 }
 
 class AssumptionCache;
@@ -597,9 +597,9 @@ public:
   bool isLegalNTLoad(Type *DataType, Align Alignment) const;
 
   /// Return true if the target supports masked scatter.
-  bool isLegalMaskedScatter(Type *DataType) const;
+  bool isLegalMaskedScatter(Type *DataType, MaybeAlign Alignment) const;
   /// Return true if the target supports masked gather.
-  bool isLegalMaskedGather(Type *DataType) const;
+  bool isLegalMaskedGather(Type *DataType, MaybeAlign Alignment) const;
 
   /// Return true if the target supports masked compress store.
   bool isLegalMaskedCompressStore(Type *DataType) const;
@@ -754,10 +754,10 @@ public:
   /// Return the expected cost of materialization for the given integer
   /// immediate of the specified type for a given instruction. The cost can be
   /// zero if the immediate can be folded into the specified instruction.
-  int getIntImmCost(unsigned Opc, unsigned Idx, const APInt &Imm,
-                    Type *Ty) const;
-  int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                    Type *Ty) const;
+  int getIntImmCostInst(unsigned Opc, unsigned Idx, const APInt &Imm,
+                        Type *Ty) const;
+  int getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
+                          Type *Ty) const;
 
   /// Return the expected cost for the given integer when optimising
   /// for size. This is different than the other integer immediate cost
@@ -1237,8 +1237,8 @@ public:
   virtual bool isLegalMaskedLoad(Type *DataType, MaybeAlign Alignment) = 0;
   virtual bool isLegalNTStore(Type *DataType, Align Alignment) = 0;
   virtual bool isLegalNTLoad(Type *DataType, Align Alignment) = 0;
-  virtual bool isLegalMaskedScatter(Type *DataType) = 0;
-  virtual bool isLegalMaskedGather(Type *DataType) = 0;
+  virtual bool isLegalMaskedScatter(Type *DataType, MaybeAlign Alignment) = 0;
+  virtual bool isLegalMaskedGather(Type *DataType, MaybeAlign Alignment) = 0;
   virtual bool isLegalMaskedCompressStore(Type *DataType) = 0;
   virtual bool isLegalMaskedExpandLoad(Type *DataType) = 0;
   virtual bool hasDivRemOp(Type *DataType, bool IsSigned) = 0;
@@ -1278,10 +1278,10 @@ public:
   virtual int getIntImmCodeSizeCost(unsigned Opc, unsigned Idx, const APInt &Imm,
                                     Type *Ty) = 0;
   virtual int getIntImmCost(const APInt &Imm, Type *Ty) = 0;
-  virtual int getIntImmCost(unsigned Opc, unsigned Idx, const APInt &Imm,
-                            Type *Ty) = 0;
-  virtual int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                            Type *Ty) = 0;
+  virtual int getIntImmCostInst(unsigned Opc, unsigned Idx, const APInt &Imm,
+                                Type *Ty) = 0;
+  virtual int getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx,
+                                  const APInt &Imm, Type *Ty) = 0;
   virtual unsigned getNumberOfRegisters(unsigned ClassID) const = 0;
   virtual unsigned getRegisterClassForType(bool Vector, Type *Ty = nullptr) const = 0;
   virtual const char* getRegisterClassName(unsigned ClassID) const = 0;
@@ -1537,11 +1537,11 @@ public:
   bool isLegalNTLoad(Type *DataType, Align Alignment) override {
     return Impl.isLegalNTLoad(DataType, Alignment);
   }
-  bool isLegalMaskedScatter(Type *DataType) override {
-    return Impl.isLegalMaskedScatter(DataType);
+  bool isLegalMaskedScatter(Type *DataType, MaybeAlign Alignment) override {
+    return Impl.isLegalMaskedScatter(DataType, Alignment);
   }
-  bool isLegalMaskedGather(Type *DataType) override {
-    return Impl.isLegalMaskedGather(DataType);
+  bool isLegalMaskedGather(Type *DataType, MaybeAlign Alignment) override {
+    return Impl.isLegalMaskedGather(DataType, Alignment);
   }
   bool isLegalMaskedCompressStore(Type *DataType) override {
     return Impl.isLegalMaskedCompressStore(DataType);
@@ -1638,13 +1638,13 @@ public:
   int getIntImmCost(const APInt &Imm, Type *Ty) override {
     return Impl.getIntImmCost(Imm, Ty);
   }
-  int getIntImmCost(unsigned Opc, unsigned Idx, const APInt &Imm,
-                    Type *Ty) override {
-    return Impl.getIntImmCost(Opc, Idx, Imm, Ty);
+  int getIntImmCostInst(unsigned Opc, unsigned Idx, const APInt &Imm,
+                        Type *Ty) override {
+    return Impl.getIntImmCostInst(Opc, Idx, Imm, Ty);
   }
-  int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                    Type *Ty) override {
-    return Impl.getIntImmCost(IID, Idx, Imm, Ty);
+  int getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
+                          Type *Ty) override {
+    return Impl.getIntImmCostIntrin(IID, Idx, Imm, Ty);
   }
   unsigned getNumberOfRegisters(unsigned ClassID) const override {
     return Impl.getNumberOfRegisters(ClassID);

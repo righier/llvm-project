@@ -179,9 +179,9 @@ public:
 
   unsigned getUserCost(const User *U, ArrayRef<const Value *> Operands);
 
-  int getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty);
-  int getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                    Type *Ty);
+  int getIntImmCostInst(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty);
+  int getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
+                          Type *Ty);
   bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
                      TargetTransformInfo::LSRCost &C2);
   bool canMacroFuseCmp();
@@ -189,8 +189,8 @@ public:
   bool isLegalMaskedStore(Type *DataType, MaybeAlign Alignment);
   bool isLegalNTLoad(Type *DataType, Align Alignment);
   bool isLegalNTStore(Type *DataType, Align Alignment);
-  bool isLegalMaskedGather(Type *DataType);
-  bool isLegalMaskedScatter(Type *DataType);
+  bool isLegalMaskedGather(Type *DataType, MaybeAlign Alignment);
+  bool isLegalMaskedScatter(Type *DataType, MaybeAlign Alignment);
   bool isLegalMaskedExpandLoad(Type *DataType);
   bool isLegalMaskedCompressStore(Type *DataType);
   bool hasDivRemOp(Type *DataType, bool IsSigned);

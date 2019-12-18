@@ -115,7 +115,7 @@ public:
   using BaseT::getIntImmCost;
   int getIntImmCost(const APInt &Imm, Type *Ty);
 
-  int getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty);
+  int getIntImmCostInst(unsigned Opcode, unsigned Idx, const APInt &Imm, Type *Ty);
 
   /// @}
 
@@ -158,6 +158,10 @@ public:
   bool isLegalMaskedStore(Type *DataTy, MaybeAlign Alignment) {
     return isLegalMaskedLoad(DataTy, Alignment);
   }
+
+  bool isLegalMaskedGather(Type *Ty, MaybeAlign Alignment) { return false; }
+
+  bool isLegalMaskedScatter(Type *Ty, MaybeAlign Alignment) { return false; }
 
   int getMemcpyCost(const Instruction *I);
 

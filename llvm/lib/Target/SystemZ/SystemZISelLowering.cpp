@@ -19,8 +19,9 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
-#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicsS390.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/KnownBits.h"
 #include <cctype>
@@ -218,6 +219,11 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::STRICT_FP_TO_SINT, VT, Legal);
       if (Subtarget.hasFPExtension())
         setOperationAction(ISD::STRICT_FP_TO_UINT, VT, Legal);
+
+      // And similarly for STRICT_[SU]INT_TO_FP.
+      setOperationAction(ISD::STRICT_SINT_TO_FP, VT, Legal);
+      if (Subtarget.hasFPExtension())
+        setOperationAction(ISD::STRICT_UINT_TO_FP, VT, Legal);
     }
   }
 
@@ -257,6 +263,8 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
   if (!Subtarget.hasFPExtension()) {
     setOperationAction(ISD::UINT_TO_FP, MVT::i32, Promote);
     setOperationAction(ISD::UINT_TO_FP, MVT::i64, Expand);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::i32, Promote);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::i64, Expand);
   }
 
   // We have native support for a 64-bit CTLZ, via FLOGR.
@@ -401,6 +409,10 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::STRICT_FP_TO_SINT, MVT::v2f64, Legal);
     setOperationAction(ISD::STRICT_FP_TO_UINT, MVT::v2i64, Legal);
     setOperationAction(ISD::STRICT_FP_TO_UINT, MVT::v2f64, Legal);
+    setOperationAction(ISD::STRICT_SINT_TO_FP, MVT::v2i64, Legal);
+    setOperationAction(ISD::STRICT_SINT_TO_FP, MVT::v2f64, Legal);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::v2i64, Legal);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::v2f64, Legal);
   }
 
   if (Subtarget.hasVectorEnhancements2()) {
@@ -417,6 +429,10 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::STRICT_FP_TO_SINT, MVT::v4f32, Legal);
     setOperationAction(ISD::STRICT_FP_TO_UINT, MVT::v4i32, Legal);
     setOperationAction(ISD::STRICT_FP_TO_UINT, MVT::v4f32, Legal);
+    setOperationAction(ISD::STRICT_SINT_TO_FP, MVT::v4i32, Legal);
+    setOperationAction(ISD::STRICT_SINT_TO_FP, MVT::v4f32, Legal);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::v4i32, Legal);
+    setOperationAction(ISD::STRICT_UINT_TO_FP, MVT::v4f32, Legal);
   }
 
   // Handle floating-point types.
@@ -1417,7 +1433,7 @@ SDValue SystemZTargetLowering::LowerFormalArguments(
 
     // ...and a similar frame index for the caller-allocated save area
     // that will be used to store the incoming registers.
-    int64_t RegSaveOffset = TFL->getOffsetOfLocalArea();
+    int64_t RegSaveOffset = -SystemZMC::CallFrameSize;
     unsigned RegSaveIndex = MFI.CreateFixedObject(1, RegSaveOffset, true);
     FuncInfo->setRegSaveFrameIndex(RegSaveIndex);
 
@@ -2692,7 +2708,7 @@ static unsigned getVectorComparisonOrInvert(ISD::CondCode CC, CmpMode Mode,
     return Opcode;
   }
 
-  CC = ISD::getSetCCInverse(CC, Mode == CmpMode::Int);
+  CC = ISD::getSetCCInverse(CC, Mode == CmpMode::Int ? MVT::i32 : MVT::f32);
   if (unsigned Opcode = getVectorComparison(CC, Mode)) {
     Invert = true;
     return Opcode;
@@ -3202,14 +3218,10 @@ SDValue SystemZTargetLowering::lowerFRAMEADDR(SDValue Op,
   unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
 
-  // If the back chain frame index has not been allocated yet, do so.
-  SystemZMachineFunctionInfo *FI = MF.getInfo<SystemZMachineFunctionInfo>();
-  int BackChainIdx = FI->getFramePointerSaveIndex();
-  if (!BackChainIdx) {
-    // By definition, the frame address is the address of the back chain.
-    BackChainIdx = MFI.CreateFixedObject(8, -SystemZMC::CallFrameSize, false);
-    FI->setFramePointerSaveIndex(BackChainIdx);
-  }
+  // By definition, the frame address is the address of the back chain.
+  auto *TFL =
+      static_cast<const SystemZFrameLowering *>(Subtarget.getFrameLowering());
+  int BackChainIdx = TFL->getOrCreateFramePointerSaveIndex(MF);
   SDValue BackChain = DAG.getFrameIndex(BackChainIdx, PtrVT);
 
   // FIXME The frontend should detect this case.

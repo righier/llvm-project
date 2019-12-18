@@ -51,6 +51,8 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicsAArch64.h"
+#include "llvm/IR/IntrinsicsX86.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
@@ -88,7 +90,7 @@ static unsigned getBitWidth(Type *Ty, const DataLayout &DL) {
   if (unsigned BitWidth = Ty->getScalarSizeInBits())
     return BitWidth;
 
-  return DL.getIndexTypeSizeInBits(Ty);
+  return DL.getPointerTypeSizeInBits(Ty);
 }
 
 namespace {
@@ -1135,7 +1137,7 @@ static void computeKnownBitsFromOperator(const Operator *I, KnownBits &Known,
     // which fall through here.
     Type *ScalarTy = SrcTy->getScalarType();
     SrcBitWidth = ScalarTy->isPointerTy() ?
-      Q.DL.getIndexTypeSizeInBits(ScalarTy) :
+      Q.DL.getPointerTypeSizeInBits(ScalarTy) :
       Q.DL.getTypeSizeInBits(ScalarTy);
 
     assert(SrcBitWidth && "SrcBitWidth can't be zero");
@@ -1662,7 +1664,7 @@ void computeKnownBits(const Value *V, KnownBits &Known, unsigned Depth,
 
   Type *ScalarTy = V->getType()->getScalarType();
   unsigned ExpectedWidth = ScalarTy->isPointerTy() ?
-    Q.DL.getIndexTypeSizeInBits(ScalarTy) : Q.DL.getTypeSizeInBits(ScalarTy);
+    Q.DL.getPointerTypeSizeInBits(ScalarTy) : Q.DL.getTypeSizeInBits(ScalarTy);
   assert(ExpectedWidth == BitWidth && "V and Known should have same BitWidth");
   (void)BitWidth;
   (void)ExpectedWidth;
@@ -1942,6 +1944,15 @@ static bool isKnownNonNullFromDominatingCondition(const Value *V,
           if (CS.getArgOperand(Arg.getArgNo()) == V &&
               Arg.hasNonNullAttr() && DT->dominates(CS.getInstruction(), CtxI))
             return true;
+
+    // If the value is used as a load/store, then the pointer must be non null.
+    if (V == getLoadStorePointerOperand(U)) {
+      const Instruction *I = cast<Instruction>(U);
+      if (!NullPointerIsDefined(I->getFunction(),
+                                V->getType()->getPointerAddressSpace()) &&
+          DT->dominates(I, CtxI))
+        return true;
+    }
 
     // Consider only compare instructions uniquely controlling a branch
     CmpInst::Predicate Pred;
@@ -2398,7 +2409,7 @@ static unsigned ComputeNumSignBitsImpl(const Value *V, unsigned Depth,
 
   Type *ScalarTy = V->getType()->getScalarType();
   unsigned TyBits = ScalarTy->isPointerTy() ?
-    Q.DL.getIndexTypeSizeInBits(ScalarTy) :
+    Q.DL.getPointerTypeSizeInBits(ScalarTy) :
     Q.DL.getTypeSizeInBits(ScalarTy);
 
   unsigned Tmp, Tmp2;

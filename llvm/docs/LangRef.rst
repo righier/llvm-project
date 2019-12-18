@@ -14407,6 +14407,115 @@ Arguments:
 """"""""""
 The argument to this intrinsic must be a vector of floating-point values.
 
+Matrix Intrinsics
+-----------------
+
+Operations on matrixes requiring shape information (like number of rows/columns
+or the memory layout) can be expressed using the matrix intrinsics. Matrixes are
+embedded in a flat vector and the intrinsics take the dimensions as arguments.
+Currently column-major layout is assumed. The intrinsics support both integer
+and floating point matrixes.
+
+
+'``llvm.matrix.transpose.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare vectorty @llvm.matrix.transpose.*(vectorty %In, i32 <Rows>, i32 <Cols>)
+
+Overview:
+"""""""""
+
+The '``llvm.matrix.transpose.*``' intrinsic treats %In as containing a matrix
+with <Rows> rows and <Cols> columns and returns the transposed matrix embedded in
+the result vector.
+
+Arguments:
+""""""""""
+
+The <Rows> and <Cols> arguments must be constant integers. The vector argument
+%In and the returned vector must have <Rows> * <Cols> elements.
+
+'``llvm.matrix.multiply.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare vectorty @llvm.matrix.multiply.*(vectorty %A, vectorty %B, i32 <M>, i32 <N>, i32 <K>)
+
+Overview:
+"""""""""
+
+The '``llvm.matrix.multiply.*``' intrinsic treats %A as matrix with <M> rows and <K> columns, %B as
+matrix with <K> rows and <N> columns and multiplies them. The result matrix is returned embedded in the
+result vector.
+
+Arguments:
+""""""""""
+
+The <M>, <N> and <K> arguments must be constant integers.  The vector argument %A
+must have <M> * <K> elements, %B must have <K> * <N> elements and the returned
+vector must have <M> * <N> elements.
+
+
+'``llvm.matrix.columnwise.load.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare vectorty @llvm.matrix.columnwise.load.*(ptrty %Ptr, i32 %Stride, i32 <Rows>, i32 <Cols>)
+
+Overview:
+"""""""""
+
+The '``llvm.matrix.columnwise.load.*``' intrinsic loads a matrix with <Rows>
+rows and <Cols> columns, using a stride of %Stride between columns. For two
+consecutive columns A and B, %Stride refers to the distance (the number of
+elements) between the start of column A and the start of column B. The result
+matrix is returned embedded in the result vector. This allows for convenient
+loading of sub matrixes.
+
+Arguments:
+""""""""""
+
+The <Rows> and <Cols> arguments must be constant integers. The returned vector
+must have <Rows> * <Cols> elements. %Stride must be >= <Rows>.
+
+'``llvm.matrix.columnwise.store.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.matrix.columnwise.store.*(vectorty %In, ptrty %Ptr, i32 %Stride, i32 <Rows>, i32 <Cols>)
+
+Overview:
+"""""""""
+
+The '``llvm.matrix.columnwise.store.*``' intrinsic stores the matrix with
+<Rows> rows and <Cols> columns embedded in %In, using a stride of %Stride
+between columns. For two consecutive columns A and B, %Stride refers to the
+distance (the number of elements) between the start of column A and the start
+of column B.
+
+Arguments:
+""""""""""
+
+The <Rows> and <Cols> arguments must be constant integers. The vector argument
+%In must have <Rows> * <Cols> elements. %Stride must be >= <Rows>.
+
 Half Precision Floating-Point Intrinsics
 ----------------------------------------
 
@@ -15558,6 +15667,78 @@ Semantics:
 The result produced is a signed integer converted from the floating
 point operand. The value is truncated, so it is rounded towards zero.
 
+'``llvm.experimental.constrained.uitofp``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare <ty2>
+      @llvm.experimental.constrained.uitofp(<type> <value>,
+                                          metadata <rounding mode>,
+                                          metadata <exception behavior>)
+
+Overview:
+"""""""""
+
+The '``llvm.experimental.constrained.uitofp``' intrinsic converts an
+unsigned integer ``value`` to a floating-point of type ``ty2``.
+
+Arguments:
+""""""""""
+
+The first argument to the '``llvm.experimental.constrained.uitofp``'
+intrinsic must be an :ref:`integer <t_integer>` or :ref:`vector
+<t_vector>` of integer values.
+
+The second and third arguments specify the rounding mode and exception
+behavior as described above.
+
+Semantics:
+""""""""""
+
+An inexact floating-point exception will be raised if rounding is required.
+Any result produced is a floating point value converted from the input
+integer operand.
+
+'``llvm.experimental.constrained.sitofp``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare <ty2>
+      @llvm.experimental.constrained.sitofp(<type> <value>,
+                                          metadata <rounding mode>,
+                                          metadata <exception behavior>)
+
+Overview:
+"""""""""
+
+The '``llvm.experimental.constrained.sitofp``' intrinsic converts a
+signed integer ``value`` to a floating-point of type ``ty2``.
+
+Arguments:
+""""""""""
+
+The first argument to the '``llvm.experimental.constrained.sitofp``'
+intrinsic must be an :ref:`integer <t_integer>` or :ref:`vector
+<t_vector>` of integer values.
+
+The second and third arguments specify the rounding mode and exception
+behavior as described above.
+
+Semantics:
+""""""""""
+
+An inexact floating-point exception will be raised if rounding is required.
+Any result produced is a floating point value converted from the input
+integer operand.
+
 '``llvm.experimental.constrained.fptrunc``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -16297,7 +16478,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.maxnum(<type> <op1>, <type> <op2>
-                                            metadata <rounding mode>,
                                             metadata <exception behavior>)
 
 Overview:
@@ -16312,16 +16492,12 @@ Arguments:
 The first two arguments and the return value are floating-point numbers
 of the same type.
 
-The third and forth arguments specify the rounding mode and exception
-behavior as described above.
+The third argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
 
-This function follows the IEEE-754 semantics for maxNum. The rounding mode is
-described, not determined, by the rounding mode argument. The actual rounding
-mode is determined by the runtime floating-point environment. The rounding
-mode argument is only intended as information to the compiler.
+This function follows the IEEE-754 semantics for maxNum.
 
 
 '``llvm.experimental.constrained.minnum``' Intrinsic
@@ -16334,7 +16510,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.minnum(<type> <op1>, <type> <op2>
-                                            metadata <rounding mode>,
                                             metadata <exception behavior>)
 
 Overview:
@@ -16349,16 +16524,12 @@ Arguments:
 The first two arguments and the return value are floating-point numbers
 of the same type.
 
-The third and forth arguments specify the rounding mode and exception
-behavior as described above.
+The third argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
 
-This function follows the IEEE-754 semantics for minNum. The rounding mode is
-described, not determined, by the rounding mode argument. The actual rounding
-mode is determined by the runtime floating-point environment. The rounding
-mode argument is only intended as information to the compiler.
+This function follows the IEEE-754 semantics for minNum.
 
 
 '``llvm.experimental.constrained.ceil``' Intrinsic
@@ -16371,7 +16542,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.ceil(<type> <op1>,
-                                          metadata <rounding mode>,
                                           metadata <exception behavior>)
 
 Overview:
@@ -16386,9 +16556,7 @@ Arguments:
 The first argument and the return value are floating-point numbers of the same
 type.
 
-The second and third arguments specify the rounding mode and exception
-behavior as described above. The rounding mode is currently unused for this
-intrinsic.
+The second argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
@@ -16407,7 +16575,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.floor(<type> <op1>,
-                                           metadata <rounding mode>,
                                            metadata <exception behavior>)
 
 Overview:
@@ -16422,9 +16589,7 @@ Arguments:
 The first argument and the return value are floating-point numbers of the same
 type.
 
-The second and third arguments specify the rounding mode and exception
-behavior as described above. The rounding mode is currently unused for this
-intrinsic.
+The second argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
@@ -16443,7 +16608,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.round(<type> <op1>,
-                                           metadata <rounding mode>,
                                            metadata <exception behavior>)
 
 Overview:
@@ -16458,9 +16622,7 @@ Arguments:
 The first argument and the return value are floating-point numbers of the same
 type.
 
-The second and third arguments specify the rounding mode and exception
-behavior as described above. The rounding mode is currently unused for this
-intrinsic.
+The second argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
@@ -16555,7 +16717,6 @@ Syntax:
 
       declare <type>
       @llvm.experimental.constrained.trunc(<type> <op1>,
-                                           metadata <truncing mode>,
                                            metadata <exception behavior>)
 
 Overview:
@@ -16571,9 +16732,7 @@ Arguments:
 The first argument and the return value are floating-point numbers of the same
 type.
 
-The second and third arguments specify the truncing mode and exception
-behavior as described above. The truncing mode is currently unused for this
-intrinsic.
+The second argument specifies the exception behavior as described above.
 
 Semantics:
 """"""""""
