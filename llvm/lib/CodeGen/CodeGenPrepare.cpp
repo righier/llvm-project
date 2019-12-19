@@ -60,6 +60,8 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicsAArch64.h"
+#include "llvm/IR/IntrinsicsX86.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
@@ -7341,6 +7343,10 @@ bool CodeGenPrepare::splitBranchCondition(Function &F, bool &ModifiedDT) {
 
     auto *Br1 = cast<BranchInst>(BB.getTerminator());
     if (Br1->getMetadata(LLVMContext::MD_unpredictable))
+      continue;
+
+    // The merging of mostly empty BB can cause a degenerate branch.
+    if (TBB == FBB)
       continue;
 
     unsigned Opc;

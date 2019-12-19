@@ -118,51 +118,74 @@ protected:
   /// Origin of this loop.
   /// @{
 
-  /// If not the result of the transformation, this is the loop statement that
+  /// If not the result of a transformation, this is the loop statement that
   /// this node represents.
   Stmt *Original;
 
+  /// If the result of a transformation, this points to the primary node that
+  /// the transformation is applied to. BasedOn->Followups has to contain this
+  /// node.
   Derived *BasedOn;
+
+  /// If the result of a transformation, this is the followup role a defined by
+  /// the transformation applied to @p BasedOn.
   int FollowupRole;
+
+  /// If the result of a transformation, points to the node that was transformed
+  /// into this node. The predecessor's @p Successors must point to this node.
+  Derived *Predecessor;
   /// @}
 
-  /// Things applied to this loop.
+  /// Transformations applied to this loop.
   /// @{
 
-  /// If this is the primary transformation input.
-  Transform *TransformedBy = nullptr;
-
-  // Primary/secondary transformation input
+  /// Points to the primary input this loop is transformed by (the one that
+  /// #pragma clang transform is applied to).
   Derived *PrimaryInput = nullptr;
 
+  /// If this is the primary transformation input, contains the transformation
+  /// that is applied to the loop nest. For non-primary inputs, it is nullptr.
+  /// To find out which transformation is applied to this loop, one must follow
+  /// the @p PrimaryInput.
+  Transform *TransformedBy = nullptr;
+
+  /// If this is the primary transformation input, contains the followups as
+  /// defined by TransformedBy->getNumFollowups(). The @p BasedOn attribute of a
+  /// followup node must point back to this node.
   llvm::SmallVector<Derived *, 4> Followups;
 
-  // Derived *Successor = nullptr;
-  // First successor is the primary (the one that #pragma clang transform is
-  // applied to)
+  /// List of loops that inherits loop properties from this loop after a
+  /// transformations. For instance, if this loop is marked as 'executable in
+  /// parallel', depending on the transformation, successor loops will was well.
+  /// A successor's @p Predecessor field must point back to this node. The first
+  /// successor in the list is the primary successor: A #pragma clang transform
+  /// applied to the output of the transformation will be applied to the primary
+  /// successor.
   llvm::SmallVector<Derived *, 2> Successors;
 
+  /// Input role of this loop as defined by the primary input's transformation.
   int InputRole = -1;
   /// @}
 
 protected:
   TransformedTree(llvm::ArrayRef<Derived *> SubLoops, Derived *BasedOn,
-                  clang::Stmt *Original, int FollowupRole)
+                  clang::Stmt *Original, int FollowupRole, Derived *Predecessor)
       : Subloops(SubLoops.begin(), SubLoops.end()), Original(Original),
-        BasedOn(BasedOn), FollowupRole(FollowupRole) {}
+        BasedOn(BasedOn), FollowupRole(FollowupRole), Predecessor(Predecessor) {
+    assert(!BasedOn == (FollowupRole == -1) &&
+           "Role must be defined if the result of a transformation");
+    assert(!BasedOn == !Predecessor &&
+           "Predecessor must be defined if the result of a transformation");
+    assert(!Original || !BasedOn);
+  }
 
 public:
   ArrayRef<Derived *> getSubLoops() const { return Subloops; }
 
-  std::vector<Derived *> getLatestSubLoops() {
-    std::vector<Derived *> Result;
+  void getLatestSubLoops(SmallVectorImpl<Derived *> &Result) {
     Result.reserve(Subloops.size());
-    for (auto SubL : Subloops) {
-      // TODO: Efficiency
-      auto SubLatest = SubL->getLatestSuccessors();
-      Result.insert(Result.end(), SubLatest.begin(), SubLatest.end());
-    }
-    return Result;
+    for (auto SubL : Subloops)
+      SubL->getLatestSuccessors(Result);
   }
 
   Derived *getPrimaryInput() const { return PrimaryInput; }
@@ -188,8 +211,8 @@ public:
   Stmt *getInheritedOriginal() const {
     if (Original)
       return Original;
-    if (BasedOn)
-      return BasedOn->getInheritedOriginal();
+    if (Predecessor && Predecessor->getSuccessors()[0] == &getDerived())
+      return Predecessor->getInheritedOriginal();
     return nullptr;
   }
 
@@ -203,22 +226,15 @@ public:
 
   ArrayRef<Derived *> getSuccessors() const { return Successors; }
 
-  // TODO: Accept SmallArrayImpl to fill
-  std::vector<Derived *> getLatestSuccessors() {
+  void getLatestSuccessors(SmallVectorImpl<Derived *> &Result) {
     // If the loop is not being consumed, this is the latest successor.
     if (!isTransformationInput()) {
-      std::vector<Derived *> Result;
       Result.push_back(&getDerived());
-      return Result;
-      // return { &getDerived() };
+      return;
     }
 
-    std::vector<Derived *> Result;
-    for (auto Succ : Successors) {
-      auto SuccResult = Succ->getLatestSuccessors();
-      Result.insert(Result.end(), SuccResult.begin(), SuccResult.end());
-    }
-    return Result;
+    for (Derived *Succ : Successors)
+      Succ->getLatestSuccessors(Result);
   }
 
   bool isOriginal() const { return Original; }
@@ -261,22 +277,22 @@ public:
 
 #ifndef NDEBUG
     assert(isTransformationInput() && isPrimaryInput());
-    for (NodeTy *S : Followups) {
-      assert(S->BasedOn == &getDerived());
+    for (NodeTy *F : Followups) {
+      assert(F->BasedOn == &getDerived());
+    }
+    for (NodeTy *S : Successors) {
+      assert(S->Predecessor == &getDerived());
     }
 #endif
   }
 
   void applySuccessors(Derived *PrimaryInput, int InputRole,
-                       llvm::ArrayRef<Derived *> Followups,
                        ArrayRef<Derived *> Successors) {
     assert(!isTransformationInput());
     assert(InputRole > 0);
     assert(llvm::find(Successors, nullptr) == Successors.end());
 
     this->PrimaryInput = PrimaryInput;
-    this->Followups.insert(this->Followups.end(), Followups.begin(),
-                           Followups.end());
     this->Successors.assign(Successors.begin(), Successors.end());
     this->InputRole = InputRole;
 
@@ -495,14 +511,15 @@ private:
         // Full unrolling has no followup-loop.
         MainLoop->applyTransformation(Trans, {}, {});
       } else {
-        NodeTy *All = Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                             LoopUnrollTransform::FollowupAll);
-        NodeTy *Unrolled =
+        NodeTy *All =
             Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollTransform::FollowupUnrolled);
-        NodeTy *Remainder =
-            Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                   LoopUnrollTransform::FollowupRemainder);
+                                   LoopUnrollTransform::FollowupAll, nullptr);
+        NodeTy *Unrolled = Builder.createFollowup(
+            MainLoop->Subloops, MainLoop, LoopUnrollTransform::FollowupUnrolled,
+            MainLoop);
+        NodeTy *Remainder = Builder.createFollowup(
+            MainLoop->Subloops, MainLoop,
+            LoopUnrollTransform::FollowupRemainder, MainLoop);
         Successor = Unrolled;
         inheritLoopAttributes(All, MainLoop, true, All == Successor);
         MainLoop->applyTransformation(Trans, {All, Unrolled, Remainder},
@@ -518,7 +535,8 @@ private:
       // Search for the innermost loop that is being jammed.
       NodeTy *Cur = MainLoop;
       NodeTy *Inner = nullptr;
-      auto LatestInner = Cur->getLatestSubLoops();
+      SmallVector<NodeTy *, 2> LatestInner;
+      Cur->getLatestSubLoops(LatestInner);
       if (LatestInner.size() == 1) {
         Inner = LatestInner[0];
       } else {
@@ -541,26 +559,36 @@ private:
 
       checkStageOrder({MainLoop, Inner}, Trans);
 
+      NodeTy *PrimarySuccessor = nullptr;
       NodeTy *TransformedAll = Builder.createFollowup(
-          {}, nullptr, LoopUnrollAndJamTransform::FollowupAll);
+          {}, MainLoop, LoopUnrollAndJamTransform::FollowupAll, nullptr);
       inheritLoopAttributes(TransformedAll, MainLoop, true, false);
 
-      NodeTy *UnrolledOuter = Builder.createFollowup(
-          {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter);
-      inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
+      if (Trans->isPartial()) {
+        NodeTy *UnrolledOuter = Builder.createFollowup(
+            {Inner}, MainLoop, LoopUnrollAndJamTransform::FollowupOuter,
+            MainLoop);
+        inheritLoopAttributes(UnrolledOuter, MainLoop, false, true);
 
-      NodeTy *TransformedInner = Builder.createFollowup(
-          Inner->Subloops, Inner, LoopUnrollAndJamTransform::FollowupInner);
-      inheritLoopAttributes(TransformedInner, Inner, false, false);
+        NodeTy *TransformedInner = Builder.createFollowup(
+            Inner->Subloops, MainLoop, LoopUnrollAndJamTransform::FollowupInner,
+            Inner);
+        inheritLoopAttributes(TransformedInner, Inner, false, false);
 
-      MainLoop->applyTransformation(
-          Trans, {TransformedAll, UnrolledOuter, TransformedInner},
-          UnrolledOuter);
-      Inner->applySuccessors(MainLoop, LoopUnrollAndJamTransform::InputInner,
-                             {TransformedInner}, TransformedInner);
+        MainLoop->applyTransformation(
+            Trans, {TransformedAll, UnrolledOuter, TransformedInner},
+            UnrolledOuter);
+        Inner->applySuccessors(MainLoop, LoopUnrollAndJamTransform::InputInner,
+                               TransformedInner);
+        PrimarySuccessor = UnrolledOuter;
+      } else {
+        MainLoop->applyTransformation(Trans, {TransformedAll}, {});
+        Inner->applySuccessors(MainLoop, LoopUnrollAndJamTransform::InputInner,
+                               {});
+      }
 
       Builder.applyUnrollAndJam(Trans, MainLoop, Inner);
-      return UnrolledOuter;
+      return PrimarySuccessor;
     }
 
     NodeTy *applyDistribution(LoopDistributionTransform *Trans,
@@ -568,38 +596,35 @@ private:
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *All = Builder.createFollowup(
-          MainLoop->Subloops, MainLoop, LoopDistributionTransform::FollowupAll);
-      NodeTy *PrimarySuccessor;
+          MainLoop->Subloops, MainLoop, LoopDistributionTransform::FollowupAll,
+          nullptr);
 
       inheritLoopAttributes(All, MainLoop, true, false);
       MainLoop->applyTransformation(Trans, {All}, {});
-      PrimarySuccessor = nullptr;
 
       Builder.applyDistribution(Trans, MainLoop);
-      return PrimarySuccessor;
+      return nullptr;
     }
 
     NodeTy *applyVectorize(LoopVectorizationTransform *Trans,
                            NodeTy *MainLoop) {
       checkStageOrder({MainLoop}, Trans);
 
-      NodeTy *All =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopVectorizationTransform::FollowupAll);
+      NodeTy *All = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop, LoopVectorizationTransform::FollowupAll,
+          nullptr);
       NodeTy *Vectorized = Builder.createFollowup(
           MainLoop->Subloops, MainLoop,
-          LoopVectorizationTransform::FollowupVectorized);
-      NodeTy *Epilogue =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopVectorizationTransform::FollowupEpilogue);
+          LoopVectorizationTransform::FollowupVectorized, MainLoop);
+      NodeTy *Epilogue = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop,
+          LoopVectorizationTransform::FollowupEpilogue, MainLoop);
 
-      NodeTy *Successor = Vectorized;
-
-      inheritLoopAttributes(All, MainLoop, true, All == Successor);
+      inheritLoopAttributes(All, MainLoop, true, false);
       MainLoop->applyTransformation(Trans, {All, Vectorized, Epilogue},
-                                    Successor);
+                                    Vectorized);
       Builder.applyVectorization(Trans, MainLoop);
-      return Successor;
+      return Vectorized;
     }
 
     NodeTy *applyInterleave(LoopInterleavingTransform *Trans,
@@ -607,30 +632,31 @@ private:
       checkStageOrder({MainLoop}, Trans);
 
       NodeTy *All = Builder.createFollowup(
-          MainLoop->Subloops, MainLoop, LoopInterleavingTransform::FollowupAll);
-      NodeTy *Vectorized = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop, LoopInterleavingTransform::FollowupAll,
+          nullptr);
+      NodeTy *Interleaved = Builder.createFollowup(
           MainLoop->Subloops, MainLoop,
-          LoopInterleavingTransform::FollowupInterleaved);
-      NodeTy *Epilogue =
-          Builder.createFollowup(MainLoop->Subloops, MainLoop,
-                                 LoopInterleavingTransform::FollowupEpilogue);
+          LoopInterleavingTransform::FollowupInterleaved, MainLoop);
+      NodeTy *Epilogue = Builder.createFollowup(
+          MainLoop->Subloops, MainLoop,
+          LoopInterleavingTransform::FollowupEpilogue, MainLoop);
 
-      NodeTy *Successor = Vectorized;
-
-      inheritLoopAttributes(All, MainLoop, true, All == Successor);
-      MainLoop->applyTransformation(Trans, {All, Vectorized, Epilogue},
-                                    Successor);
+      inheritLoopAttributes(All, MainLoop, true, false);
+      MainLoop->applyTransformation(Trans, {All, Interleaved, Epilogue},
+                                    Interleaved);
       Builder.applyInterleaving(Trans, MainLoop);
-      return Successor;
+      return Interleaved;
     }
 
     void traverseSubloops(NodeTy *L) {
       // TODO: Instead of recursively traversing the entire subtree, in case we
-      // are re-traversing after a transformation, only traverse followups of
-      // that transformation.
+      // are re-traversing after a transformation, only traverse the followups
+      // of that transformation.
+      SmallVector<NodeTy *, 8> Latest;
       for (NodeTy *SubL : L->getSubLoops()) {
-        auto Latest = SubL->getLatestSuccessors();
-        for (auto SubL : Latest)
+        Latest.clear();
+        SubL->getLatestSuccessors(Latest);
+        for (NodeTy *SubL : Latest)
           traverse(SubL);
       }
     }
@@ -638,8 +664,6 @@ private:
     bool applyTransform(NodeTy *L) {
       if (L->isRoot())
         return false;
-      // assert(L == L->getLatestSuccessor() && "Loop must not have been
-      // consumed by another transformation");
 
       // Look for transformations that apply syntactically to this loop.
       Stmt *OrigStmt = L->getInheritedOriginal();
@@ -662,11 +686,11 @@ private:
       auto Chained = TransformByFollowup.find(SourceTrans);
       if (Chained == TransformByFollowup.end())
         return false;
-      auto LIdx = L->getFollowupRole();
+      int LIdx = L->getFollowupRole();
       auto &List = Chained->second;
       for (auto It = List.begin(), E = List.end(); It != E; ++It) {
         NodeTransform *Item = *It;
-        auto FollowupIdx = Item->Inputs[0].getFollowupIdx();
+        int FollowupIdx = Item->Inputs[0].getFollowupIdx();
         if (LIdx != FollowupIdx)
           continue;
 
@@ -679,8 +703,9 @@ private:
     }
 
     void traverse(NodeTy *N) {
-      auto Latest = N->getLatestSuccessors();
-      for (auto L : Latest) {
+      SmallVector<NodeTy *, 8> Latest;
+      N->getLatestSuccessors(Latest);
+      for (NodeTy *L : Latest) {
         traverseSubloops(L);
         if (applyTransform(L)) {
           // Apply transformations on nested followups.
@@ -698,7 +723,7 @@ protected:
         AllTransforms(AllTransforms) {}
 
   NodeTy *createRoot(llvm::ArrayRef<NodeTy *> SubLoops) {
-    auto *Result = new NodeTy(SubLoops, nullptr, nullptr, -1);
+    auto *Result = new NodeTy(SubLoops, nullptr, nullptr, -1, nullptr);
     AllNodes.push_back(Result);
     Result->IsRoot = true;
     return Result;
@@ -707,14 +732,15 @@ protected:
   NodeTy *createPhysical(llvm::ArrayRef<NodeTy *> SubLoops,
                          clang::Stmt *Original) {
     assert(Original);
-    auto *Result = new NodeTy(SubLoops, nullptr, Original, -1);
+    auto *Result = new NodeTy(SubLoops, nullptr, Original, -1, nullptr);
     AllNodes.push_back(Result);
     return Result;
   }
 
   NodeTy *createFollowup(llvm::ArrayRef<NodeTy *> SubLoops, NodeTy *BasedOn,
-                         int FollowupRole) {
-    auto *Result = new NodeTy(SubLoops, BasedOn, nullptr, FollowupRole);
+                         int FollowupRole, NodeTy *Predecessor) {
+    auto *Result =
+        new NodeTy(SubLoops, BasedOn, nullptr, FollowupRole, Predecessor);
     AllNodes.push_back(Result);
     return Result;
   }
