@@ -2029,13 +2029,12 @@ void ASTStmtReader::VisitTransformExecutableDirective(
   // The binary layout up to here is also assumed by
   // ASTReader::ReadStmtFromStream and must be kept in-sync.
 
-  D->setRange(ReadSourceRange());
+  D->setRange(readSourceRange());
 
   SmallVector<TransformClause *, 8> Clauses;
   Clauses.reserve(NumClauses);
-  TransformClauseReader ClauseReader(Record);
   for (unsigned i = 0; i < NumClauses; ++i)
-    Clauses.push_back(ClauseReader.readClause());
+    Clauses.push_back(Record.readTransformClause());
   D->setClauses(Clauses);
 
   D->setAssociated(Record.readSubStmt());

@@ -811,6 +811,7 @@ void StmtProfiler::VisitTransformExecutableDirective(
   for (TransformClause *C : S->clauses()) {
     if (!C)
       continue;
+    ID.AddInteger(C->getKind());
     P.Visit(C);
   }
 }

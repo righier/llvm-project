@@ -770,24 +770,6 @@ public:
   bool hasEmittedPCH() const { return Buffer->IsComplete; }
 };
 
-};
-
-class TransformClauseWriter
-    : public ConstTransformClauseVisitor<TransformClauseWriter> {
-  ASTRecordWriter &Record;
-
-public:
-  TransformClauseWriter(ASTRecordWriter &Record) : Record(Record) {}
-
-  void writeClause(const TransformClause *C);
-
-#define TRANSFORM_CLAUSE(Keyword, Name)                                        \
-  void Visit##Name##Clause(const Name##Clause *);
-#include "clang/AST/TransformClauseKinds.def"
-
-  void VisitTransformClause(const TransformClause *C) {
-    llvm_unreachable("Serialization of this clause not implemented");
-  }
 } // namespace clang
 
 #endif // LLVM_CLANG_SERIALIZATION_ASTWRITER_H
