@@ -1,4 +1,4 @@
-//===-- ClangUtil.cpp -------------------------------------------*- C++ -*-===//
+//===-- ClangUtil.cpp -----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,13 +9,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Symbol/ClangUtil.h"
-#include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Symbol/TypeSystemClang.h"
 
 using namespace clang;
 using namespace lldb_private;
 
 bool ClangUtil::IsClangType(const CompilerType &ct) {
-  if (llvm::dyn_cast_or_null<ClangASTContext>(ct.GetTypeSystem()) == nullptr)
+  // Invalid types are never Clang types.
+  if (!ct)
+    return false;
+
+  if (llvm::dyn_cast_or_null<TypeSystemClang>(ct.GetTypeSystem()) == nullptr)
     return false;
 
   if (!ct.GetOpaqueQualType())
@@ -54,4 +58,25 @@ clang::TagDecl *ClangUtil::GetAsTagDecl(const CompilerType &type) {
     return nullptr;
 
   return qual_type->getAsTagDecl();
+}
+
+std::string ClangUtil::DumpDecl(const clang::Decl *d) {
+  if (!d)
+    return "nullptr";
+
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  bool deserialize = false;
+  d->dump(stream, deserialize);
+
+  stream.flush();
+  return result;
+}
+
+std::string ClangUtil::ToString(const clang::Type *t) {
+  return clang::QualType(t, 0).getAsString();
+}
+
+std::string ClangUtil::ToString(const CompilerType &c) {
+  return ClangUtil::GetQualType(c).getAsString();
 }

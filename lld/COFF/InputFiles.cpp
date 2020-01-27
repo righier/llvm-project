@@ -13,6 +13,7 @@
 #include "Driver.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
+#include "lld/Common/DWARF.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
 #include "llvm-c/lto.h"
@@ -24,6 +25,7 @@
 #include "llvm/DebugInfo/CodeView/SymbolDeserializer.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
 #include "llvm/DebugInfo/CodeView/TypeDeserializer.h"
+#include "llvm/LTO/LTO.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/Casting.h"
@@ -122,10 +124,7 @@ void ArchiveFile::addMember(const Archive::Symbol &sym) {
 std::vector<MemoryBufferRef> getArchiveMembers(Archive *file) {
   std::vector<MemoryBufferRef> v;
   Error err = Error::success();
-  for (const ErrorOr<Archive::Child> &cOrErr : file->children(err)) {
-    Archive::Child c =
-        CHECK(cOrErr,
-              file->getFileName() + ": could not get the child of the archive");
+  for (const Archive::Child &c : file->children(err)) {
     MemoryBufferRef mbref =
         CHECK(c.getMemoryBufferRef(),
               file->getFileName() +
@@ -501,6 +500,17 @@ void ObjFile::handleComdatSelection(COFFSymbolRef sym, COMDATType &selection,
     leaderSelection = selection = IMAGE_COMDAT_SELECT_LARGEST;
   }
 
+  // GCCs __declspec(selectany) doesn't actually pick "any" but "same size as".
+  // Clang on the other hand picks "any". To be able to link two object files
+  // with a __declspec(selectany) declaration, one compiled with gcc and the
+  // other with clang, we merge them as proper "same size as"
+  if (config->mingw && ((selection == IMAGE_COMDAT_SELECT_ANY &&
+                         leaderSelection == IMAGE_COMDAT_SELECT_SAME_SIZE) ||
+                        (selection == IMAGE_COMDAT_SELECT_SAME_SIZE &&
+                         leaderSelection == IMAGE_COMDAT_SELECT_ANY))) {
+    leaderSelection = selection = IMAGE_COMDAT_SELECT_SAME_SIZE;
+  }
+
   // Other than that, comdat selections must match.  This is a bit more
   // strict than link.exe which allows merging "any" and "largest" if "any"
   // is the first symbol the linker sees, and it allows merging "largest"
@@ -765,7 +775,8 @@ void ObjFile::initializeDependencies() {
   if (firstType == types.end())
     return;
 
-  debugTypes.emplace(types);
+  // Remember the .debug$T or .debug$P section.
+  debugTypes = data;
 
   if (isPCH) {
     debugTypesObj = makePrecompSource(this);
@@ -877,6 +888,10 @@ void ImportFile::parse() {
 }
 
 BitcodeFile::BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
+                         uint64_t offsetInArchive)
+    : BitcodeFile(mb, archiveName, offsetInArchive, {}) {}
+
+BitcodeFile::BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
                          uint64_t offsetInArchive,
                          std::vector<Symbol *> &&symbols)
     : InputFile(BitcodeKind, mb), symbols(std::move(symbols)) {
@@ -897,6 +912,8 @@ BitcodeFile::BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
 
   obj = check(lto::InputFile::create(mbref));
 }
+
+BitcodeFile::~BitcodeFile() = default;
 
 void BitcodeFile::parse() {
   std::vector<std::pair<Symbol *, bool>> comdat(obj->getComdatTable().size());

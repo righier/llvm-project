@@ -271,15 +271,6 @@ public:
   /// PassManagerBuilder::addExtension.
   virtual void adjustPassManager(PassManagerBuilder &) {}
 
-  /// These enums are meant to be passed into addPassesToEmitFile to indicate
-  /// what type of file to emit, and returned by it to indicate what type of
-  /// file could actually be made.
-  enum CodeGenFileType {
-    CGFT_AssemblyFile,
-    CGFT_ObjectFile,
-    CGFT_Null         // Do not emit any output.
-  };
-
   /// Add passes to the specified pass manager to get the specified file
   /// emitted.  Typically this will involve several steps of code generation.
   /// This method should return true if emission of this file type is not
@@ -370,11 +361,13 @@ public:
                      raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
                      MCContext &Context);
 
-  /// True if the target uses physical regs at Prolog/Epilog insertion
-  /// time. If true (most machines), all vregs must be allocated before
-  /// PEI. If false (virtual-register machines), then callee-save register
-  /// spilling and scavenging are not needed or used.
-  virtual bool usesPhysRegsForPEI() const { return true; }
+  /// True if the target uses physical regs (as nearly all targets do). False
+  /// for stack machines such as WebAssembly and other virtual-register
+  /// machines. If true, all vregs must be allocated before PEI. If false, then
+  /// callee-save register spilling and scavenging are not needed or used. If
+  /// false, implicitly defined registers will still be assumed to be physical
+  /// registers, except that variadic defs will be allocated vregs.
+  virtual bool usesPhysRegsForValues() const { return true; }
 
   /// True if the target wants to use interprocedural register allocation by
   /// default. The -enable-ipra flag can be used to override this.

@@ -83,6 +83,8 @@ uint64_t getNewShfFlags(SectionFlag AllFlags) {
     NewFlags |= ELF::SHF_MERGE;
   if (AllFlags & SectionFlag::SecStrings)
     NewFlags |= ELF::SHF_STRINGS;
+  if (AllFlags & SectionFlag::SecExclude)
+    NewFlags |= ELF::SHF_EXCLUDE;
   return NewFlags;
 }
 
@@ -90,10 +92,11 @@ static uint64_t getSectionFlagsPreserveMask(uint64_t OldFlags,
                                             uint64_t NewFlags) {
   // Preserve some flags which should not be dropped when setting flags.
   // Also, preserve anything OS/processor dependant.
-  const uint64_t PreserveMask = ELF::SHF_COMPRESSED | ELF::SHF_EXCLUDE |
-                                ELF::SHF_GROUP | ELF::SHF_LINK_ORDER |
-                                ELF::SHF_MASKOS | ELF::SHF_MASKPROC |
-                                ELF::SHF_TLS | ELF::SHF_INFO_LINK;
+  const uint64_t PreserveMask =
+      (ELF::SHF_COMPRESSED | ELF::SHF_GROUP | ELF::SHF_LINK_ORDER |
+       ELF::SHF_MASKOS | ELF::SHF_MASKPROC | ELF::SHF_TLS |
+       ELF::SHF_INFO_LINK) &
+      ~ELF::SHF_EXCLUDE;
   return (OldFlags & PreserveMask) | (NewFlags & ~PreserveMask);
 }
 
@@ -136,17 +139,17 @@ static std::unique_ptr<Writer> createELFWriter(const CopyConfig &Config,
   // Depending on the initial ELFT and OutputFormat we need a different Writer.
   switch (OutputElfType) {
   case ELFT_ELF32LE:
-    return std::make_unique<ELFWriter<ELF32LE>>(Obj, Buf,
-                                                 !Config.StripSections);
+    return std::make_unique<ELFWriter<ELF32LE>>(Obj, Buf, !Config.StripSections,
+                                                Config.OnlyKeepDebug);
   case ELFT_ELF64LE:
-    return std::make_unique<ELFWriter<ELF64LE>>(Obj, Buf,
-                                                 !Config.StripSections);
+    return std::make_unique<ELFWriter<ELF64LE>>(Obj, Buf, !Config.StripSections,
+                                                Config.OnlyKeepDebug);
   case ELFT_ELF32BE:
-    return std::make_unique<ELFWriter<ELF32BE>>(Obj, Buf,
-                                                 !Config.StripSections);
+    return std::make_unique<ELFWriter<ELF32BE>>(Obj, Buf, !Config.StripSections,
+                                                Config.OnlyKeepDebug);
   case ELFT_ELF64BE:
-    return std::make_unique<ELFWriter<ELF64BE>>(Obj, Buf,
-                                                 !Config.StripSections);
+    return std::make_unique<ELFWriter<ELF64BE>>(Obj, Buf, !Config.StripSections,
+                                                Config.OnlyKeepDebug);
   }
   llvm_unreachable("Invalid output format");
 }
@@ -175,7 +178,7 @@ findBuildID(const CopyConfig &Config, const object::ELFFile<ELFT> &In) {
     if (Phdr.p_type != PT_NOTE)
       continue;
     Error Err = Error::success();
-    for (const auto &Note : In.notes(Phdr, Err))
+    for (auto Note : In.notes(Phdr, Err))
       if (Note.getType() == NT_GNU_BUILD_ID && Note.getName() == ELF_NOTE_GNU)
         return Note.getDesc();
     if (Err)
@@ -693,6 +696,11 @@ static Error handleArgs(const CopyConfig &Config, Object &Obj,
       }
     }
   }
+
+  if (Config.OnlyKeepDebug)
+    for (auto &Sec : Obj.sections())
+      if (Sec.Flags & SHF_ALLOC && Sec.Type != SHT_NOTE)
+        Sec.Type = SHT_NOBITS;
 
   for (const auto &Flag : Config.AddSection) {
     std::pair<StringRef, StringRef> SecPair = Flag.split("=");

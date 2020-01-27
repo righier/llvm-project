@@ -83,6 +83,10 @@ let usesCustomInserter = 1 in {
   def ATOMIC_LOAD_NAND_I64 : Atomic2Ops<atomic_load_nand_64, GPR64>;
   def ATOMIC_SWAP_I64      : Atomic2Ops<atomic_swap_64, GPR64>;
   def ATOMIC_CMP_SWAP_I64  : AtomicCmpSwap<atomic_cmp_swap_64, GPR64>;
+  def ATOMIC_LOAD_MIN_I64  : Atomic2Ops<atomic_load_min_64, GPR64>;
+  def ATOMIC_LOAD_MAX_I64  : Atomic2Ops<atomic_load_max_64, GPR64>;
+  def ATOMIC_LOAD_UMIN_I64 : Atomic2Ops<atomic_load_umin_64, GPR64>;
+  def ATOMIC_LOAD_UMAX_I64 : Atomic2Ops<atomic_load_umax_64, GPR64>;
 }
 
 def ATOMIC_LOAD_ADD_I64_POSTRA  : Atomic2OpsPostRA<GPR64>;
@@ -95,6 +99,11 @@ def ATOMIC_LOAD_NAND_I64_POSTRA : Atomic2OpsPostRA<GPR64>;
 def ATOMIC_SWAP_I64_POSTRA      : Atomic2OpsPostRA<GPR64>;
 
 def ATOMIC_CMP_SWAP_I64_POSTRA  : AtomicCmpSwapPostRA<GPR64>;
+
+def ATOMIC_LOAD_MIN_I64_POSTRA  : Atomic2OpsPostRA<GPR64>;
+def ATOMIC_LOAD_MAX_I64_POSTRA  : Atomic2OpsPostRA<GPR64>;
+def ATOMIC_LOAD_UMIN_I64_POSTRA : Atomic2OpsPostRA<GPR64>;
+def ATOMIC_LOAD_UMAX_I64_POSTRA : Atomic2OpsPostRA<GPR64>;
 
 /// Pseudo instructions for loading and storing accumulator registers.
 let isPseudo = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
@@ -584,6 +593,24 @@ def DMFC2_OCTEON : MFC2OP<"dmfc2", GPR64Opnd, II_DMFC2>, MFC2OP_FM<0x12, 1>,
                    ASE_CNMIPS;
 def DMTC2_OCTEON : MFC2OP<"dmtc2", GPR64Opnd, II_DMTC2>, MFC2OP_FM<0x12, 5>,
                    ASE_CNMIPS;
+}
+
+// Cavium Octeon+ cnMIPS instructions
+let DecoderNamespace = "CnMipsP",
+    // FIXME: The lack of HasStdEnc is probably a bug
+    EncodingPredicates = []<Predicate> in {
+
+class Saa<string opstr>:
+  InstSE<(outs), (ins GPR64Opnd:$rt, GPR64Opnd:$rs),
+         !strconcat(opstr, "\t$rt, (${rs})"), [], NoItinerary, FrmR, opstr>;
+
+def SAA  : Saa<"saa">,  SAA_FM<0x18>, ASE_CNMIPSP;
+def SAAD : Saa<"saad">, SAA_FM<0x19>, ASE_CNMIPSP;
+
+def SaaAddr  : MipsAsmPseudoInst<(outs), (ins GPR64Opnd:$rt, mem:$addr),
+                                 "saa\t$rt, $addr">, ASE_CNMIPSP;
+def SaadAddr : MipsAsmPseudoInst<(outs), (ins GPR64Opnd:$rt, mem:$addr),
+                                 "saad\t$rt, $addr">, ASE_CNMIPSP;
 }
 
 }

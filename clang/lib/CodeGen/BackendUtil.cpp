@@ -52,6 +52,7 @@
 #include "llvm/Transforms/Coroutines.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
+#include "llvm/Transforms/IPO/LowerTypeTests.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/ThinLTOBitcodeWriter.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
@@ -75,6 +76,10 @@
 #include <memory>
 using namespace clang;
 using namespace llvm;
+
+#define HANDLE_EXTENSION(Ext)                                                  \
+  llvm::PassPluginLibraryInfo get##Ext##PluginInfo();
+#include "llvm/Support/Extension.def"
 
 namespace {
 
@@ -340,15 +345,6 @@ static void addDataFlowSanitizerPass(const PassManagerBuilder &Builder,
 static TargetLibraryInfoImpl *createTLII(llvm::Triple &TargetTriple,
                                          const CodeGenOptions &CodeGenOpts) {
   TargetLibraryInfoImpl *TLII = new TargetLibraryInfoImpl(TargetTriple);
-  if (!CodeGenOpts.SimplifyLibCalls)
-    TLII->disableAllFunctions();
-  else {
-    // Disable individual libc/libm calls in TargetLibraryInfo.
-    LibFunc F;
-    for (auto &FuncName : CodeGenOpts.getNoBuiltinFuncs())
-      if (TLII->getLibFunc(FuncName, F))
-        TLII->setUnavailable(F);
-  }
 
   switch (CodeGenOpts.getVecLib()) {
   case CodeGenOptions::Accelerate:
@@ -408,14 +404,14 @@ getCodeModel(const CodeGenOptions &CodeGenOpts) {
   return static_cast<llvm::CodeModel::Model>(CodeModel);
 }
 
-static TargetMachine::CodeGenFileType getCodeGenFileType(BackendAction Action) {
+static CodeGenFileType getCodeGenFileType(BackendAction Action) {
   if (Action == Backend_EmitObj)
-    return TargetMachine::CGFT_ObjectFile;
+    return CGFT_ObjectFile;
   else if (Action == Backend_EmitMCNull)
-    return TargetMachine::CGFT_Null;
+    return CGFT_Null;
   else {
     assert(Action == Backend_EmitAssembly && "Invalid action!");
-    return TargetMachine::CGFT_AssemblyFile;
+    return CGFT_AssemblyFile;
   }
 }
 
@@ -508,6 +504,7 @@ static void initTargetOptions(llvm::TargetOptions &Options,
   Options.FunctionSections = CodeGenOpts.FunctionSections;
   Options.DataSections = CodeGenOpts.DataSections;
   Options.UniqueSectionNames = CodeGenOpts.UniqueSectionNames;
+  Options.TLSSize = CodeGenOpts.TLSSize;
   Options.EmulatedTLS = CodeGenOpts.EmulatedTLS;
   Options.ExplicitEmulatedTLS = CodeGenOpts.ExplicitEmulatedTLS;
   Options.DebuggerTuning = CodeGenOpts.getDebuggerTuning();
@@ -523,7 +520,6 @@ static void initTargetOptions(llvm::TargetOptions &Options,
   Options.MCOptions.MCNoExecStack = CodeGenOpts.NoExecStack;
   Options.MCOptions.MCIncrementalLinkerCompatible =
       CodeGenOpts.IncrementalLinkerCompatible;
-  Options.MCOptions.MCPIECopyRelocations = CodeGenOpts.PIECopyRelocations;
   Options.MCOptions.MCFatalWarnings = CodeGenOpts.FatalWarnings;
   Options.MCOptions.MCNoWarn = CodeGenOpts.NoWarn;
   Options.MCOptions.AsmVerbose = CodeGenOpts.AsmVerbose;
@@ -586,6 +582,16 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   Triple TargetTriple(TheModule->getTargetTriple());
   std::unique_ptr<TargetLibraryInfoImpl> TLII(
       createTLII(TargetTriple, CodeGenOpts));
+
+  // If we reached here with a non-empty index file name, then the index file
+  // was empty and we are not performing ThinLTO backend compilation (used in
+  // testing in a distributed build environment). Drop any the type test
+  // assume sequences inserted for whole program vtables so that codegen doesn't
+  // complain.
+  if (!CodeGenOpts.ThinLTOIndexFile.empty())
+    MPM.add(createLowerTypeTestsPass(/*ExportSummary=*/nullptr,
+                                     /*ImportSummary=*/nullptr,
+                                     /*DropTypeTests=*/true));
 
   PassManagerBuilderWrapper PMBuilder(TargetTriple, CodeGenOpts, LangOpts);
 
@@ -822,7 +828,7 @@ bool EmitAssemblyHelper::AddEmitPasses(legacy::PassManager &CodeGenPasses,
 
   // Normal mode, emit a .s or .o file by running the code generator. Note,
   // this also adds codegenerator level optimization passes.
-  TargetMachine::CodeGenFileType CGFT = getCodeGenFileType(Action);
+  CodeGenFileType CGFT = getCodeGenFileType(Action);
 
   // Add ObjC ARC final-cleanup optimizations. This is done as part of the
   // "codegen" passes so that it isn't run multiple times when there is
@@ -930,7 +936,7 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
 
   {
     PrettyStackTraceString CrashInfo("Per-function optimization");
-    llvm::TimeTraceScope TimeScope("PerFunctionPasses", StringRef(""));
+    llvm::TimeTraceScope TimeScope("PerFunctionPasses");
 
     PerFunctionPasses.doInitialization();
     for (Function &F : *TheModule)
@@ -941,13 +947,13 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
 
   {
     PrettyStackTraceString CrashInfo("Per-module optimization passes");
-    llvm::TimeTraceScope TimeScope("PerModulePasses", StringRef(""));
+    llvm::TimeTraceScope TimeScope("PerModulePasses");
     PerModulePasses.run(*TheModule);
   }
 
   {
     PrettyStackTraceString CrashInfo("Code generation");
-    llvm::TimeTraceScope TimeScope("CodeGenPasses", StringRef(""));
+    llvm::TimeTraceScope TimeScope("CodeGenPasses");
     CodeGenPasses.run(*TheModule);
   }
 
@@ -963,7 +969,7 @@ static PassBuilder::OptimizationLevel mapToLevel(const CodeGenOptions &Opts) {
     llvm_unreachable("Invalid optimization level!");
 
   case 1:
-    return PassBuilder::O1;
+    return PassBuilder::OptimizationLevel::O1;
 
   case 2:
     switch (Opts.OptimizeSize) {
@@ -971,17 +977,17 @@ static PassBuilder::OptimizationLevel mapToLevel(const CodeGenOptions &Opts) {
       llvm_unreachable("Invalid optimization level for size!");
 
     case 0:
-      return PassBuilder::O2;
+      return PassBuilder::OptimizationLevel::O2;
 
     case 1:
-      return PassBuilder::Os;
+      return PassBuilder::OptimizationLevel::Os;
 
     case 2:
-      return PassBuilder::Oz;
+      return PassBuilder::OptimizationLevel::Oz;
     }
 
   case 3:
-    return PassBuilder::O3;
+    return PassBuilder::OptimizationLevel::O3;
   }
 }
 
@@ -1120,6 +1126,9 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
           << PluginFN << toString(PassPlugin.takeError());
     }
   }
+#define HANDLE_EXTENSION(Ext)                                                  \
+  get##Ext##PluginInfo().RegisterPassBuilderCallbacks(PB);
+#include "llvm/Support/Extension.def"
 
   LoopAnalysisManager LAM(CodeGenOpts.DebugPassManager);
   FunctionAnalysisManager FAM(CodeGenOpts.DebugPassManager);
@@ -1150,6 +1159,15 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
     bool IsLTO = CodeGenOpts.PrepareForLTO;
 
     if (CodeGenOpts.OptimizationLevel == 0) {
+      // If we reached here with a non-empty index file name, then the index
+      // file was empty and we are not performing ThinLTO backend compilation
+      // (used in testing in a distributed build environment). Drop any the type
+      // test assume sequences inserted for whole program vtables so that
+      // codegen doesn't complain.
+      if (!CodeGenOpts.ThinLTOIndexFile.empty())
+        MPM.addPass(LowerTypeTestsPass(/*ExportSummary=*/nullptr,
+                                       /*ImportSummary=*/nullptr,
+                                       /*DropTypeTests=*/true));
       if (Optional<GCOVOptions> Options = getGCOVOptions(CodeGenOpts))
         MPM.addPass(GCOVProfilerPass(*Options));
       if (Optional<InstrProfOptions> Options =
@@ -1185,6 +1203,18 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
       // Map our optimization levels into one of the distinct levels used to
       // configure the pipeline.
       PassBuilder::OptimizationLevel Level = mapToLevel(CodeGenOpts);
+
+      // If we reached here with a non-empty index file name, then the index
+      // file was empty and we are not performing ThinLTO backend compilation
+      // (used in testing in a distributed build environment). Drop any the type
+      // test assume sequences inserted for whole program vtables so that
+      // codegen doesn't complain.
+      if (!CodeGenOpts.ThinLTOIndexFile.empty())
+        PB.registerPipelineStartEPCallback([](ModulePassManager &MPM) {
+          MPM.addPass(LowerTypeTestsPass(/*ExportSummary=*/nullptr,
+                                         /*ImportSummary=*/nullptr,
+                                         /*DropTypeTests=*/true));
+        });
 
       PB.registerPipelineStartEPCallback([](ModulePassManager &MPM) {
         MPM.addPass(createModuleToFunctionPassAdaptor(
@@ -1474,6 +1504,12 @@ static void runThinLTOBackend(ModuleSummaryIndex *CombinedIndex, Module *M,
   Conf.OptLevel = CGOpts.OptimizationLevel;
   initTargetOptions(Conf.Options, CGOpts, TOpts, LOpts, HeaderOpts);
   Conf.SampleProfile = std::move(SampleProfile);
+  Conf.PTO.LoopUnrolling = CGOpts.UnrollLoops;
+  // For historical reasons, loop interleaving is set to mirror setting for loop
+  // unrolling.
+  Conf.PTO.LoopInterleaving = CGOpts.UnrollLoops;
+  Conf.PTO.LoopVectorization = CGOpts.VectorizeLoop;
+  Conf.PTO.SLPVectorization = CGOpts.VectorizeSLP;
 
   // Context sensitive profile.
   if (CGOpts.hasProfileCSIRInstr()) {
@@ -1533,7 +1569,7 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
                               BackendAction Action,
                               std::unique_ptr<raw_pwrite_stream> OS) {
 
-  llvm::TimeTraceScope TimeScope("Backend", StringRef(""));
+  llvm::TimeTraceScope TimeScope("Backend");
 
   std::unique_ptr<llvm::Module> EmptyModule;
   if (!CGOpts.ThinLTOIndexFile.empty()) {
@@ -1592,129 +1628,14 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
   }
 }
 
-static const char* getSectionNameForBitcode(const Triple &T) {
-  switch (T.getObjectFormat()) {
-  case Triple::MachO:
-    return "__LLVM,__bitcode";
-  case Triple::COFF:
-  case Triple::ELF:
-  case Triple::Wasm:
-  case Triple::UnknownObjectFormat:
-    return ".llvmbc";
-  case Triple::XCOFF:
-    llvm_unreachable("XCOFF is not yet implemented");
-    break;
-  }
-  llvm_unreachable("Unimplemented ObjectFormatType");
-}
-
-static const char* getSectionNameForCommandline(const Triple &T) {
-  switch (T.getObjectFormat()) {
-  case Triple::MachO:
-    return "__LLVM,__cmdline";
-  case Triple::COFF:
-  case Triple::ELF:
-  case Triple::Wasm:
-  case Triple::UnknownObjectFormat:
-    return ".llvmcmd";
-  case Triple::XCOFF:
-    llvm_unreachable("XCOFF is not yet implemented");
-    break;
-  }
-  llvm_unreachable("Unimplemented ObjectFormatType");
-}
-
 // With -fembed-bitcode, save a copy of the llvm IR as data in the
 // __LLVM,__bitcode section.
 void clang::EmbedBitcode(llvm::Module *M, const CodeGenOptions &CGOpts,
                          llvm::MemoryBufferRef Buf) {
   if (CGOpts.getEmbedBitcode() == CodeGenOptions::Embed_Off)
     return;
-
-  // Save llvm.compiler.used and remote it.
-  SmallVector<Constant*, 2> UsedArray;
-  SmallPtrSet<GlobalValue*, 4> UsedGlobals;
-  Type *UsedElementType = Type::getInt8Ty(M->getContext())->getPointerTo(0);
-  GlobalVariable *Used = collectUsedGlobalVariables(*M, UsedGlobals, true);
-  for (auto *GV : UsedGlobals) {
-    if (GV->getName() != "llvm.embedded.module" &&
-        GV->getName() != "llvm.cmdline")
-      UsedArray.push_back(
-          ConstantExpr::getPointerBitCastOrAddrSpaceCast(GV, UsedElementType));
-  }
-  if (Used)
-    Used->eraseFromParent();
-
-  // Embed the bitcode for the llvm module.
-  std::string Data;
-  ArrayRef<uint8_t> ModuleData;
-  Triple T(M->getTargetTriple());
-  // Create a constant that contains the bitcode.
-  // In case of embedding a marker, ignore the input Buf and use the empty
-  // ArrayRef. It is also legal to create a bitcode marker even Buf is empty.
-  if (CGOpts.getEmbedBitcode() != CodeGenOptions::Embed_Marker) {
-    if (!isBitcode((const unsigned char *)Buf.getBufferStart(),
-                   (const unsigned char *)Buf.getBufferEnd())) {
-      // If the input is LLVM Assembly, bitcode is produced by serializing
-      // the module. Use-lists order need to be perserved in this case.
-      llvm::raw_string_ostream OS(Data);
-      llvm::WriteBitcodeToFile(*M, OS, /* ShouldPreserveUseListOrder */ true);
-      ModuleData =
-          ArrayRef<uint8_t>((const uint8_t *)OS.str().data(), OS.str().size());
-    } else
-      // If the input is LLVM bitcode, write the input byte stream directly.
-      ModuleData = ArrayRef<uint8_t>((const uint8_t *)Buf.getBufferStart(),
-                                     Buf.getBufferSize());
-  }
-  llvm::Constant *ModuleConstant =
-      llvm::ConstantDataArray::get(M->getContext(), ModuleData);
-  llvm::GlobalVariable *GV = new llvm::GlobalVariable(
-      *M, ModuleConstant->getType(), true, llvm::GlobalValue::PrivateLinkage,
-      ModuleConstant);
-  GV->setSection(getSectionNameForBitcode(T));
-  UsedArray.push_back(
-      ConstantExpr::getPointerBitCastOrAddrSpaceCast(GV, UsedElementType));
-  if (llvm::GlobalVariable *Old =
-          M->getGlobalVariable("llvm.embedded.module", true)) {
-    assert(Old->hasOneUse() &&
-           "llvm.embedded.module can only be used once in llvm.compiler.used");
-    GV->takeName(Old);
-    Old->eraseFromParent();
-  } else {
-    GV->setName("llvm.embedded.module");
-  }
-
-  // Skip if only bitcode needs to be embedded.
-  if (CGOpts.getEmbedBitcode() != CodeGenOptions::Embed_Bitcode) {
-    // Embed command-line options.
-    ArrayRef<uint8_t> CmdData(const_cast<uint8_t *>(CGOpts.CmdArgs.data()),
-                              CGOpts.CmdArgs.size());
-    llvm::Constant *CmdConstant =
-      llvm::ConstantDataArray::get(M->getContext(), CmdData);
-    GV = new llvm::GlobalVariable(*M, CmdConstant->getType(), true,
-                                  llvm::GlobalValue::PrivateLinkage,
-                                  CmdConstant);
-    GV->setSection(getSectionNameForCommandline(T));
-    UsedArray.push_back(
-        ConstantExpr::getPointerBitCastOrAddrSpaceCast(GV, UsedElementType));
-    if (llvm::GlobalVariable *Old =
-            M->getGlobalVariable("llvm.cmdline", true)) {
-      assert(Old->hasOneUse() &&
-             "llvm.cmdline can only be used once in llvm.compiler.used");
-      GV->takeName(Old);
-      Old->eraseFromParent();
-    } else {
-      GV->setName("llvm.cmdline");
-    }
-  }
-
-  if (UsedArray.empty())
-    return;
-
-  // Recreate llvm.compiler.used.
-  ArrayType *ATy = ArrayType::get(UsedElementType, UsedArray.size());
-  auto *NewUsed = new GlobalVariable(
-      *M, ATy, false, llvm::GlobalValue::AppendingLinkage,
-      llvm::ConstantArray::get(ATy, UsedArray), "llvm.compiler.used");
-  NewUsed->setSection("llvm.metadata");
+  llvm::EmbedBitcodeInModule(
+      *M, Buf, CGOpts.getEmbedBitcode() != CodeGenOptions::Embed_Marker,
+      CGOpts.getEmbedBitcode() != CodeGenOptions::Embed_Bitcode,
+      &CGOpts.CmdArgs);
 }

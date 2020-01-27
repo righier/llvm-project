@@ -55,6 +55,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -131,11 +132,6 @@ static cl::opt<bool> PollyPreciseInbounds(
     "polly-precise-inbounds",
     cl::desc("Take more precise inbounds assumptions (do not scale well)"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
-
-static cl::opt<bool>
-    PollyIgnoreInbounds("polly-ignore-inbounds",
-                        cl::desc("Do not take inbounds assumptions at all"),
-                        cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool> PollyIgnoreParamBounds(
     "polly-ignore-parameter-bounds",
@@ -661,9 +657,7 @@ isl::basic_map MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
 // possibly yield out of bound memory accesses. The complement of these
 // constraints is the set of constraints that needs to be assumed to ensure such
 // statement instances are never executed.
-void MemoryAccess::assumeNoOutOfBound() {
-  if (PollyIgnoreInbounds)
-    return;
+isl::set MemoryAccess::assumeNoOutOfBound() {
   auto *SAI = getScopArrayInfo();
   isl::space Space = getOriginalAccessRelationSpace().range();
   isl::set Outside = isl::set::empty(Space);
@@ -691,13 +685,10 @@ void MemoryAccess::assumeNoOutOfBound() {
   // bail out more often than strictly necessary.
   Outside = Outside.remove_divs();
   Outside = Outside.complement();
-  const auto &Loc = getAccessInstruction()
-                        ? getAccessInstruction()->getDebugLoc()
-                        : DebugLoc();
+
   if (!PollyPreciseInbounds)
     Outside = Outside.gist_params(Statement->getDomain().params());
-  Statement->getParent()->recordAssumption(INBOUNDS, Outside, Loc,
-                                           AS_ASSUMPTION);
+  return Outside;
 }
 
 void MemoryAccess::buildMemIntrinsicAccessRelation() {
@@ -1912,13 +1903,12 @@ ScopArrayInfo *Scop::createScopArrayInfo(Type *ElementType,
   return SAI;
 }
 
-const ScopArrayInfo *Scop::getScopArrayInfoOrNull(Value *BasePtr,
-                                                  MemoryKind Kind) {
+ScopArrayInfo *Scop::getScopArrayInfoOrNull(Value *BasePtr, MemoryKind Kind) {
   auto *SAI = ScopArrayInfoMap[std::make_pair(BasePtr, Kind)].get();
   return SAI;
 }
 
-const ScopArrayInfo *Scop::getScopArrayInfo(Value *BasePtr, MemoryKind Kind) {
+ScopArrayInfo *Scop::getScopArrayInfo(Value *BasePtr, MemoryKind Kind) {
   auto *SAI = getScopArrayInfoOrNull(BasePtr, Kind);
   assert(SAI && "No ScopArrayInfo available for this base pointer");
   return SAI;
@@ -2173,13 +2163,6 @@ void Scop::addAssumption(AssumptionKind Kind, isl::set Set, DebugLoc Loc,
     InvalidContext = InvalidContext.unite(Set).coalesce();
 }
 
-void Scop::recordAssumption(AssumptionKind Kind, isl::set Set, DebugLoc Loc,
-                            AssumptionSign Sign, BasicBlock *BB) {
-  assert((Set.is_params() || BB) &&
-         "Assumptions without a basic block must be parameter sets");
-  RecordedAssumptions.push_back({Kind, Sign, Set, Loc, BB});
-}
-
 void Scop::invalidate(AssumptionKind Kind, DebugLoc Loc, BasicBlock *BB) {
   LLVM_DEBUG(dbgs() << "Invalidate SCoP because of reason " << Kind << "\n");
   addAssumption(Kind, isl::set::empty(getParamSpace()), Loc, AS_ASSUMPTION, BB);
@@ -2297,13 +2280,14 @@ LLVM_DUMP_METHOD void Scop::dump() const { print(dbgs(), true); }
 isl::ctx Scop::getIslCtx() const { return IslCtx.get(); }
 
 __isl_give PWACtx Scop::getPwAff(const SCEV *E, BasicBlock *BB,
-                                 bool NonNegative) {
+                                 bool NonNegative,
+                                 RecordedAssumptionsTy *RecordedAssumptions) {
   // First try to use the SCEVAffinator to generate a piecewise defined
   // affine function from @p E in the context of @p BB. If that tasks becomes to
   // complex the affinator might return a nullptr. In such a case we invalidate
   // the SCoP and return a dummy value. This way we do not need to add error
   // handling code to all users of this function.
-  auto PWAC = Affinator.getPwAff(E, BB);
+  auto PWAC = Affinator.getPwAff(E, BB, RecordedAssumptions);
   if (PWAC.first) {
     // TODO: We could use a heuristic and either use:
     //         SCEVAffinator::takeNonNegativeAssumption
@@ -2311,13 +2295,13 @@ __isl_give PWACtx Scop::getPwAff(const SCEV *E, BasicBlock *BB,
     //         SCEVAffinator::interpretAsUnsigned
     //       to deal with unsigned or "NonNegative" SCEVs.
     if (NonNegative)
-      Affinator.takeNonNegativeAssumption(PWAC);
+      Affinator.takeNonNegativeAssumption(PWAC, RecordedAssumptions);
     return PWAC;
   }
 
   auto DL = BB ? BB->getTerminator()->getDebugLoc() : DebugLoc();
   invalidate(COMPLEXITY, DL, BB);
-  return Affinator.getPwAff(SE->getZero(E->getType()), BB);
+  return Affinator.getPwAff(SE->getZero(E->getType()), BB, RecordedAssumptions);
 }
 
 isl::union_set Scop::getDomains() const {
@@ -2330,8 +2314,9 @@ isl::union_set Scop::getDomains() const {
   return isl::manage(Domain);
 }
 
-isl::pw_aff Scop::getPwAffOnly(const SCEV *E, BasicBlock *BB) {
-  PWACtx PWAC = getPwAff(E, BB);
+isl::pw_aff Scop::getPwAffOnly(const SCEV *E, BasicBlock *BB,
+                               RecordedAssumptionsTy *RecordedAssumptions) {
+  PWACtx PWAC = getPwAff(E, BB, RecordedAssumptions);
   return PWAC.first;
 }
 

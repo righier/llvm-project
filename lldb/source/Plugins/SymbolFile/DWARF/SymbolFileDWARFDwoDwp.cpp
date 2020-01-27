@@ -1,4 +1,4 @@
-//===-- SymbolFileDWARFDwoDwp.cpp -------------------------------*- C++ -*-===//
+//===-- SymbolFileDWARFDwoDwp.cpp -----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -18,6 +18,8 @@
 
 using namespace lldb;
 using namespace lldb_private;
+
+char SymbolFileDWARFDwoDwp::ID;
 
 SymbolFileDWARFDwoDwp::SymbolFileDWARFDwoDwp(SymbolFileDWARFDwp *dwp_symfile,
                                              ObjectFileSP objfile,

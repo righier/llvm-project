@@ -72,6 +72,27 @@ private:
 
 } // end anonymous namespace
 
+/// A RAII helper which defines a region of instructions which can't have
+/// padding added between them for correctness.
+struct NoAutoPaddingScope {
+  MCStreamer &OS;
+  const bool OldAllowAutoPadding;
+  NoAutoPaddingScope(MCStreamer &OS)
+      : OS(OS), OldAllowAutoPadding(OS.getAllowAutoPadding()) {
+    changeAndComment(false);
+  }
+  ~NoAutoPaddingScope() { changeAndComment(OldAllowAutoPadding); }
+  void changeAndComment(bool b) {
+    if (b == OS.getAllowAutoPadding())
+      return;
+    OS.setAllowAutoPadding(b);
+    if (b)
+      OS.emitRawComment("autopadding");
+    else
+      OS.emitRawComment("noautopadding");
+  }
+};
+
 // Emit a minimal sequence of nops spanning NumBytes bytes.
 static void EmitNops(MCStreamer &OS, unsigned NumBytes, bool Is64Bit,
                      const MCSubtargetInfo &STI);
@@ -569,6 +590,7 @@ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     if (OutMI.getOperand(OutMI.getNumOperands() - 1).getImm() == 0) {
       unsigned NewOpc;
       switch (OutMI.getOpcode()) {
+      default: llvm_unreachable("Invalid opcode");
       case X86::VPCMPBZ128rmi:   NewOpc = X86::VPCMPEQBZ128rm;   break;
       case X86::VPCMPBZ128rmik:  NewOpc = X86::VPCMPEQBZ128rmk;  break;
       case X86::VPCMPBZ128rri:   NewOpc = X86::VPCMPEQBZ128rr;   break;
@@ -640,6 +662,7 @@ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     if (OutMI.getOperand(OutMI.getNumOperands() - 1).getImm() == 6) {
       unsigned NewOpc;
       switch (OutMI.getOpcode()) {
+      default: llvm_unreachable("Invalid opcode");
       case X86::VPCMPBZ128rmi:   NewOpc = X86::VPCMPGTBZ128rm;   break;
       case X86::VPCMPBZ128rmik:  NewOpc = X86::VPCMPGTBZ128rmk;  break;
       case X86::VPCMPBZ128rri:   NewOpc = X86::VPCMPGTBZ128rr;   break;
@@ -876,11 +899,58 @@ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   case X86::MOVSX64rr32:
     SimplifyMOVSX(OutMI);
     break;
+
+  case X86::VCMPPDrri:
+  case X86::VCMPPDYrri:
+  case X86::VCMPPSrri:
+  case X86::VCMPPSYrri:
+  case X86::VCMPSDrr:
+  case X86::VCMPSSrr: {
+    // Swap the operands if it will enable a 2 byte VEX encoding.
+    // FIXME: Change the immediate to improve opportunities?
+    if (!X86II::isX86_64ExtendedReg(OutMI.getOperand(1).getReg()) &&
+        X86II::isX86_64ExtendedReg(OutMI.getOperand(2).getReg())) {
+      unsigned Imm = MI->getOperand(3).getImm() & 0x7;
+      switch (Imm) {
+      default: break;
+      case 0x00: // EQUAL
+      case 0x03: // UNORDERED
+      case 0x04: // NOT EQUAL
+      case 0x07: // ORDERED
+        std::swap(OutMI.getOperand(1), OutMI.getOperand(2));
+        break;
+      }
+    }
+    break;
+  }
+
+  case X86::VMOVHLPSrr:
+  case X86::VUNPCKHPDrr:
+    // These are not truly commutable so hide them from the default case.
+    break;
+
+  default: {
+    // If the instruction is a commutable arithmetic instruction we might be
+    // able to commute the operands to get a 2 byte VEX prefix.
+    uint64_t TSFlags = MI->getDesc().TSFlags;
+    if (MI->getDesc().isCommutable() &&
+        (TSFlags & X86II::EncodingMask) == X86II::VEX &&
+        (TSFlags & X86II::OpMapMask) == X86II::TB &&
+        (TSFlags & X86II::FormMask) == X86II::MRMSrcReg &&
+        !(TSFlags & X86II::VEX_W) && (TSFlags & X86II::VEX_4V) &&
+        OutMI.getNumOperands() == 3) {
+      if (!X86II::isX86_64ExtendedReg(OutMI.getOperand(1).getReg()) &&
+          X86II::isX86_64ExtendedReg(OutMI.getOperand(2).getReg()))
+        std::swap(OutMI.getOperand(1), OutMI.getOperand(2));
+    }
+    break;
+  }
   }
 }
 
 void X86AsmPrinter::LowerTlsAddr(X86MCInstLower &MCInstLowering,
                                  const MachineInstr &MI) {
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
   bool Is64Bits = MI.getOpcode() == X86::TLS_addr64 ||
                   MI.getOpcode() == X86::TLS_base_addr64;
   MCContext &Ctx = OutStreamer->getContext();
@@ -983,13 +1053,32 @@ void X86AsmPrinter::LowerTlsAddr(X86MCInstLower &MCInstLowering,
   }
 }
 
+/// Return the longest nop which can be efficiently decoded for the given
+/// target cpu.  15-bytes is the longest single NOP instruction, but some
+/// platforms can't decode the longest forms efficiently.
+static unsigned MaxLongNopLength(const MCSubtargetInfo &STI) {
+  uint64_t MaxNopLength = 10;
+  if (STI.getFeatureBits()[X86::ProcIntelSLM])
+    MaxNopLength = 7;
+  else if (STI.getFeatureBits()[X86::FeatureFast15ByteNOP])
+    MaxNopLength = 15;
+  else if (STI.getFeatureBits()[X86::FeatureFast11ByteNOP])
+    MaxNopLength = 11;
+  return MaxNopLength;
+}
+
 /// Emit the largest nop instruction smaller than or equal to \p NumBytes
 /// bytes.  Return the size of nop emitted.
 static unsigned EmitNop(MCStreamer &OS, unsigned NumBytes, bool Is64Bit,
                         const MCSubtargetInfo &STI) {
-  // This works only for 64bit. For 32bit we have to do additional checking if
-  // the CPU supports multi-byte nops.
-  assert(Is64Bit && "EmitNops only supports X86-64");
+  if (!Is64Bit) {
+    // TODO Do additional checking if the CPU supports multi-byte nops.
+    OS.EmitInstruction(MCInstBuilder(X86::NOOP), STI);
+    return 1;
+  }
+
+  // Cap a single nop emission at the profitable value for the target
+  NumBytes = std::min(NumBytes, MaxLongNopLength(STI));
 
   unsigned NopSize;
   unsigned Opc, BaseReg, ScaleVal, IndexReg, Displacement, SegmentReg;
@@ -1098,6 +1187,8 @@ void X86AsmPrinter::LowerSTATEPOINT(const MachineInstr &MI,
                                     X86MCInstLower &MCIL) {
   assert(Subtarget->is64Bit() && "Statepoint currently only supports X86-64");
 
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
+
   StatepointOpers SOpers(&MI);
   if (unsigned PatchBytes = SOpers.getNumPatchBytes()) {
     EmitNops(*OutStreamer, PatchBytes, Subtarget->is64Bit(),
@@ -1148,13 +1239,18 @@ void X86AsmPrinter::LowerSTATEPOINT(const MachineInstr &MI,
 
   // Record our statepoint node in the same section used by STACKMAP
   // and PATCHPOINT
-  SM.recordStatepoint(MI);
+  auto &Ctx = OutStreamer->getContext();
+  MCSymbol *MILabel = Ctx.createTempSymbol();
+  OutStreamer->EmitLabel(MILabel);
+  SM.recordStatepoint(*MILabel, MI);
 }
 
 void X86AsmPrinter::LowerFAULTING_OP(const MachineInstr &FaultingMI,
                                      X86MCInstLower &MCIL) {
   // FAULTING_LOAD_OP <def>, <faltinf type>, <MBB handler>,
   //                  <opcode>, <operands>
+
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
 
   Register DefRegister = FaultingMI.getOperand(0).getReg();
   FaultMaps::FaultKind FK =
@@ -1163,8 +1259,12 @@ void X86AsmPrinter::LowerFAULTING_OP(const MachineInstr &FaultingMI,
   unsigned Opcode = FaultingMI.getOperand(3).getImm();
   unsigned OperandsBeginIdx = 4;
 
+  auto &Ctx = OutStreamer->getContext();
+  MCSymbol *FaultingLabel = Ctx.createTempSymbol();
+  OutStreamer->EmitLabel(FaultingLabel);
+
   assert(FK < FaultMaps::FaultKindMax && "Invalid Faulting Kind!");
-  FM.recordFaultingOp(FK, HandlerLabel);
+  FM.recordFaultingOp(FK, FaultingLabel, HandlerLabel);
 
   MCInst MI;
   MI.setOpcode(Opcode);
@@ -1198,6 +1298,8 @@ void X86AsmPrinter::LowerFENTRY_CALL(const MachineInstr &MI,
 void X86AsmPrinter::LowerPATCHABLE_OP(const MachineInstr &MI,
                                       X86MCInstLower &MCIL) {
   // PATCHABLE_OP minsize, opcode, operands
+
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
 
   unsigned MinSize = MI.getOperand(0).getImm();
   unsigned Opcode = MI.getOperand(1).getImm();
@@ -1236,7 +1338,12 @@ void X86AsmPrinter::LowerPATCHABLE_OP(const MachineInstr &MI,
 // <id>, <shadowBytes>, ...
 void X86AsmPrinter::LowerSTACKMAP(const MachineInstr &MI) {
   SMShadowTracker.emitShadowPadding(*OutStreamer, getSubtargetInfo());
-  SM.recordStackMap(MI);
+
+  auto &Ctx = OutStreamer->getContext();
+  MCSymbol *MILabel = Ctx.createTempSymbol();
+  OutStreamer->EmitLabel(MILabel);
+
+  SM.recordStackMap(*MILabel, MI);
   unsigned NumShadowBytes = MI.getOperand(1).getImm();
   SMShadowTracker.reset(NumShadowBytes);
 }
@@ -1249,7 +1356,12 @@ void X86AsmPrinter::LowerPATCHPOINT(const MachineInstr &MI,
 
   SMShadowTracker.emitShadowPadding(*OutStreamer, getSubtargetInfo());
 
-  SM.recordPatchPoint(MI);
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
+
+  auto &Ctx = OutStreamer->getContext();
+  MCSymbol *MILabel = Ctx.createTempSymbol();
+  OutStreamer->EmitLabel(MILabel);
+  SM.recordPatchPoint(*MILabel, MI);
 
   PatchPointOpers opers(&MI);
   unsigned ScratchIdx = opers.getNextScratchIdx();
@@ -1304,6 +1416,8 @@ void X86AsmPrinter::LowerPATCHPOINT(const MachineInstr &MI,
 void X86AsmPrinter::LowerPATCHABLE_EVENT_CALL(const MachineInstr &MI,
                                               X86MCInstLower &MCIL) {
   assert(Subtarget->is64Bit() && "XRay custom events only supports X86-64");
+
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
 
   // We want to emit the following pattern, which follows the x86 calling
   // convention to prepare for the trampoline call to be patched in.
@@ -1398,6 +1512,8 @@ void X86AsmPrinter::LowerPATCHABLE_EVENT_CALL(const MachineInstr &MI,
 void X86AsmPrinter::LowerPATCHABLE_TYPED_EVENT_CALL(const MachineInstr &MI,
                                                     X86MCInstLower &MCIL) {
   assert(Subtarget->is64Bit() && "XRay typed events only supports X86-64");
+
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
 
   // We want to emit the following pattern, which follows the x86 calling
   // convention to prepare for the trampoline call to be patched in.
@@ -1496,6 +1612,19 @@ void X86AsmPrinter::LowerPATCHABLE_TYPED_EVENT_CALL(const MachineInstr &MI,
 
 void X86AsmPrinter::LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr &MI,
                                                   X86MCInstLower &MCIL) {
+
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
+
+  const Function &F = MF->getFunction();
+  if (F.hasFnAttribute("patchable-function-entry")) {
+    unsigned Num;
+    if (F.getFnAttribute("patchable-function-entry")
+            .getValueAsString()
+            .getAsInteger(10, Num))
+      return;
+    EmitNops(*OutStreamer, Num, Subtarget->is64Bit(), getSubtargetInfo());
+    return;
+  }
   // We want to emit the following pattern:
   //
   //   .p2align 1, ...
@@ -1523,6 +1652,8 @@ void X86AsmPrinter::LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr &MI,
 
 void X86AsmPrinter::LowerPATCHABLE_RET(const MachineInstr &MI,
                                        X86MCInstLower &MCIL) {
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
+
   // Since PATCHABLE_RET takes the opcode of the return statement as an
   // argument, we use that to emit the correct form of the RET that we want.
   // i.e. when we see this:
@@ -1553,6 +1684,8 @@ void X86AsmPrinter::LowerPATCHABLE_RET(const MachineInstr &MI,
 
 void X86AsmPrinter::LowerPATCHABLE_TAIL_CALL(const MachineInstr &MI,
                                              X86MCInstLower &MCIL) {
+  NoAutoPaddingScope NoPadScope(*OutStreamer);
+
   // Like PATCHABLE_RET, we have the actual instruction in the operands to this
   // instruction so we lower that particular instruction and its operands.
   // Unlike PATCHABLE_RET though, we put the sled before the JMP, much like how

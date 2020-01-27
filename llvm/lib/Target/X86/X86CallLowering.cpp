@@ -115,7 +115,7 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
     MIRBuilder.buildConstant(OffsetReg, Offset);
 
     Register AddrReg = MRI.createGenericVirtualRegister(p0);
-    MIRBuilder.buildGEP(AddrReg, SPReg, OffsetReg);
+    MIRBuilder.buildPtrAdd(AddrReg, SPReg, OffsetReg);
 
     MPO = MachinePointerInfo::getStack(MIRBuilder.getMF(), Offset);
     return AddrReg;
@@ -139,7 +139,7 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
     if (PhysRegSize > ValSize && LocSize == ValSize) {
       assert((PhysRegSize == 128 || PhysRegSize == 80)  && "We expect that to be 128 bit");
       auto MIB = MIRBuilder.buildAnyExt(LLT::scalar(PhysRegSize), ValVReg);
-      ExtReg = MIB->getOperand(0).getReg();
+      ExtReg = MIB.getReg(0);
     } else
       ExtReg = extendRegister(ValVReg, VA);
 

@@ -100,6 +100,10 @@ void FormatTokenLexer::tryMergePreviousTokens() {
     static const tok::TokenKind JSExponentiation[] = {tok::star, tok::star};
     static const tok::TokenKind JSExponentiationEqual[] = {tok::star,
                                                            tok::starequal};
+    static const tok::TokenKind JSNullPropagatingOperator[] = {tok::question,
+                                                               tok::period};
+    static const tok::TokenKind JSNullishOperator[] = {tok::question,
+                                                       tok::question};
 
     // FIXME: Investigate what token type gives the correct operator priority.
     if (tryMergeTokens(JSIdentity, TT_BinaryOperator))
@@ -114,6 +118,17 @@ void FormatTokenLexer::tryMergePreviousTokens() {
       return;
     if (tryMergeTokens(JSExponentiationEqual, TT_JsExponentiationEqual)) {
       Tokens.back()->Tok.setKind(tok::starequal);
+      return;
+    }
+    if (tryMergeTokens(JSNullishOperator, TT_JsNullishCoalescingOperator)) {
+      // Treat like the "||" operator (as opposed to the ternary ?).
+      Tokens.back()->Tok.setKind(tok::pipepipe);
+      return;
+    }
+    if (tryMergeTokens(JSNullPropagatingOperator,
+                       TT_JsNullPropagatingOperator)) {
+      // Treat like a regular "." access.
+      Tokens.back()->Tok.setKind(tok::period);
       return;
     }
     if (tryMergeJSPrivateIdentifier())
@@ -169,15 +184,33 @@ bool FormatTokenLexer::tryMergeJSPrivateIdentifier() {
 bool FormatTokenLexer::tryMergeCSharpVerbatimStringLiteral() {
   if (Tokens.size() < 2)
     return false;
-  auto &At = *(Tokens.end() - 2);
-  auto &String = *(Tokens.end() - 1);
 
-  // Look for $"aaaaaa" @"aaaaaa".
-  if (!(At->is(tok::at) || At->TokenText == "$") ||
-      !String->is(tok::string_literal))
+  auto &String = *(Tokens.end() - 1);
+  if (!String->is(tok::string_literal))
     return false;
 
-  if (Tokens.size() >= 2 && At->is(tok::at)) {
+  // verbatim strings could contain "" which C# sees as an escaped ".
+  // @"""Hello""" will have been tokenized as @"" "Hello" "" and needs
+  // merging into a single string literal.
+  auto &CSharpStringLiteral = *(Tokens.end() - 2);
+  if (CSharpStringLiteral->Type == TT_CSharpStringLiteral &&
+      (CSharpStringLiteral->TokenText.startswith(R"(@")") ||
+       CSharpStringLiteral->TokenText.startswith(R"($@")"))) {
+    CSharpStringLiteral->TokenText = StringRef(
+        CSharpStringLiteral->TokenText.begin(),
+        String->TokenText.end() - CSharpStringLiteral->TokenText.begin());
+    CSharpStringLiteral->ColumnWidth += String->ColumnWidth;
+    Tokens.erase(Tokens.end() - 1);
+    return true;
+  }
+
+  auto &At = *(Tokens.end() - 2);
+
+  // Look for @"aaaaaa" or $"aaaaaa".
+  if (!(At->is(tok::at) || At->TokenText == "$"))
+    return false;
+
+  if (Tokens.size() > 2 && At->is(tok::at)) {
     auto &Dollar = *(Tokens.end() - 3);
     if (Dollar->TokenText == "$") {
       // This looks like $@"aaaaa" so we need to combine all 3 tokens.

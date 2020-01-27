@@ -153,6 +153,10 @@ inline StringRef getInstrProfRuntimeHookVarUseFuncName() {
   return "__llvm_profile_runtime_user";
 }
 
+inline StringRef getInstrProfCounterBiasVarName() {
+  return "__llvm_profile_counter_bias";
+}
+
 /// Return the marker used to separate PGO names during serialization.
 inline StringRef getInstrProfNameSeparator() { return "\01"; }
 
@@ -885,7 +889,7 @@ uint32_t InstrProfRecord::getNumValueDataForSite(uint32_t ValueKind,
 std::unique_ptr<InstrProfValueData[]>
 InstrProfRecord::getValueForSite(uint32_t ValueKind, uint32_t Site,
                                  uint64_t *TotalC) const {
-  uint64_t Dummy;
+  uint64_t Dummy = 0;
   uint64_t &TotalCount = (TotalC == nullptr ? Dummy : *TotalC);
   uint32_t N = getNumValueDataForSite(ValueKind, Site);
   if (N == 0) {

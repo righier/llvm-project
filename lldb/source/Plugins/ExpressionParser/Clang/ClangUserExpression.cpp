@@ -1,4 +1,4 @@
-//===-- ClangUserExpression.cpp ---------------------------------*- C++ -*-===//
+//===-- ClangUserExpression.cpp -------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -37,11 +37,12 @@
 #include "lldb/Expression/Materializer.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Symbol/Block.h"
-#include "lldb/Symbol/ClangASTContext.h"
-#include "lldb/Symbol/ClangExternalASTSourceCommon.h"
+#include "lldb/Symbol/TypeSystemClang.h"
+#include "lldb/Symbol/ClangASTMetadata.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/ObjectFile.h"
+#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
 #include "lldb/Symbol/Type.h"
 #include "lldb/Symbol/VariableList.h"
@@ -62,13 +63,15 @@
 
 using namespace lldb_private;
 
+char ClangUserExpression::ID;
+
 ClangUserExpression::ClangUserExpression(
     ExecutionContextScope &exe_scope, llvm::StringRef expr,
     llvm::StringRef prefix, lldb::LanguageType language,
     ResultType desired_type, const EvaluateExpressionOptions &options,
     ValueObject *ctx_obj)
     : LLVMUserExpression(exe_scope, expr, prefix, language, desired_type,
-                         options, eKindClangUserExpression),
+                         options),
       m_type_system_helper(*m_target_wp.lock(), options.GetExecutionPolicy() ==
                                                     eExecutionPolicyTopLevel),
       m_result_delegate(exe_scope.CalculateTarget()), m_ctx_obj(ctx_obj) {
@@ -151,7 +154,7 @@ void ClangUserExpression::ScanContext(ExecutionContext &exe_ctx, Status &err) {
     }
     m_needs_object_ptr = true;
   } else if (clang::CXXMethodDecl *method_decl =
-          ClangASTContext::DeclContextGetAsCXXMethodDecl(decl_context)) {
+          TypeSystemClang::DeclContextGetAsCXXMethodDecl(decl_context)) {
     if (m_allow_cxx && method_decl->isInstance()) {
       if (m_enforce_valid_object) {
         lldb::VariableListSP variable_list_sp(
@@ -180,7 +183,7 @@ void ClangUserExpression::ScanContext(ExecutionContext &exe_ctx, Status &err) {
       m_needs_object_ptr = true;
     }
   } else if (clang::ObjCMethodDecl *method_decl =
-                 ClangASTContext::DeclContextGetAsObjCMethodDecl(
+                 TypeSystemClang::DeclContextGetAsObjCMethodDecl(
                      decl_context)) {
     if (m_allow_objc) {
       if (m_enforce_valid_object) {
@@ -213,7 +216,7 @@ void ClangUserExpression::ScanContext(ExecutionContext &exe_ctx, Status &err) {
         m_in_static_method = true;
     }
   } else if (clang::FunctionDecl *function_decl =
-                 ClangASTContext::DeclContextGetAsFunctionDecl(decl_context)) {
+                 TypeSystemClang::DeclContextGetAsFunctionDecl(decl_context)) {
     // We might also have a function that said in the debug information that it
     // captured an object pointer.  The best way to deal with getting to the
     // ivars at present is by pretending that this is a method of a class in
@@ -221,7 +224,7 @@ void ClangUserExpression::ScanContext(ExecutionContext &exe_ctx, Status &err) {
     // that here.
 
     ClangASTMetadata *metadata =
-        ClangASTContext::DeclContextGetMetaData(decl_context, function_decl);
+        TypeSystemClang::DeclContextGetMetaData(decl_context, function_decl);
     if (metadata && metadata->HasObjectPtr()) {
       lldb::LanguageType language = metadata->GetObjectPtrLanguage();
       if (language == lldb::eLanguageTypeC_plus_plus) {
@@ -289,9 +292,9 @@ void ClangUserExpression::ScanContext(ExecutionContext &exe_ctx, Status &err) {
             return;
           }
 
-          if (ClangASTContext::IsObjCClassType(self_clang_type)) {
+          if (TypeSystemClang::IsObjCClassType(self_clang_type)) {
             return;
-          } else if (ClangASTContext::IsObjCObjectPointerType(
+          } else if (TypeSystemClang::IsObjCObjectPointerType(
                          self_clang_type)) {
             m_in_objectivec_method = true;
             m_needs_object_ptr = true;
@@ -347,11 +350,12 @@ bool ClangUserExpression::SetupPersistentState(DiagnosticManager &diagnostic_man
 static void SetupDeclVendor(ExecutionContext &exe_ctx, Target *target) {
   if (ClangModulesDeclVendor *decl_vendor =
           target->GetClangModulesDeclVendor()) {
+    auto *persistent_state = llvm::cast<ClangPersistentVariables>(
+        target->GetPersistentExpressionStateForLanguage(lldb::eLanguageTypeC));
+    if (!persistent_state)
+      return;
     const ClangModulesDeclVendor::ModuleVector &hand_imported_modules =
-        llvm::cast<ClangPersistentVariables>(
-            target->GetPersistentExpressionStateForLanguage(
-                lldb::eLanguageTypeC))
-            ->GetHandLoadedClangModules();
+        persistent_state->GetHandLoadedClangModules();
     ClangModulesDeclVendor::ModuleVector modules_for_macros;
 
     for (ClangModulesDeclVendor::ModuleID module : hand_imported_modules) {
@@ -476,15 +480,18 @@ CppModuleConfiguration GetModuleConfig(lldb::LanguageType language,
     files.AppendIfUnique(f);
   // We also need to look at external modules in the case of -gmodules as they
   // contain the support files for libc++ and the C library.
-  sc.comp_unit->ForEachExternalModule([&files](lldb::ModuleSP module) {
-    for (std::size_t i = 0; i < module->GetNumCompileUnits(); ++i) {
-      const FileSpecList &support_files =
-          module->GetCompileUnitAtIndex(i)->GetSupportFiles();
-      for (const FileSpec &f : support_files) {
-        files.AppendIfUnique(f);
-      }
-    }
-  });
+  llvm::DenseSet<SymbolFile *> visited_symbol_files;
+  sc.comp_unit->ForEachExternalModule(
+      visited_symbol_files, [&files](Module &module) {
+        for (std::size_t i = 0; i < module.GetNumCompileUnits(); ++i) {
+          const FileSpecList &support_files =
+              module.GetCompileUnitAtIndex(i)->GetSupportFiles();
+          for (const FileSpec &f : support_files) {
+            files.AppendIfUnique(f);
+          }
+        }
+        return false;
+      });
 
   LLDB_LOG(log, "[C++ module config] Found {0} support files to analyze",
            files.GetSize());
@@ -676,10 +683,12 @@ bool ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager,
       register_execution_unit = true;
     }
 
-    if (register_execution_unit)
-      exe_ctx.GetTargetPtr()
-          ->GetPersistentExpressionStateForLanguage(m_language)
-          ->RegisterExecutionUnit(m_execution_unit_sp);
+    if (register_execution_unit) {
+      if (auto *persistent_state =
+              exe_ctx.GetTargetPtr()->GetPersistentExpressionStateForLanguage(
+                  m_language))
+        persistent_state->RegisterExecutionUnit(m_execution_unit_sp);
+    }
   }
 
   if (generate_debug_info) {
@@ -887,9 +896,9 @@ void ClangUserExpression::ClangUserExpressionHelper::ResetDeclMap(
     Materializer::PersistentVariableDelegate &delegate,
     bool keep_result_in_memory,
     ValueObject *ctx_obj) {
-  m_expr_decl_map_up.reset(
-      new ClangExpressionDeclMap(keep_result_in_memory, &delegate, exe_ctx,
-                                 ctx_obj));
+  m_expr_decl_map_up.reset(new ClangExpressionDeclMap(
+      keep_result_in_memory, &delegate, exe_ctx.GetTargetSP(),
+      exe_ctx.GetTargetRef().GetClangASTImporter(), ctx_obj));
 }
 
 clang::ASTConsumer *

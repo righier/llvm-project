@@ -1,4 +1,4 @@
-//===-- Broadcaster.cpp -----------------------------------------*- C++ -*-===//
+//===-- Broadcaster.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <type_traits>
 #include <utility>
 
 #include <assert.h>
@@ -317,9 +316,6 @@ bool BroadcastEventSpec::operator<(const BroadcastEventSpec &rhs) const {
   }
   return GetBroadcasterClass() < rhs.GetBroadcasterClass();
 }
-
-BroadcastEventSpec &BroadcastEventSpec::
-operator=(const BroadcastEventSpec &rhs) = default;
 
 BroadcasterManager::BroadcasterManager() : m_manager_mutex() {}
 

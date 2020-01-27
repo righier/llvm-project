@@ -65,7 +65,9 @@ enum {
   NewDef_Shift = 6,
 
   /// This instruction is an X-Form memory operation.
-  XFormMemOp = 0x1 << (NewDef_Shift+1)
+  XFormMemOp = 0x1 << NewDef_Shift,
+  /// This instruction is prefixed.
+  Prefixed = 0x1 << (NewDef_Shift+1)
 };
 } // end namespace PPCII
 
@@ -273,14 +275,15 @@ public:
 
   // Select analysis.
   bool canInsertSelect(const MachineBasicBlock &, ArrayRef<MachineOperand> Cond,
-                       unsigned, unsigned, int &, int &, int &) const override;
+                       unsigned, unsigned, unsigned, int &, int &,
+                       int &) const override;
   void insertSelect(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                     const DebugLoc &DL, unsigned DstReg,
                     ArrayRef<MachineOperand> Cond, unsigned TrueReg,
                     unsigned FalseReg) const override;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
+                   const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
                    bool KillSrc) const override;
 
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -345,8 +348,6 @@ public:
 
   bool DefinesPredicate(MachineInstr &MI,
                         std::vector<MachineOperand> &Pred) const override;
-
-  bool isPredicable(const MachineInstr &MI) const override;
 
   // Comparison optimization.
 

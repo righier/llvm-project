@@ -56,6 +56,9 @@ public:
                                 MachineIRBuilder &B) const;
   bool legalizeInsertVectorElt(MachineInstr &MI, MachineRegisterInfo &MRI,
                                MachineIRBuilder &B) const;
+  bool legalizeShuffleVector(MachineInstr &MI, MachineRegisterInfo &MRI,
+                             MachineIRBuilder &B) const;
+
   bool legalizeSinCos(MachineInstr &MI, MachineRegisterInfo &MRI,
                       MachineIRBuilder &B) const;
 
@@ -90,6 +93,8 @@ public:
                       MachineIRBuilder &B) const;
   bool legalizeFDIV32(MachineInstr &MI, MachineRegisterInfo &MRI,
                       MachineIRBuilder &B) const;
+  bool legalizeFDIV64(MachineInstr &MI, MachineRegisterInfo &MRI,
+                      MachineIRBuilder &B) const;
   bool legalizeFastUnsafeFDIV(MachineInstr &MI, MachineRegisterInfo &MRI,
                               MachineIRBuilder &B) const;
   bool legalizeFDIVFastIntrin(MachineInstr &MI, MachineRegisterInfo &MRI,
@@ -100,10 +105,30 @@ public:
   bool legalizeIsAddrSpace(MachineInstr &MI, MachineRegisterInfo &MRI,
                            MachineIRBuilder &B, unsigned AddrSpace) const;
 
+  std::tuple<Register, unsigned, unsigned>
+  splitBufferOffsets(MachineIRBuilder &B, Register OrigOffset) const;
+
   Register handleD16VData(MachineIRBuilder &B, MachineRegisterInfo &MRI,
                           Register Reg) const;
   bool legalizeRawBufferStore(MachineInstr &MI, MachineRegisterInfo &MRI,
                               MachineIRBuilder &B, bool IsFormat) const;
+  bool legalizeRawBufferLoad(MachineInstr &MI, MachineRegisterInfo &MRI,
+                             MachineIRBuilder &B, bool IsFormat) const;
+  Register fixStoreSourceType(MachineIRBuilder &B, Register VData,
+                              bool IsFormat) const;
+
+  bool legalizeBufferStore(MachineInstr &MI, MachineRegisterInfo &MRI,
+                           MachineIRBuilder &B, bool IsTyped,
+                           bool IsFormat) const;
+  bool legalizeBufferLoad(MachineInstr &MI, MachineRegisterInfo &MRI,
+                          MachineIRBuilder &B, bool IsTyped,
+                          bool IsFormat) const;
+  bool legalizeBufferAtomic(MachineInstr &MI, MachineIRBuilder &B,
+                            Intrinsic::ID IID) const;
+
+  bool legalizeAtomicIncDec(MachineInstr &MI,  MachineIRBuilder &B,
+                            bool IsInc) const;
+
   bool legalizeIntrinsic(MachineInstr &MI, MachineRegisterInfo &MRI,
                          MachineIRBuilder &B) const override;
 
