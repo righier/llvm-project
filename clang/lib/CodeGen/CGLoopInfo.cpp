@@ -889,7 +889,7 @@ LoopInfoStack::applyPack(const LoopTransformation &Transform,
 
   // auto Var = Transform.Array->getDecl();
   auto LVar = CGF.EmitLValue(Transform.Array);
-  auto Addr = cast<AllocaInst>(LVar.getPointer());
+  auto Addr = cast<AllocaInst>(LVar.getPointer(CGF));
   // assert(!Transform.ArrayBasePtr);
   // Transform.ArrayBasePtr = Addr;
   // TransformArgs.push_back(LocalAsMetadata::get(Addr));
