@@ -114,8 +114,8 @@ CodeGenFunction::~CodeGenFunction() {
   // been "emitted" to the outside, thus, modifications are still sensible.
   if (llvm::OpenMPIRBuilder *OMPBuilder = CGM.getOpenMPIRBuilder())
     OMPBuilder->finalize();
-    
-    LoopStack.finish();
+
+  LoopStack.finish();
 }
 
 // Map the LangOption for rounding mode into
