@@ -1249,6 +1249,66 @@ void ScopBuilder::buildSchedule(Region *R, LoopStackTy &LoopStack) {
 }
 
 void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
+#if 1
+  if (RN->isSubRegion()) {
+    auto *LocalRegion = RN->getNodeAs<Region>();
+    if (!scop->isNonAffineSubRegion(LocalRegion)) {
+      buildSchedule(LocalRegion, LoopStack);
+      return;
+    }
+  }
+
+  assert(LoopStack.rbegin() != LoopStack.rend());
+  auto LoopData = LoopStack.rbegin();
+  LoopData->NumBlocksProcessed += getNumBlocksInRegionNode(RN);
+
+  for (auto *Stmt : scop->getStmtListFor(RN)) {
+    isl::union_set UDomain{Stmt->getDomain()};
+    auto StmtSchedule = isl::schedule::from_domain(UDomain);
+    LoopData->Schedule = combineInSequence(LoopData->Schedule, StmtSchedule);
+  }
+
+  // Check if we just processed the last node in this loop. If we did, finalize
+  // the loop by:
+  //
+  //   - adding new schedule dimensions
+  //   - folding the resulting schedule into the parent loop schedule
+  //   - dropping the loop schedule from the LoopStack.
+  //
+  // Then continue to check surrounding loops, which might also have been
+  // completed by this node.
+  size_t Dimension = LoopStack.size();
+  while (LoopData->L &&
+         LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
+    isl::schedule Schedule = LoopData->Schedule;
+    auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
+
+    assert(std::next(LoopData) != LoopStack.rend());
+    auto L = LoopData->L;
+    ++LoopData;
+    --Dimension;
+
+    if (Schedule) {
+      isl::union_set Domain = Schedule.get_domain();
+      isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
+      Schedule = Schedule.insert_partial_schedule(MUPA);
+
+      // It is easier to insert the marks here that do it retroactively.
+      auto IslLoopId = getIslLoopAttr(scop->getIslCtx(), L);
+      if (IslLoopId)
+        Schedule = Schedule.get_root()
+                       .get_child(0)
+                       .insert_mark(IslLoopId)
+                       .get_schedule();
+
+      LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
+    }
+
+    LoopData->NumBlocksProcessed += NumBlocksProcessed;
+  }
+  // Now pop all loops processed up there from the LoopStack
+  LoopStack.erase(LoopStack.begin() + Dimension, LoopStack.end());
+#else
   if (RN->isSubRegion()) {
     auto *LocalRegion = RN->getNodeAs<Region>();
     if (!scop->isNonAffineSubRegion(LocalRegion)) {
@@ -1297,6 +1357,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   }
   // Now pop all loops processed up there from the LoopStack
   LoopStack.erase(LoopStack.begin() + Dimension, LoopStack.end());
+#endif
 }
 
 void ScopBuilder::buildEscapingDependences(Instruction *Inst) {

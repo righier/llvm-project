@@ -1396,7 +1396,7 @@ static void writeGetSpellingFunction(const Record &R, raw_ostream &OS) {
 static void
 writePrettyPrintFunction(const Record &R,
                          const std::vector<std::unique_ptr<Argument>> &Args,
-                         raw_ostream &OS) {
+                         raw_ostream &OS, bool PrettyPrintSpelling) {
   std::vector<FlattenedSpelling> Spellings = GetFlattenedSpellings(R);
 
   OS << "void " << R.getName() << "Attr::printPretty("
@@ -1455,11 +1455,12 @@ writePrettyPrintFunction(const Record &R,
 
     Spelling += Name;
 
-    OS <<
-      "  case " << I << " : {\n"
-      "    OS << \"" << Prefix << Spelling;
+    OS << "  case " << I << " : {\n";
 
     if (Variety == "Pragma") {
+      OS << "    OS << \"" << Prefix;
+      if (PrettyPrintSpelling)
+        OS << Spelling;
       OS << "\";\n";
       OS << "    printPrettyPragma(OS, Policy);\n";
       OS << "    OS << \"\\n\";";
@@ -1467,6 +1468,8 @@ writePrettyPrintFunction(const Record &R,
       OS << "  }\n";
       continue;
     }
+
+    OS << "    OS << \"" << Prefix << Spelling;
 
     if (Spelling == "availability") {
       OS << "(";
@@ -2590,7 +2593,9 @@ static void emitAttributes(RecordKeeper &Records, raw_ostream &OS,
       OS << "  A->setImplicit(Implicit);\n";
       OS << "  return A;\n}\n\n";
 
-      writePrettyPrintFunction(R, Args, OS);
+       auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
+    writePrettyPrintFunction(R, Args, OS, PrettyPrintSpelling);
+    
       writeGetSpellingFunction(R, OS);
     }
   }
