@@ -3525,70 +3525,8 @@ def LoopHint : Attr {
 
   // Return a string suitable for identifying this attribute in diagnostics.
   std::string getDiagnosticName(const PrintingPolicy &Policy) const;
-  
-  
-  void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-    unsigned SpellingIndex = getAttributeSpellingListIndex();
-    if (SpellingIndex == Pragma_nounroll) {
-      OS << "nounroll";
-      return;
-    }
-    else if (SpellingIndex == Pragma_nounroll_and_jam) {
-      OS << "nounroll_and_jam";
-      return;
-    }
-    else if (SpellingIndex == Pragma_unroll) {
-      OS << "unroll " << getValueString(Policy);
-      return;
-    }
-    else if (SpellingIndex == Pragma_unroll_and_jam) {
-      OS << "unroll_and_jam " << getValueString(Policy);
-      return;
-    }
-
-    assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-    OS << "clang loop " << getOptionName(option) << getValueString(Policy);
-  }
-
-  // Return a string containing the loop hint argument including the
-  // enclosing parentheses.
-  std::string getValueString(const PrintingPolicy &Policy) const {
-    std::string ValueName;
-    llvm::raw_string_ostream OS(ValueName);
-    OS << "(";
-    if (state == Numeric)
-      value->printPretty(OS, nullptr, Policy);
-    else if (state == Enable)
-      OS << "enable";
-    else if (state == Full)
-      OS << "full";
-    else if (state == AssumeSafety)
-      OS << "assume_safety";
-    else
-      OS << "disable";
-    OS << ")";
-    return OS.str();
-  }
-
-  // Return a string suitable for identifying this attribute in diagnostics.
-  std::string getDiagnosticName(const PrintingPolicy &Policy) const {
-    unsigned SpellingIndex = getAttributeSpellingListIndex();
-    if (SpellingIndex == Pragma_nounroll)
-      return "#pragma nounroll";
-    else if (SpellingIndex == Pragma_unroll)
-      return "#pragma unroll" + (option == UnrollCount ? getValueString(Policy) : "");
-    else if (SpellingIndex == Pragma_nounroll_and_jam)
-      return "#pragma nounroll_and_jam";
-    else if (SpellingIndex == Pragma_unroll_and_jam)
-      return "#pragma unroll_and_jam" +
-        (option == UnrollAndJamCount ? getValueString(Policy) : "");
-
-    assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-    return getOptionName(option) + getValueString(Policy);
-  }
   }];
 
-  
   let Documentation = [LoopHintDocs, UnrollHintDocs];
 }
 

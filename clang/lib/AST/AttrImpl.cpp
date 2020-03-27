@@ -16,22 +16,30 @@
 #include "clang/AST/Type.h"
 using namespace clang;
 
-void LoopHintAttr::printPrettyPragma(raw_ostream &OS,
-                                     const PrintingPolicy &Policy) const {
+
+
+
+void LoopHintAttr:: printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
   unsigned SpellingIndex = getAttributeSpellingListIndex();
-  // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
-  // "nounroll" is already emitted as the pragma name.
-  if (SpellingIndex == Pragma_nounroll ||
-      SpellingIndex == Pragma_nounroll_and_jam)
+  if (SpellingIndex == Pragma_nounroll) {
+    OS << "nounroll";
     return;
-  else if (SpellingIndex == Pragma_unroll ||
-           SpellingIndex == Pragma_unroll_and_jam) {
-    OS << ' ' << getValueString(Policy);
+  }
+  else if (SpellingIndex == Pragma_nounroll_and_jam) {
+    OS << "nounroll_and_jam";
+    return;
+  }
+  else if (SpellingIndex == Pragma_unroll) {
+    OS << "unroll " << getValueString(Policy);
+    return;
+  }
+  else if (SpellingIndex == Pragma_unroll_and_jam) {
+    OS << "unroll_and_jam " << getValueString(Policy);
     return;
   }
 
   assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-  OS << ' ' << getOptionName(option) << getValueString(Policy);
+  OS << "clang loop " << getOptionName(option) << getValueString(Policy);
 }
 
 // Return a string containing the loop hint argument including the
@@ -54,20 +62,19 @@ std::string LoopHintAttr::getValueString(const PrintingPolicy &Policy) const {
   return OS.str();
 }
 
+
 // Return a string suitable for identifying this attribute in diagnostics.
-std::string
-LoopHintAttr::getDiagnosticName(const PrintingPolicy &Policy) const {
+std::string LoopHintAttr::getDiagnosticName(const PrintingPolicy &Policy) const {
   unsigned SpellingIndex = getAttributeSpellingListIndex();
   if (SpellingIndex == Pragma_nounroll)
     return "#pragma nounroll";
   else if (SpellingIndex == Pragma_unroll)
-    return "#pragma unroll" +
-           (option == UnrollCount ? getValueString(Policy) : "");
+    return "#pragma unroll" + (option == UnrollCount ? getValueString(Policy) : "");
   else if (SpellingIndex == Pragma_nounroll_and_jam)
     return "#pragma nounroll_and_jam";
   else if (SpellingIndex == Pragma_unroll_and_jam)
     return "#pragma unroll_and_jam" +
-           (option == UnrollAndJamCount ? getValueString(Policy) : "");
+    (option == UnrollAndJamCount ? getValueString(Policy) : "");
 
   assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
   return getOptionName(option) + getValueString(Policy);
