@@ -617,7 +617,7 @@ static void collectTupleInfos(isl::space Space, isl::space Model,
 TupleNest::TupleNest(isl::set Ref, StringRef ModelStr) : Ref(Ref) {
   auto Ctx = Ref.get_ctx();
 
-  auto Model = isl::set(Ctx, ModelStr).get_space();
+  auto Model = isl::set(Ctx, ModelStr.str()).get_space();
   assert(!Model.is_null());
   collectTupleInfos(Ref.get_space(), Model, Tuples, this, 0);
 }
@@ -625,7 +625,7 @@ TupleNest::TupleNest(isl::set Ref, StringRef ModelStr) : Ref(Ref) {
 TupleNest::TupleNest(isl::map RefMap, StringRef ModelStr) : Ref(RefMap.wrap()) {
   auto Ctx = Ref.get_ctx();
 
-  auto Model = isl::map(Ctx, ModelStr).get_space();
+  auto Model = isl::map(Ctx, ModelStr.str()).get_space();
   assert(!Model.is_null());
   collectTupleInfos(RefMap.get_space(), Model, Tuples, this, 0);
 }
@@ -838,14 +838,14 @@ static SpaceRef *
 makeSpaceRef(const TupleNest &Nest, StringRef ModelStr,
              llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
   auto Ctx = Nest.Ref.get_ctx();
-  auto Model = isl::set(Ctx, ModelStr).get_space();
+  auto Model = isl::set(Ctx, ModelStr.str()).get_space();
   return makeSpaceRef(Nest, ModelStr, ToFree);
 }
 
 isl::set polly::rebuildSetNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
   auto Ctx = Nest.Ref.get_ctx();
-  auto NewModel = isl::set(Ctx, NewModelStr).get_space();
+  auto NewModel = isl::set(Ctx, NewModelStr.str()).get_space();
   assert(NewModel.is_set());
 
   SmallVector<std::unique_ptr<SpaceRef>, 16> ToFree;
@@ -856,7 +856,7 @@ isl::set polly::rebuildSetNesting(const TupleNest &Nest,
 isl::map polly::rebuildMapNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
   auto Ctx = Nest.Ref.get_ctx();
-  auto NewModel = isl::map(Ctx, NewModelStr).get_space();
+  auto NewModel = isl::map(Ctx, NewModelStr.str()).get_space();
   assert(NewModel.is_map());
 
   SmallVector<std::unique_ptr<SpaceRef>, 16> ToFree;

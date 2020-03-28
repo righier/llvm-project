@@ -784,7 +784,7 @@ isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
 
   BandAttr *Attr = new BandAttr();
   Attr->OriginalLoop = L;
-  Attr->LoopName = LoopName;
+  Attr->LoopName = LoopName.str();
   Attr->Metadata = LoopID; // FIXME: Set this? LoopID is not unique
 
   // Attr->OriginalLoopID = L->getLoopID();

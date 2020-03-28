@@ -66,7 +66,7 @@ int main() {
 
 // TRANS-LABEL: @pragma_id_interchange
 // TRANS: %polly.indvar.us = phi
-// TRANS: %polly.indvar72.us = phi
+// TRANS: %polly.indvar71.us = phi
 
 
 // RESULT: (45)

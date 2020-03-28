@@ -1966,7 +1966,7 @@ public:
     assert(!Name.empty());
 
     LoopIdentification Result;
-    Result.ByName = Name;
+    Result.ByName = Name.str();
     return Result;
   }
 
@@ -2014,7 +2014,7 @@ static bool operator==(const LoopIdentification &LHS,
 }
 
 isl::id getIslTransformedId(isl::ctx Ctx, MDNode *Transform, StringRef Name) {
-  return isl::id::alloc(Ctx, Name, Transform);
+  return isl::id::alloc(Ctx, Name.str(), Transform);
 }
 
 class LoopNestTransformation {
@@ -2182,7 +2182,7 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
   if (GivenName.empty())
     GivenName =
         TransName; // TODO: Don't use trans name as LoopName, but as label
-  Attr->LoopName = GivenName;
+  Attr->LoopName = GivenName.str();
   Attr->Metadata = FollowupLoopMD;
   // TODO: Inherit properties if 'FollowupLoopMD' (followup) is not used
   // TODO: Set followup MDNode
@@ -4780,10 +4780,10 @@ applyArrayPacking(MDNode *LoopMD, isl::schedule_node LoopToPack, Function *F,
 
   isl::set IslSize;
   if (!IslSizeStr.empty())
-    IslSize = isl::set(Ctx, IslSizeStr);
+    IslSize = isl::set(Ctx, IslSizeStr.str());
   isl::map IslRedirect;
   if (!IslRedirectStr.empty())
-    IslRedirect = isl::map(Ctx, IslRedirectStr);
+    IslRedirect = isl::map(Ctx, IslRedirectStr.str());
 
   SmallVector<Instruction *, 32> AccInsts;
   collectAccessInstList(AccInsts, AccMDs, *F);

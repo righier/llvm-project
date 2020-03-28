@@ -66,10 +66,10 @@ int main() {
 // AST:   {  /* original code */ }
 
 
-// TRANS:  %polly.indvar = phi i64 [ 0, %polly.loop_preheader ], [ %polly.indvar_next, %polly.loop_exit37 ]
-// TRANS:  %polly.indvar39.us = phi i64 [ %polly.indvar_next40.us, %polly.loop_exit45.loopexit.us ], [ 0, %polly.loop_header35.preheader ]
-// TRANS:  %polly.indvar47.us.us = phi i64 [ %polly.indvar_next48.us.us, %polly.loop_exit53.loopexit.us.us ], [ 0, %polly.loop_header35.us ]
-// TRANS:  %polly.indvar55.us.us = phi i64 [ %polly.indvar_next56.us.us, %polly.loop_header51.us.us ], [ 0, %polly.loop_header43.us.us ]
+// TRANS:  %polly.indvar =  phi i64 [ %polly.indvar_next, %polly.loop_exit36 ], [ 0, %polly.loop_preheader ]
+// TRANS:  %indvars.iv = phi i64 [ %indvars.iv.next, %polly.loop_exit44.loopexit.us ], [ %20, %polly.loop_header34.preheader ]
+// TRANS:  %polly.indvar46.us.us = phi i64 [ %polly.indvar_next47.us.us, %polly.loop_exit52.loopexit.us.us ], [ 0, %polly.loop_header34.us ]
+// TRANS:  %polly.indvar54.us.us = phi i64 [ %polly.indvar_next55.us.us, %polly.loop_header50.us.us ], [ 0, %polly.loop_header42.us.us ]
 
 
 // RESULT: (3)
