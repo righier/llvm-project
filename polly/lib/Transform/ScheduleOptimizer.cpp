@@ -5008,7 +5008,9 @@ struct FindDataLayout
                                                   isl::dim::param, isl::dim::in,
                                                   isl::dim::out, isl::dim::div);
           for (auto Z : BMap.get_constraint_list()) {
+#ifndef NDEBUG
             Z.dump();
+#endif
           }
         }
 
@@ -5620,8 +5622,6 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
   if (OptimizedScops)
     errs() << S;
-
-  S.dump();
 
   return false;
 }
