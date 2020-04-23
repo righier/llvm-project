@@ -3453,6 +3453,18 @@ collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
                         ArrayRef<Instruction *> Insts, Scop &S) {
   auto &R = S.getRegion();
 
+  DenseSet<Instruction*> InstSet;
+  InstSet.insert(Insts.begin(), Insts.end() );
+
+  for (auto &Stmt : S) {
+    for (auto *Acc : Stmt) {
+      if (InstSet.count(Acc->getAccessInstruction()))
+        MemAccs.push_back(Acc);
+    }
+  }
+
+  // S.getStmtFor(Inst) is unreliable
+#if 0
   for (auto Inst : Insts) {
     if (!R.contains(Inst))
       continue;
@@ -3465,6 +3477,7 @@ collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
     if (MemAcc)
       MemAccs.push_back(MemAcc);
   }
+#endif
 }
 
 static void collectMemAccsDomains(isl::schedule_node Node,
