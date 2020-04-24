@@ -456,6 +456,8 @@ CodeGenFunction::EmitCompoundStmtWithoutScope(const CompoundStmt &S,
 }
 
 void CodeGenFunction::SimplifyForwardingBlocks(llvm::BasicBlock *BB) {
+  // Disable: It may remove loop header that LoopInfo may want to attach metadata to.
+  return;
   llvm::BranchInst *BI = dyn_cast<llvm::BranchInst>(BB->getTerminator());
 
   // If there is a cleanup stack, then we it isn't worth trying to

@@ -307,7 +307,7 @@ private:
   llvm::TempMDTuple TempLoopID;
 
   /// Header block of this loop.
-  llvm::BasicBlock *Header;
+  llvm::BasicBlock *Header = nullptr;
   /// The attributes for this loop.
   LoopAttributes Attrs;
   /// The access group for memory accesses parallel to this loop.
@@ -454,7 +454,7 @@ class LoopInfoStack {
 
 public:
   LoopInfoStack(llvm::LLVMContext &Ctx, CodeGenFunction &CGF)
-      : Ctx(Ctx), CGF(CGF) {}
+      : CGF(CGF), Ctx(Ctx) {}
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.

@@ -1100,9 +1100,9 @@ MDNode *VirtualLoopInfo ::makeLoopID(llvm::LLVMContext &Ctx) {
 LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
                               const llvm::DebugLoc &StartLoc,
                               const llvm::DebugLoc &EndLoc) {
+  assert(Header);
   auto *Parent = Active.empty() ? nullptr : Active.back();
-  auto NewLoop =
-      new LoopInfo(Header, F, &CGF, StagedAttrs, StartLoc, EndLoc, Parent);
+  auto NewLoop = new LoopInfo(Header, F, &CGF, StagedAttrs, StartLoc, EndLoc, Parent);
   if (Parent)
     Parent->addSubloop(NewLoop);
   OriginalLoops.push_back(NewLoop);
