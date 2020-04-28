@@ -58,7 +58,7 @@ int main() {
 // AST: if (1
 // AST:   for (int c0 = 0; c0 < n; c0 += 1) {
 // AST: 	for (int c1 = 0; c1 < m; c1 += 1)
-// AST: 		Stmt_for_body4_us(c1, c0);
+// AST: 		Stmt_for_body4(c1, c0);
 // AST:   }
 // AST: else
 // AST:   {  /* original code */ }
@@ -66,7 +66,7 @@ int main() {
 
 // TRANS-LABEL: @pragma_id_interchange
 // TRANS: %polly.indvar.us = phi
-// TRANS: %polly.indvar71.us = phi
+// TRANS: %polly.indvar70.us = phi
 
 
 // RESULT: (45)

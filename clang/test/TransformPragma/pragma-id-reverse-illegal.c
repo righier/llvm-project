@@ -41,11 +41,7 @@ void pragma_id_reverse(double *A, int N) {
 
 
 // AST: if (1)
-// AST: {
-// AST: 	if (p_0 >= 2)
-// AST: 		Stmt1();
-// AST: 	for (int c0 = 0; c0 < p_0 - 1; c0 += 1)
-// AST: 		Stmt2(c0);
-// AST: }
+// AST:     for (int c0 = 0; c0 < p_0 - 1; c0 += 1)
+// AST:       Stmt2(c0);
 // AST: else
 // AST: {  /* original code */ }

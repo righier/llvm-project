@@ -58,7 +58,7 @@ int main() {
 // AST:     for (int c1 = 0; c1 <= floord(p_1 - 1, 16); c1 += 1) {
 // AST:       for (int c2 = 0; c2 <= min(31, p_0 - 32 * c0 - 1); c2 += 1) {
 // AST:         for (int c3 = 0; c3 <= min(15, p_1 - 16 * c1 - 1); c3 += 1)
-// AST:           Stmt3(32 * c0 + c2, 16 * c1 + c3);
+// AST:           Stmt4(32 * c0 + c2, 16 * c1 + c3);
 // AST:       }
 // AST:     }
 // AST:   }
@@ -66,10 +66,10 @@ int main() {
 // AST:   {  /* original code */ }
 
 
-// TRANS:  %polly.indvar =  phi i64 [ %polly.indvar_next, %polly.loop_exit36 ], [ 0, %polly.loop_preheader ]
-// TRANS:  %indvars.iv = phi i64 [ %indvars.iv.next, %polly.loop_exit44.loopexit.us ], [ %20, %polly.loop_header34.preheader ]
-// TRANS:  %polly.indvar46.us.us = phi i64 [ %polly.indvar_next47.us.us, %polly.loop_exit52.loopexit.us.us ], [ 0, %polly.loop_header34.us ]
-// TRANS:  %polly.indvar54.us.us = phi i64 [ %polly.indvar_next55.us.us, %polly.loop_header50.us.us ], [ 0, %polly.loop_header42.us.us ]
+// TRANS:  %polly.indvar = phi
+// TRANS:  %indvars.iv = phi
+// TRANS:  %polly.indvar45.us.us = phi
+// TRANS:  %polly.indvar53.us.us
 
 
 // RESULT: (3)

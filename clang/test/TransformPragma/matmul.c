@@ -78,7 +78,7 @@ int main() {
 // AST:             for (int c3 = 0; c3 <= min(2047, N - 2048 * c0 - 1); c3 += 1) {
 // AST:               for (int c4 = 0; c4 <= min(95, M - 96 * c2 - 1); c4 += 1) {
 // AST:                 for (int c5 = 0; c5 <= min(255, K - 256 * c1 - 1); c5 += 1)
-// AST:                   Stmt_for_body8_us_us(96 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
+// AST:                   Stmt_for_body8(96 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
 // AST:               }
 // AST:             }
 // AST:           }
@@ -90,9 +90,9 @@ int main() {
 
 
 // TRANS: %malloccall = tail call dereferenceable_or_null(196608) i8* @malloc(i64 196608)
-// TRANS: %malloccall88 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304)
+// TRANS: %malloccall60 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304)
 // TRANS: tail call void @free(i8* %malloccall)
-// TRANS: tail call void @free(i8* %malloccall88)
+// TRANS: tail call void @free(i8* %malloccall60)
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
 

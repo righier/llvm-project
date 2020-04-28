@@ -12,4 +12,4 @@ void pragma_id_interchange(int n, int m, double C[m][n]) {
 
 // CHECK:      for (int c0 = 0; c0 < p_0 + p_1 - 1; c0 += 1)
 // CHECK-NEXT:   for (int c1 = max(0, -p_1 + c0 + 1); c1 <= min(p_0 - 1, c0); c1 += 1)
-// CHECK-NEXT:     Stmt3(c1, c0 - c1);
+// CHECK-NEXT:     Stmt4(c1, c0 - c1);

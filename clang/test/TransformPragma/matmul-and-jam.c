@@ -90,38 +90,38 @@ int main() {
 // AST: 						for (int c4 = 0; c4 <= 63; c4 += 4) {
 // AST: 							// Loop: jammed
 // AST: 							for (int c5 = 0; c5 <= 255; c5 += 1) {
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 1, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 2, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8_us_us(64 * c2 + c4 + 3, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 7, 256 * c1 + c5);
 // AST: 							}
 // AST: 						}
 // AST: 					}
@@ -135,20 +135,20 @@ int main() {
 // AST: 				for (int c3 = 0; c3 <= 63; c3 += 1)
 // AST: 					for (int c4 = 0; c4 <= 2047; c4 += 1)
 // AST: 						for (int c5 = 0; c5 < K % 256; c5 += 1)
-// AST: 							Stmt_for_body8_us_us_clone(64 * c0 + c3, 2048 * c1 + c4, -(K % 256) + K + c5);
+// AST: 							Stmt_for_body8_clone(64 * c0 + c3, 2048 * c1 + c4, -(K % 256) + K + c5);
 // AST: 	} else if (N >= 1 && K >= 1 && N % 2048 >= 1) {
 // AST: 		for (int c0 = 0; c0 < floord(M, 64); c0 += 1) {
 // AST: 			for (int c1 = 0; c1 < floord(N, 2048); c1 += 1)
 // AST: 				for (int c3 = 0; c3 <= 63; c3 += 1)
 // AST: 					for (int c4 = 0; c4 <= 2047; c4 += 1)
 // AST: 						for (int c5 = 0; c5 < K % 256; c5 += 1)
-// AST: 							Stmt_for_body8_us_us_clone(64 * c0 + c3, 2048 * c1 + c4, -(K % 256) + K + c5);
+// AST: 							Stmt_for_body8_clone(64 * c0 + c3, 2048 * c1 + c4, -(K % 256) + K + c5);
 // AST: 			for (int c2 = 0; c2 <= floord(K - 1, 256); c2 += 1)
 // AST: 				for (int c3 = 0; c3 <= 63; c3 += 1)
 // AST: 					for (int c4 = 0; c4 <= 2046; c4 += 1)
 // AST: 						if (N % 2048 >= c4 + 1)
 // AST: 							for (int c5 = 0; c5 <= min(255, K - 256 * c2 - 1); c5 += 1)
-// AST: 								Stmt_for_body8_us_us_clone(64 * c0 + c3, -(N % 2048) + N + c4, 256 * c2 + c5);
+// AST: 								Stmt_for_body8_clone(64 * c0 + c3, -(N % 2048) + N + c4, 256 * c2 + c5);
 // AST: 		}
 // AST: 	}
 // AST: 	if (M >= 1 && M % 64 >= 1)
@@ -158,54 +158,54 @@ int main() {
 // AST: 					if (M % 64 >= c3 + 1)
 // AST: 						for (int c4 = 0; c4 <= min(2047, N - 2048 * c1 - 1); c4 += 1)
 // AST: 							for (int c5 = 0; c5 <= min(255, K - 256 * c2 - 1); c5 += 1)
-// AST: 								Stmt_for_body8_us_us_clone(-(M % 64) + M + c3, 2048 * c1 + c4, 256 * c2 + c5);
+// AST: 								Stmt_for_body8_clone(-(M % 64) + M + c3, 2048 * c1 + c4, 256 * c2 + c5);
 // AST: }
 // AST: else
 // AST: 	{  /* original code */ }
 
 
 // TRANS: %malloccall = tail call dereferenceable_or_null(131072) i8* @malloc(i64 131072)
-// TRANS: %malloccall88 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304)
+// TRANS: %malloccall60 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304) #2
 // TRANS: tail call void @free(i8* %malloccall)
-// TRANS: tail call void @free(i8* %malloccall88)
+// TRANS: tail call void @free(i8* %malloccall60)
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
-// TRANS: store double %p_add.us.us
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
 
 
 // RESULT: (31)

@@ -57,7 +57,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // AST: if (
 // AST:   for (int c0 = 0; c0 < p_0; c0 += 1) {
 // AST: 	for (int c1 = 0; c1 < p_1; c1 += 1)
-// AST: 		Stmt3(c0, c1);
+// AST: 		Stmt4(c0, c1);
 // AST:   }
 // AST: else
 // AST:   {  /* original code */ }
