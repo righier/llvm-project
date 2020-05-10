@@ -1339,6 +1339,16 @@ def err_pragma_loop_invalid_option : Error<
   "vectorize_width, interleave, interleave_count, unroll, unroll_count, "
   "pipeline, pipeline_initiation_interval, vectorize_predicate, or distribute">;
 
+// Pragma transform support.
+def err_pragma_transform : Error<
+  "transform directive parse error">;
+def warn_pragma_transform : Warning<
+  "transform directive parse warning">;
+def err_pragma_transform_unknown_directive : Error<
+  "expected a transformation">;
+def err_pragma_transform_unexpected_directive : Error<
+  "unexpected transform directive %select{|'#pragma clang transform %1'}0">;
+
 def err_pragma_fp_invalid_option : Error<
   "%select{invalid|missing}0 option%select{ %1|}0; expected 'contract' or 'reassociate'">;
 def err_pragma_fp_invalid_argument : Error<
