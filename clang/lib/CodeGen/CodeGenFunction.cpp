@@ -67,7 +67,8 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
               CGBuilderInserterTy(this)),
       SanOpts(CGM.getLangOpts().Sanitize), DebugInfo(CGM.getModuleDebugInfo()),
       PGO(cgm), ShouldEmitLifetimeMarkers(shouldEmitLifetimeMarkers(
-                    CGM.getCodeGenOpts(), CGM.getLangOpts())) {
+                    CGM.getCodeGenOpts(), CGM.getLangOpts())),
+      LoopStack(cgm.getLLVMContext(), *this) {
   if (!suppressNewContext)
     CGM.getCXXABI().getMangleContext().startNewFunction();
 
@@ -113,6 +114,8 @@ CodeGenFunction::~CodeGenFunction() {
   // been "emitted" to the outside, thus, modifications are still sensible.
   if (llvm::OpenMPIRBuilder *OMPBuilder = CGM.getOpenMPIRBuilder())
     OMPBuilder->finalize();
+
+  LoopStack.finish();
 }
 
 // Map the LangOption for exception behavior into
