@@ -22,11 +22,6 @@ using namespace object;
 namespace {
 
 class XCOFFDumper : public ObjDumper {
-  enum {
-    SymbolTypeMask = 0x07,
-    SymbolAlignmentMask = 0xF8,
-    SymbolAlignmentBitOffset = 3
-  };
 
 public:
   XCOFFDumper(const XCOFFObjectFile &Obj, ScopedPrinter &Writer)
@@ -49,13 +44,6 @@ private:
   void printCsectAuxEnt32(const XCOFFCsectAuxEnt32 *AuxEntPtr);
   void printSectAuxEntForStat(const XCOFFSectAuxEntForStat *AuxEntPtr);
   void printSymbol(const SymbolRef &);
-
-  // Least significant 3 bits are reserved.
-  static constexpr unsigned SectionFlagsReservedMask = 0x7;
-
-  // The low order 16 bits of section flags denotes the section type.
-  static constexpr unsigned SectionFlagsTypeMask = 0xffffu;
-
   void printRelocations(ArrayRef<XCOFFSectionHeader32> Sections);
   const XCOFFObjectFile &Obj;
 };
@@ -218,17 +206,15 @@ void XCOFFDumper::printCsectAuxEnt32(const XCOFFCsectAuxEnt32 *AuxEntPtr) {
   DictScope SymDs(W, "CSECT Auxiliary Entry");
   W.printNumber("Index",
                 Obj.getSymbolIndex(reinterpret_cast<uintptr_t>(AuxEntPtr)));
-  if ((AuxEntPtr->SymbolAlignmentAndType & SymbolTypeMask) == XCOFF::XTY_LD)
+  if (AuxEntPtr->isLabel())
     W.printNumber("ContainingCsectSymbolIndex", AuxEntPtr->SectionOrLength);
   else
     W.printNumber("SectionLen", AuxEntPtr->SectionOrLength);
   W.printHex("ParameterHashIndex", AuxEntPtr->ParameterHashIndex);
   W.printHex("TypeChkSectNum", AuxEntPtr->TypeChkSectNum);
   // Print out symbol alignment and type.
-  W.printNumber("SymbolAlignmentLog2",
-                (AuxEntPtr->SymbolAlignmentAndType & SymbolAlignmentMask) >>
-                    SymbolAlignmentBitOffset);
-  W.printEnum("SymbolType", AuxEntPtr->SymbolAlignmentAndType & SymbolTypeMask,
+  W.printNumber("SymbolAlignmentLog2", AuxEntPtr->getAlignmentLog2());
+  W.printEnum("SymbolType", AuxEntPtr->getSymbolType(),
               makeArrayRef(CsectSymbolTypeClass));
   W.printEnum("StorageMappingClass",
               static_cast<uint8_t>(AuxEntPtr->StorageMappingClass),
@@ -496,8 +482,7 @@ void XCOFFDumper::printSectionHeaders(ArrayRef<T> Sections) {
     DictScope SecDS(W, "Section");
 
     W.printNumber("Index", Index++);
-
-    uint16_t SectionType = Sec.Flags & SectionFlagsTypeMask;
+    uint16_t SectionType = Sec.getSectionType();
     switch (SectionType) {
     case XCOFF::STYP_OVRFLO:
       printOverflowSectionHeader(Sec);
@@ -513,8 +498,7 @@ void XCOFFDumper::printSectionHeaders(ArrayRef<T> Sections) {
       printGenericSectionHeader(Sec);
       break;
     }
-    // For now we just dump the section type portion of the flags.
-    if (SectionType & SectionFlagsReservedMask)
+    if (Sec.isReservedSectionType())
       W.printHex("Flags", "Reserved", SectionType);
     else
       W.printEnum("Type", SectionType, makeArrayRef(SectionTypeFlagsNames));

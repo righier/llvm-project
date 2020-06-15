@@ -1,4 +1,4 @@
-//===-- TestObjectFileELF.cpp -----------------------------------*- C++ -*-===//
+//===-- TestObjectFileELF.cpp ---------------------------------------------===//
 //
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -9,6 +9,7 @@
 
 #include "Plugins/ObjectFile/ELF/ObjectFileELF.h"
 #include "Plugins/SymbolFile/Symtab/SymbolFileSymtab.h"
+#include "TestingSupport/SubsystemRAII.h"
 #include "TestingSupport/TestUtilities.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -29,22 +30,8 @@ using namespace lldb_private;
 using namespace lldb;
 
 class ObjectFileELFTest : public testing::Test {
-public:
-  void SetUp() override {
-    FileSystem::Initialize();
-    HostInfo::Initialize();
-    ObjectFileELF::Initialize();
-    SymbolFileSymtab::Initialize();
-  }
-
-  void TearDown() override {
-    SymbolFileSymtab::Terminate();
-    ObjectFileELF::Terminate();
-    HostInfo::Terminate();
-    FileSystem::Terminate();
-  }
-
-protected:
+  SubsystemRAII<FileSystem, HostInfo, ObjectFileELF, SymbolFileSymtab>
+      subsystems;
 };
 
 TEST_F(ObjectFileELFTest, SectionsResolveConsistently) {
@@ -169,7 +156,7 @@ TEST_F(ObjectFileELFTest, GetModuleSpecifications_EarlySectionHeaders) {
   ModuleSpec Spec;
   ASSERT_TRUE(Specs.GetModuleSpecAtIndex(0, Spec)) ;
   UUID Uuid;
-  Uuid.SetFromStringRef("1b8a73ac238390e32a7ff4ac8ebe4d6a41ecf5c9", 20);
+  Uuid.SetFromStringRef("1b8a73ac238390e32a7ff4ac8ebe4d6a41ecf5c9");
   EXPECT_EQ(Spec.GetUUID(), Uuid);
 }
 

@@ -10,12 +10,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Serialization/GlobalModuleIndex.h"
 #include "ASTReaderInternals.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Serialization/ASTBitCodes.h"
-#include "clang/Serialization/GlobalModuleIndex.h"
-#include "clang/Serialization/Module.h"
+#include "clang/Serialization/ModuleFile.h"
 #include "clang/Serialization/PCHContainerOperations.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -125,16 +125,17 @@ typedef llvm::OnDiskIterableChainedHashTable<IdentifierIndexReaderTrait>
 
 }
 
-GlobalModuleIndex::GlobalModuleIndex(std::unique_ptr<llvm::MemoryBuffer> Buffer,
-                                     llvm::BitstreamCursor Cursor)
-    : Buffer(std::move(Buffer)), IdentifierIndex(), NumIdentifierLookups(),
+GlobalModuleIndex::GlobalModuleIndex(
+    std::unique_ptr<llvm::MemoryBuffer> IndexBuffer,
+    llvm::BitstreamCursor Cursor)
+    : Buffer(std::move(IndexBuffer)), IdentifierIndex(), NumIdentifierLookups(),
       NumIdentifierLookupHits() {
-  auto Fail = [&Buffer](llvm::Error &&Err) {
+  auto Fail = [&](llvm::Error &&Err) {
     report_fatal_error("Module index '" + Buffer->getBufferIdentifier() +
                        "' failed: " + toString(std::move(Err)));
   };
 
-  llvm::TimeTraceScope TimeScope("Module LoadIndex", StringRef(""));
+  llvm::TimeTraceScope TimeScope("Module LoadIndex");
   // Read the global index.
   bool InGlobalIndexBlock = false;
   bool Done = false;
@@ -642,10 +643,10 @@ llvm::Error GlobalModuleIndexBuilder::loadModuleFile(const FileEntry *File) {
 
         // Skip the stored signature.
         // FIXME: we could read the signature out of the import and validate it.
-        ASTFileSignature StoredSignature = {
-            {{(uint32_t)Record[Idx++], (uint32_t)Record[Idx++],
-              (uint32_t)Record[Idx++], (uint32_t)Record[Idx++],
-              (uint32_t)Record[Idx++]}}};
+        auto FirstSignatureByte = Record.begin() + Idx;
+        ASTFileSignature StoredSignature = ASTFileSignature::create(
+            FirstSignatureByte, FirstSignatureByte + ASTFileSignature::size);
+        Idx += ASTFileSignature::size;
 
         // Skip the module name (currently this is only used for prebuilt
         // modules while here we are only dealing with cached).
@@ -703,9 +704,8 @@ llvm::Error GlobalModuleIndexBuilder::loadModuleFile(const FileEntry *File) {
 
     // Get Signature.
     if (State == DiagnosticOptionsBlock && Code == SIGNATURE)
-      getModuleFileInfo(File).Signature = {
-          {{(uint32_t)Record[0], (uint32_t)Record[1], (uint32_t)Record[2],
-            (uint32_t)Record[3], (uint32_t)Record[4]}}};
+      getModuleFileInfo(File).Signature = ASTFileSignature::create(
+          Record.begin(), Record.begin() + ASTFileSignature::size);
 
     // We don't care about this record.
   }
@@ -770,7 +770,7 @@ bool GlobalModuleIndexBuilder::writeIndex(llvm::BitstreamWriter &Stream) {
   }
 
   using namespace llvm;
-  llvm::TimeTraceScope TimeScope("Module WriteIndex", StringRef(""));
+  llvm::TimeTraceScope TimeScope("Module WriteIndex");
 
   // Emit the file header.
   Stream.Emit((unsigned)'B', 8);

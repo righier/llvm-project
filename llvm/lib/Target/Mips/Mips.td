@@ -54,22 +54,6 @@ class AdditionalRequires<list<Predicate> preds> {
 }
 
 //===----------------------------------------------------------------------===//
-// Register File, Calling Conv, Instruction Descriptions
-//===----------------------------------------------------------------------===//
-
-include "MipsRegisterInfo.td"
-include "MipsSchedule.td"
-include "MipsInstrInfo.td"
-include "MipsCallingConv.td"
-include "MipsRegisterBanks.td"
-
-// Avoid forward declaration issues.
-include "MipsScheduleP5600.td"
-include "MipsScheduleGeneric.td"
-
-def MipsInstrInfo : InstrInfo;
-
-//===----------------------------------------------------------------------===//
 // Mips Subtarget features                                                    //
 //===----------------------------------------------------------------------===//
 
@@ -177,6 +161,8 @@ def FeatureDSPR3
     : SubtargetFeature<"dspr3", "HasDSPR3", "true", "Mips DSP-R3 ASE",
                        [ FeatureDSP, FeatureDSPR2 ]>;
 
+def FeatureMips3D : SubtargetFeature<"mips3d", "Has3D", "true", "Mips 3D ASE">;
+
 def FeatureMSA : SubtargetFeature<"msa", "HasMSA", "true", "Mips MSA ASE">;
 
 def FeatureEVA : SubtargetFeature<"eva", "HasEVA", "true", "Mips EVA ASE">;
@@ -195,6 +181,10 @@ def FeatureMicroMips  : SubtargetFeature<"micromips", "InMicroMipsMode", "true",
 def FeatureCnMips : SubtargetFeature<"cnmips", "HasCnMips",
                                      "true", "Octeon cnMIPS Support",
                                      [FeatureMips64r2]>;
+
+def FeatureCnMipsP : SubtargetFeature<"cnmipsp", "HasCnMipsP",
+                                      "true", "Octeon+ cnMIPS Support",
+                                      [FeatureCnMips]>;
 
 def FeatureUseTCCInDIV : SubtargetFeature<
                                "use-tcc-in-div",
@@ -217,6 +207,23 @@ def FeatureUseIndirectJumpsHazard : SubtargetFeature<"use-indirect-jump-hazard",
                                                     "UseIndirectJumpsHazard",
                                                     "true", "Use indirect jump"
                         " guards to prevent certain speculation based attacks">;
+
+//===----------------------------------------------------------------------===//
+// Register File, Calling Conv, Instruction Descriptions
+//===----------------------------------------------------------------------===//
+
+include "MipsRegisterInfo.td"
+include "MipsSchedule.td"
+include "MipsInstrInfo.td"
+include "MipsCallingConv.td"
+include "MipsRegisterBanks.td"
+
+// Avoid forward declaration issues.
+include "MipsScheduleP5600.td"
+include "MipsScheduleGeneric.td"
+
+def MipsInstrInfo : InstrInfo;
+
 //===----------------------------------------------------------------------===//
 // Mips processors supported.
 //===----------------------------------------------------------------------===//
@@ -228,6 +235,7 @@ def ImplP5600 : SubtargetFeature<"p5600", "ProcImpl",
 class Proc<string Name, list<SubtargetFeature> Features>
  : ProcessorModel<Name, MipsGenericModel, Features>;
 
+def : Proc<"generic", [FeatureMips32]>;
 def : Proc<"mips1", [FeatureMips1]>;
 def : Proc<"mips2", [FeatureMips2]>;
 def : Proc<"mips32", [FeatureMips32]>;
@@ -245,6 +253,7 @@ def : Proc<"mips64r3", [FeatureMips64r3]>;
 def : Proc<"mips64r5", [FeatureMips64r5]>;
 def : Proc<"mips64r6", [FeatureMips64r6]>;
 def : Proc<"octeon", [FeatureMips64r2, FeatureCnMips]>;
+def : Proc<"octeon+", [FeatureMips64r2, FeatureCnMips, FeatureCnMipsP]>;
 def : ProcessorModel<"p5600", MipsP5600Model, [ImplP5600]>;
 
 def MipsAsmParser : AsmParser {

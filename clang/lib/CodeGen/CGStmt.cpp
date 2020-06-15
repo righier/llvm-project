@@ -10,19 +10,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CodeGenFunction.h"
 #include "CGDebugInfo.h"
+#include "CGOpenMPRuntime.h"
+#include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -221,6 +225,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::OMPParallelForSimdDirectiveClass:
     EmitOMPParallelForSimdDirective(cast<OMPParallelForSimdDirective>(*S));
     break;
+  case Stmt::OMPParallelMasterDirectiveClass:
+    EmitOMPParallelMasterDirective(cast<OMPParallelMasterDirective>(*S));
+    break;
   case Stmt::OMPParallelSectionsDirectiveClass:
     EmitOMPParallelSectionsDirective(cast<OMPParallelSectionsDirective>(*S));
     break;
@@ -241,6 +248,12 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     break;
   case Stmt::OMPFlushDirectiveClass:
     EmitOMPFlushDirective(cast<OMPFlushDirective>(*S));
+    break;
+  case Stmt::OMPDepobjDirectiveClass:
+    EmitOMPDepobjDirective(cast<OMPDepobjDirective>(*S));
+    break;
+  case Stmt::OMPScanDirectiveClass:
+    EmitOMPScanDirective(cast<OMPScanDirective>(*S));
     break;
   case Stmt::OMPOrderedDirectiveClass:
     EmitOMPOrderedDirective(cast<OMPOrderedDirective>(*S));
@@ -558,8 +571,7 @@ void CodeGenFunction::EmitLabel(const LabelDecl *D) {
 
   // Emit debug info for labels.
   if (CGDebugInfo *DI = getDebugInfo()) {
-    if (CGM.getCodeGenOpts().getDebugInfo() >=
-        codegenoptions::LimitedDebugInfo) {
+    if (CGM.getCodeGenOpts().hasReducedDebugInfo()) {
       DI->setLocation(D->getLocation());
       DI->EmitLabel(D, Builder);
     }
@@ -598,6 +610,13 @@ void CodeGenFunction::EmitLabelStmt(const LabelStmt &S) {
 }
 
 void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
+  bool nomerge = false;
+  for (const auto *A : S.getAttrs())
+    if (A->getKind() == attr::NoMerge) {
+      nomerge = true;
+      break;
+    }
+  SaveAndRestore<bool> save_nomerge(InNoMergeAttributedStmt, nomerge);
   EmitStmt(S.getSubStmt(), S.getAttrs());
 }
 
@@ -718,8 +737,8 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   EmitBlock(LoopHeader.getBlock());
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), WhileAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(),
+                 WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
   // Create an exit block for when the condition fails, which will
@@ -820,7 +839,7 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   EmitBlock(LoopCond.getBlock());
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopBody, CGM.getContext(), DoAttrs,
+  LoopStack.push(LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
@@ -878,7 +897,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   EmitBlock(CondBlock);
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), ForAttrs,
+  LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
@@ -979,7 +998,7 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   EmitBlock(CondBlock);
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), ForAttrs,
+  LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
@@ -1051,6 +1070,19 @@ void CodeGenFunction::EmitReturnOfRValue(RValue RV, QualType Ty) {
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
+namespace {
+// RAII struct used to save and restore a return statment's result expression.
+struct SaveRetExprRAII {
+  SaveRetExprRAII(const Expr *RetExpr, CodeGenFunction &CGF)
+      : OldRetExpr(CGF.RetExpr), CGF(CGF) {
+    CGF.RetExpr = RetExpr;
+  }
+  ~SaveRetExprRAII() { CGF.RetExpr = OldRetExpr; }
+  const Expr *OldRetExpr;
+  CodeGenFunction &CGF;
+};
+} // namespace
+
 /// EmitReturnStmt - Note that due to GCC extensions, this can have an operand
 /// if the function returns void, or may be missing one if the function returns
 /// non-void.  Fun stuff :).
@@ -1076,20 +1108,29 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   // Emit the result value, even if unused, to evaluate the side effects.
   const Expr *RV = S.getRetValue();
 
-  // Treat block literals in a return expression as if they appeared
-  // in their own scope.  This permits a small, easily-implemented
-  // exception to our over-conservative rules about not jumping to
-  // statements following block literals with non-trivial cleanups.
+  // Record the result expression of the return statement. The recorded
+  // expression is used to determine whether a block capture's lifetime should
+  // end at the end of the full expression as opposed to the end of the scope
+  // enclosing the block expression.
+  //
+  // This permits a small, easily-implemented exception to our over-conservative
+  // rules about not jumping to statements following block literals with
+  // non-trivial cleanups.
+  SaveRetExprRAII SaveRetExpr(RV, *this);
+
   RunCleanupsScope cleanupScope(*this);
-  if (const FullExpr *fe = dyn_cast_or_null<FullExpr>(RV)) {
-    enterFullExpression(fe);
+  if (const FullExpr *fe = dyn_cast_or_null<FullExpr>(RV))
     RV = fe->getSubExpr();
-  }
 
   // FIXME: Clean this up by using an LValue for ReturnTemp,
   // EmitStoreThroughLValue, and EmitAnyExpr.
-  if (getLangOpts().ElideConstructors &&
-      S.getNRVOCandidate() && S.getNRVOCandidate()->isNRVOVariable()) {
+  // Check if the NRVO candidate was not globalized in OpenMP mode.
+  if (getLangOpts().ElideConstructors && S.getNRVOCandidate() &&
+      S.getNRVOCandidate()->isNRVOVariable() &&
+      (!getLangOpts().OpenMP ||
+       !CGM.getOpenMPRuntime()
+            .getAddressOfLocalVariable(*this, S.getNRVOCandidate())
+            .isValid())) {
     // Apply the named return value optimization for this return statement,
     // which means doing nothing: the appropriate result has already been
     // constructed into the NRVO variable.
@@ -1834,15 +1875,15 @@ CodeGenFunction::EmitAsmInputLValue(const TargetInfo::ConstraintInfo &Info,
         Ty = llvm::IntegerType::get(getLLVMContext(), Size);
         Ty = llvm::PointerType::getUnqual(Ty);
 
-        Arg = Builder.CreateLoad(Builder.CreateBitCast(InputValue.getAddress(),
-                                                       Ty));
+        Arg = Builder.CreateLoad(
+            Builder.CreateBitCast(InputValue.getAddress(*this), Ty));
       } else {
-        Arg = InputValue.getPointer();
+        Arg = InputValue.getPointer(*this);
         ConstraintStr += '*';
       }
     }
   } else {
-    Arg = InputValue.getPointer();
+    Arg = InputValue.getPointer(*this);
     ConstraintStr += '*';
   }
 
@@ -2088,11 +2129,12 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
       // Update largest vector width for any vector types.
       if (auto *VT = dyn_cast<llvm::VectorType>(ResultRegTypes.back()))
-        LargestVectorWidth = std::max((uint64_t)LargestVectorWidth,
-                                   VT->getPrimitiveSizeInBits().getFixedSize());
+        LargestVectorWidth =
+            std::max((uint64_t)LargestVectorWidth,
+                     VT->getPrimitiveSizeInBits().getKnownMinSize());
     } else {
-      ArgTypes.push_back(Dest.getAddress().getType());
-      Args.push_back(Dest.getPointer());
+      ArgTypes.push_back(Dest.getAddress(*this).getType());
+      Args.push_back(Dest.getPointer(*this));
       Constraints += "=*";
       Constraints += OutputConstraint;
       ReadOnly = ReadNone = false;
@@ -2113,8 +2155,9 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
       // Update largest vector width for any vector types.
       if (auto *VT = dyn_cast<llvm::VectorType>(Arg->getType()))
-        LargestVectorWidth = std::max((uint64_t)LargestVectorWidth,
-                                   VT->getPrimitiveSizeInBits().getFixedSize());
+        LargestVectorWidth =
+            std::max((uint64_t)LargestVectorWidth,
+                     VT->getPrimitiveSizeInBits().getKnownMinSize());
       if (Info.allowsRegister())
         InOutConstraints += llvm::utostr(i);
       else
@@ -2200,20 +2243,14 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
     // Update largest vector width for any vector types.
     if (auto *VT = dyn_cast<llvm::VectorType>(Arg->getType()))
-      LargestVectorWidth = std::max((uint64_t)LargestVectorWidth,
-                                   VT->getPrimitiveSizeInBits().getFixedSize());
+      LargestVectorWidth =
+          std::max((uint64_t)LargestVectorWidth,
+                   VT->getPrimitiveSizeInBits().getKnownMinSize());
 
     ArgTypes.push_back(Arg->getType());
     Args.push_back(Arg);
     Constraints += InputConstraint;
   }
-
-  // Append the "input" part of inout constraints last.
-  for (unsigned i = 0, e = InOutArgs.size(); i != e; i++) {
-    ArgTypes.push_back(InOutArgTypes[i]);
-    Args.push_back(InOutArgs[i]);
-  }
-  Constraints += InOutConstraints;
 
   // Labels
   SmallVector<llvm::BasicBlock *, 16> Transfer;
@@ -2222,7 +2259,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   if (const auto *GS =  dyn_cast<GCCAsmStmt>(&S)) {
     IsGCCAsmGoto = GS->isAsmGoto();
     if (IsGCCAsmGoto) {
-      for (auto *E : GS->labels()) {
+      for (const auto *E : GS->labels()) {
         JumpDest Dest = getJumpDestForLabel(E->getLabel());
         Transfer.push_back(Dest.getBlock());
         llvm::BlockAddress *BA =
@@ -2233,10 +2270,16 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
           Constraints += ',';
         Constraints += 'X';
       }
-      StringRef Name = "asm.fallthrough";
-      Fallthrough = createBasicBlock(Name);
+      Fallthrough = createBasicBlock("asm.fallthrough");
     }
   }
+
+  // Append the "input" part of inout constraints last.
+  for (unsigned i = 0, e = InOutArgs.size(); i != e; i++) {
+    ArgTypes.push_back(InOutArgTypes[i]);
+    Args.push_back(InOutArgs[i]);
+  }
+  Constraints += InOutConstraints;
 
   // Clobbers
   for (unsigned i = 0, e = S.getNumClobbers(); i != e; i++) {
@@ -2244,8 +2287,14 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
     if (Clobber == "memory")
       ReadOnly = ReadNone = false;
-    else if (Clobber != "cc")
+    else if (Clobber != "cc") {
       Clobber = getTarget().getNormalizedGCCRegisterName(Clobber);
+      if (CGM.getCodeGenOpts().StackClashProtector &&
+          getTarget().isSPRegName(Clobber)) {
+        CGM.getDiags().Report(S.getAsmLoc(),
+                              diag::warn_stack_clash_protection_inline_asm);
+      }
+    }
 
     if (!Constraints.empty())
       Constraints += ',';
@@ -2284,9 +2333,9 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   if (IsGCCAsmGoto) {
     llvm::CallBrInst *Result =
         Builder.CreateCallBr(IA, Fallthrough, Transfer, Args);
+    EmitBlock(Fallthrough);
     UpdateAsmCallInst(cast<llvm::CallBase>(*Result), HasSideEffect, ReadOnly,
                       ReadNone, S, ResultRegTypes, *this, RegResults);
-    EmitBlock(Fallthrough);
   } else {
     llvm::CallInst *Result =
         Builder.CreateCall(IA, Args, getBundlesForFunclet(IA));
@@ -2334,7 +2383,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
     // ResultTypeRequiresCast.size() elements of RegResults.
     if ((i < ResultTypeRequiresCast.size()) && ResultTypeRequiresCast[i]) {
       unsigned Size = getContext().getTypeSize(ResultRegQualTys[i]);
-      Address A = Builder.CreateBitCast(Dest.getAddress(),
+      Address A = Builder.CreateBitCast(Dest.getAddress(*this),
                                         ResultRegTypes[i]->getPointerTo());
       QualType Ty = getContext().getIntTypeForBitwidth(Size, /*Signed*/ false);
       if (Ty.isNull()) {
@@ -2387,14 +2436,14 @@ CodeGenFunction::EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K) {
   delete CGF.CapturedStmtInfo;
 
   // Emit call to the helper function.
-  EmitCallOrInvoke(F, CapStruct.getPointer());
+  EmitCallOrInvoke(F, CapStruct.getPointer(*this));
 
   return F;
 }
 
 Address CodeGenFunction::GenerateCapturedStmtArgument(const CapturedStmt &S) {
   LValue CapStruct = InitCapturedStruct(S);
-  return CapStruct.getAddress();
+  return CapStruct.getAddress(*this);
 }
 
 /// Creates the outlined function for a CapturedStmt.

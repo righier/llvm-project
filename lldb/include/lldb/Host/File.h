@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_File_h_
-#define liblldb_File_h_
+#ifndef LLDB_HOST_FILE_H
+#define LLDB_HOST_FILE_H
 
 #include "lldb/Host/PosixApi.h"
 #include "lldb/Utility/IOObject.h"
@@ -76,9 +76,7 @@ public:
   /// that takes an "off_t &offset" to ensure correct operation in multi-
   /// threaded environments.
   ///
-  /// \param[out] buf
-  ///
-  /// \param[in,out] num_bytes.
+  /// \param[in,out] num_bytes
   ///    Pass in the size of buf.  Read will pass out the number
   ///    of bytes read.   Zero bytes read with no error indicates
   ///    EOF.
@@ -92,8 +90,6 @@ public:
   /// NOTE: This function is NOT thread safe. Use the write function
   /// that takes an "off_t &offset" to ensure correct operation in multi-
   /// threaded environments.
-  ///
-  /// \param[in] buf
   ///
   /// \param[in,out] num_bytes
   ///    Pass in the size of buf.  Write will pass out the number
@@ -371,7 +367,8 @@ protected:
   void CalculateInteractiveAndTerminal();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(File);
+  File(const File &) = delete;
+  const File &operator=(const File &) = delete;
 };
 
 class NativeFile : public File {
@@ -432,9 +429,10 @@ protected:
   std::mutex offset_access_mutex;
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(NativeFile);
+  NativeFile(const NativeFile &) = delete;
+  const NativeFile &operator=(const NativeFile &) = delete;
 };
 
 } // namespace lldb_private
 
-#endif // liblldb_File_h_
+#endif // LLDB_HOST_FILE_H

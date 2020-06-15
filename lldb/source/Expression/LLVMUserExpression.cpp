@@ -1,4 +1,4 @@
-//===-- LLVMUserExpression.cpp ----------------------------------*- C++ -*-===//
+//===-- LLVMUserExpression.cpp --------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -35,20 +35,20 @@
 
 using namespace lldb_private;
 
+char LLVMUserExpression::ID;
+
 LLVMUserExpression::LLVMUserExpression(ExecutionContextScope &exe_scope,
                                        llvm::StringRef expr,
                                        llvm::StringRef prefix,
                                        lldb::LanguageType language,
                                        ResultType desired_type,
-                                       const EvaluateExpressionOptions &options,
-                                       ExpressionKind kind)
-    : UserExpression(exe_scope, expr, prefix, language, desired_type, options,
-                     kind),
+                                       const EvaluateExpressionOptions &options)
+    : UserExpression(exe_scope, expr, prefix, language, desired_type, options),
       m_stack_frame_bottom(LLDB_INVALID_ADDRESS),
       m_stack_frame_top(LLDB_INVALID_ADDRESS), m_allow_cxx(false),
       m_allow_objc(false), m_transformed_text(), m_execution_unit_sp(),
-      m_materializer_up(), m_jit_module_wp(),
-      m_can_interpret(false), m_materialized_address(LLDB_INVALID_ADDRESS) {}
+      m_materializer_up(), m_jit_module_wp(), m_can_interpret(false),
+      m_materialized_address(LLDB_INVALID_ADDRESS) {}
 
 LLVMUserExpression::~LLVMUserExpression() {
   if (m_target) {
@@ -133,6 +133,10 @@ LLVMUserExpression::DoExecute(DiagnosticManager &diagnostic_manager,
                                 __FUNCTION__);
       return lldb::eExpressionSetupError;
     }
+
+    // Store away the thread ID for error reporting, in case it exits
+    // during execution:
+    lldb::tid_t expr_thread_id = exe_ctx.GetThreadRef().GetID();
 
     Address wrapper_address(m_jit_start_addr);
 
@@ -222,6 +226,14 @@ LLVMUserExpression::DoExecute(DiagnosticManager &diagnostic_manager,
           "function because \"debug\" was requested.\n"
           "Use \"thread return -x\" to return to the state before expression "
           "evaluation.");
+      return execution_result;
+    } else if (execution_result == lldb::eExpressionThreadVanished) {
+      diagnostic_manager.Printf(
+          eDiagnosticSeverityError,
+          "Couldn't complete execution; the thread "
+          "on which the expression was being run: 0x%" PRIx64
+          " exited during its execution.", 
+          expr_thread_id);
       return execution_result;
     } else if (execution_result != lldb::eExpressionCompleted) {
       diagnostic_manager.Printf(
@@ -357,8 +369,3 @@ bool LLVMUserExpression::PrepareToExecuteJITExpression(
   return true;
 }
 
-lldb::ModuleSP LLVMUserExpression::GetJITModule() {
-  if (m_execution_unit_sp)
-    return m_execution_unit_sp->GetJITModule();
-  return lldb::ModuleSP();
-}

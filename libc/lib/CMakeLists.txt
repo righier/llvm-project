@@ -1,22 +1,11 @@
-
 add_entrypoint_library(
   llvmlibc
   DEPENDS
-    # string.h entrypoints
-    ## C standard library entrypoints
-    strcpy
-    strcat
+  ${TARGET_LIBC_ENTRYPOINTS}
 )
 
 add_entrypoint_library(
   llvmlibm
   DEPENDS
-    # math.h entrypoints
-    round
-)
-
-add_redirector_library(
-  llvmlibc_redirectors
-  DEPENDS
-    round_redirector
+  ${TARGET_LIBM_ENTRYPOINTS}
 )

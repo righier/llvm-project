@@ -19,7 +19,6 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Chrono.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
@@ -38,6 +37,7 @@
 namespace llvm {
 
 class MemoryBuffer;
+class Twine;
 
 namespace vfs {
 
@@ -126,7 +126,7 @@ public:
 /// Only information available on most platforms is included.
 class directory_entry {
   std::string Path;
-  llvm::sys::fs::file_type Type;
+  llvm::sys::fs::file_type Type = llvm::sys::fs::file_type::type_unknown;
 
 public:
   directory_entry() = default;
@@ -293,7 +293,7 @@ public:
   /// \param Path A path that is modified to be an absolute path.
   /// \returns success if \a path has been made absolute, otherwise a
   ///          platform-specific error_code.
-  std::error_code makeAbsolute(SmallVectorImpl<char> &Path) const;
+  virtual std::error_code makeAbsolute(SmallVectorImpl<char> &Path) const;
 };
 
 /// Gets an \p vfs::FileSystem for the 'real' file system, as seen by
@@ -506,10 +506,12 @@ getVFSFromYAML(std::unique_ptr<llvm::MemoryBuffer> Buffer,
 
 struct YAMLVFSEntry {
   template <typename T1, typename T2>
-  YAMLVFSEntry(T1 &&VPath, T2 &&RPath)
-      : VPath(std::forward<T1>(VPath)), RPath(std::forward<T2>(RPath)) {}
+  YAMLVFSEntry(T1 &&VPath, T2 &&RPath, bool IsDirectory = false)
+      : VPath(std::forward<T1>(VPath)), RPath(std::forward<T2>(RPath)),
+        IsDirectory(IsDirectory) {}
   std::string VPath;
   std::string RPath;
+  bool IsDirectory = false;
 };
 
 class VFSFromYamlDirIterImpl;
@@ -532,7 +534,7 @@ class RedirectingFileSystemParser;
 /// \endverbatim
 ///
 /// All configuration options are optional.
-///   'case-sensitive': <boolean, default=true>
+///   'case-sensitive': <boolean, default=(true for Posix, false for Windows)>
 ///   'use-external-names': <boolean, default=true>
 ///   'overlay-relative': <boolean, default=false>
 ///   'fallthrough': <boolean, default=true>
@@ -651,6 +653,17 @@ private:
     return ExternalFSValidWD && IsFallthrough;
   }
 
+  // In a RedirectingFileSystem, keys can be specified in Posix or Windows
+  // style (or even a mixture of both), so this comparison helper allows
+  // slashes (representing a root) to match backslashes (and vice versa).  Note
+  // that, other than the root, path components should not contain slashes or
+  // backslashes.
+  bool pathComponentMatches(llvm::StringRef lhs, llvm::StringRef rhs) const {
+    if ((CaseSensitive ? lhs.equals(rhs) : lhs.equals_lower(rhs)))
+      return true;
+    return (lhs == "/" && rhs == "\\") || (lhs == "\\" && rhs == "/");
+  }
+
   /// The root(s) of the virtual file system.
   std::vector<std::unique_ptr<Entry>> Roots;
 
@@ -674,7 +687,12 @@ private:
   /// Whether to perform case-sensitive comparisons.
   ///
   /// Currently, case-insensitive matching only works correctly with ASCII.
-  bool CaseSensitive = true;
+  bool CaseSensitive =
+#ifdef _WIN32
+      false;
+#else
+      true;
+#endif
 
   /// IsRelativeOverlay marks whether a ExternalContentsPrefixDir path must
   /// be prefixed in every 'external-contents' when reading from YAML files.
@@ -688,16 +706,6 @@ private:
   /// found in VFS.
   bool IsFallthrough = true;
   /// @}
-
-  /// Virtual file paths and external files could be canonicalized without "..",
-  /// "." and "./" in their paths. FIXME: some unittests currently fail on
-  /// win32 when using remove_dots and remove_leading_dotslash on paths.
-  bool UseCanonicalizedPaths =
-#ifdef _WIN32
-      false;
-#else
-      true;
-#endif
 
   RedirectingFileSystem(IntrusiveRefCntPtr<FileSystem> ExternalFS);
 
@@ -733,6 +741,8 @@ public:
 
   std::error_code isLocal(const Twine &Path, bool &Result) override;
 
+  std::error_code makeAbsolute(SmallVectorImpl<char> &Path) const override;
+
   directory_iterator dir_begin(const Twine &Dir, std::error_code &EC) override;
 
   void setExternalContentsPrefixDir(StringRef PrefixDir);
@@ -763,10 +773,13 @@ class YAMLVFSWriter {
   Optional<bool> UseExternalNames;
   std::string OverlayDir;
 
+  void addEntry(StringRef VirtualPath, StringRef RealPath, bool IsDirectory);
+
 public:
   YAMLVFSWriter() = default;
 
   void addFileMapping(StringRef VirtualPath, StringRef RealPath);
+  void addDirectoryMapping(StringRef VirtualPath, StringRef RealPath);
 
   void setCaseSensitivity(bool CaseSensitive) {
     IsCaseSensitive = CaseSensitive;

@@ -86,6 +86,7 @@ void S::Method() {}
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "Function",
+// CHECK-NEXT:      "mangledName": "_ZN4Test2NS8FunctionEv",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "void ()"
 // CHECK-NEXT:      }
@@ -116,6 +117,7 @@ void S::Method() {}
 // CHECK-NEXT:    "parentDeclContextId": "0x{{.*}}",
 // CHECK-NEXT:    "previousDecl": "0x{{.*}}",
 // CHECK-NEXT:    "name": "Function",
+// CHECK-NEXT:    "mangledName": "_ZN4Test2NS8FunctionEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -170,6 +172,7 @@ void S::Method() {}
 // CHECK-NEXT:      "hasConstParam": true,
 // CHECK-NEXT:      "implicitHasConstParam": true,
 // CHECK-NEXT:      "needsImplicit": true,
+// CHECK-NEXT:      "simple": true,
 // CHECK-NEXT:      "trivial": true
 // CHECK-NEXT:     },
 // CHECK-NEXT:     "copyCtor": {
@@ -261,6 +264,7 @@ void S::Method() {}
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "Method",
+// CHECK-NEXT:      "mangledName": "_ZN4Test1S6MethodEv",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "void ()"
 // CHECK-NEXT:      }
@@ -291,6 +295,7 @@ void S::Method() {}
 // CHECK-NEXT:    "parentDeclContextId": "0x{{.*}}",
 // CHECK-NEXT:    "previousDecl": "0x{{.*}}",
 // CHECK-NEXT:    "name": "Method",
+// CHECK-NEXT:    "mangledName": "_ZN4Test1S6MethodEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },

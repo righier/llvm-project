@@ -465,6 +465,10 @@ public:
 
   ASTContext &getASTContext() const LLVM_READONLY;
 
+  /// Helper to get the language options from the ASTContext.
+  /// Defined out of line to avoid depending on ASTContext.h.
+  const LangOptions &getLangOpts() const LLVM_READONLY;
+
   void setAccess(AccessSpecifier AS) {
     Access = AS;
     assert(AccessDeclContextSanity());
@@ -626,7 +630,16 @@ protected:
     setModuleOwnershipKind(ModuleOwnershipKind::ModulePrivate);
   }
 
-  /// Set the owning module ID.
+public:
+  /// Set the FromASTFile flag. This indicates that this declaration
+  /// was deserialized and not parsed from source code and enables
+  /// features such as module ownership information.
+  void setFromASTFile() {
+    FromASTFile = true;
+  }
+
+  /// Set the owning module ID.  This may only be called for
+  /// deserialized Decls.
   void setOwningModuleID(unsigned ID) {
     assert(isFromASTFile() && "Only works on a deserialized declaration");
     *((unsigned*)this - 2) = ID;
@@ -767,18 +780,19 @@ public:
   /// all declarations in a global module fragment are unowned.
   Module *getOwningModuleForLinkage(bool IgnoreLinkage = false) const;
 
-  /// Determine whether this declaration might be hidden from name
-  /// lookup. Note that the declaration might be visible even if this returns
-  /// \c false, if the owning module is visible within the query context.
-  // FIXME: Rename this to make it clearer what it does.
-  bool isHidden() const {
-    return (int)getModuleOwnershipKind() > (int)ModuleOwnershipKind::Visible;
+  /// Determine whether this declaration is definitely visible to name lookup,
+  /// independent of whether the owning module is visible.
+  /// Note: The declaration may be visible even if this returns \c false if the
+  /// owning module is visible within the query context. This is a low-level
+  /// helper function; most code should be calling Sema::isVisible() instead.
+  bool isUnconditionallyVisible() const {
+    return (int)getModuleOwnershipKind() <= (int)ModuleOwnershipKind::Visible;
   }
 
   /// Set that this declaration is globally visible, even if it came from a
   /// module that is not visible.
   void setVisibleDespiteOwningModule() {
-    if (isHidden())
+    if (!isUnconditionallyVisible())
       setModuleOwnershipKind(ModuleOwnershipKind::Visible);
   }
 
@@ -856,14 +870,15 @@ public:
     return getParentFunctionOrMethod() == nullptr;
   }
 
-  /// Returns true if this declaration lexically is inside a function.
-  /// It recognizes non-defining declarations as well as members of local
-  /// classes:
+  /// Returns true if this declaration is lexically inside a function or inside
+  /// a variable initializer. It recognizes non-defining declarations as well
+  /// as members of local classes and lambdas:
   /// \code
   ///     void foo() { void bar(); }
   ///     void foo2() { class ABC { void bar(); }; }
+  ///     inline int x = [](){ return 0; }();
   /// \endcode
-  bool isLexicallyWithinFunctionOrMethod() const;
+  bool isInLocalScope() const;
 
   /// If this decl is defined inside a function/method/block it returns
   /// the corresponding DeclContext, otherwise it returns null.
@@ -1501,10 +1516,9 @@ class DeclContext {
     /// constructor or a destructor.
     uint64_t IsTrivialForCall : 1;
 
-    /// Used by CXXMethodDecl
     uint64_t IsDefaulted : 1;
-    /// Used by CXXMethodDecl
     uint64_t IsExplicitlyDefaulted : 1;
+    uint64_t HasDefaultedFunctionInfo : 1;
     uint64_t HasImplicitReturnZero : 1;
     uint64_t IsLateTemplateParsed : 1;
 
@@ -1534,10 +1548,13 @@ class DeclContext {
 
     /// Store the ODRHash after first calculation.
     uint64_t HasODRHash : 1;
+
+    /// Indicates if the function uses Floating Point Constrained Intrinsics
+    uint64_t UsesFPIntrin : 1;
   };
 
   /// Number of non-inherited bits in FunctionDeclBitfields.
-  enum { NumFunctionDeclBits = 25 };
+  enum { NumFunctionDeclBits = 27 };
 
   /// Stores the bits used by CXXConstructorDecl. If modified
   /// NumCXXConstructorDeclBits and the accessor
@@ -1554,7 +1571,7 @@ class DeclContext {
     /// exactly 64 bits and thus the width of NumCtorInitializers
     /// will need to be shrunk if some bit is added to NumDeclContextBitfields,
     /// NumFunctionDeclBitfields or CXXConstructorDeclBitfields.
-    uint64_t NumCtorInitializers : 23;
+    uint64_t NumCtorInitializers : 21;
     uint64_t IsInheritingConstructor : 1;
 
     /// Whether this constructor has a trail-allocated explicit specifier.
@@ -1589,6 +1606,9 @@ class DeclContext {
 
     /// True if this method is the getter or setter for an explicit property.
     uint64_t IsPropertyAccessor : 1;
+
+    /// True if this method is a synthesized property accessor stub.
+    uint64_t IsSynthesizedAccessorStub : 1;
 
     /// Method has a definition.
     uint64_t IsDefined : 1;

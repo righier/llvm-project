@@ -351,6 +351,14 @@ public:
   ConstantRange sub(const ConstantRange &Other) const;
 
   /// Return a new range representing the possible values resulting
+  /// from an subtraction with wrap type \p NoWrapKind of a value in this
+  /// range and a value in \p Other.
+  /// If the result range is disjoint, the preferred range is determined by the
+  /// \p PreferredRangeType.
+  ConstantRange subWithNoWrap(const ConstantRange &Other, unsigned NoWrapKind,
+                              PreferredRangeType RangeType = Smallest) const;
+
+  /// Return a new range representing the possible values resulting
   /// from a multiplication of a value in this range and a value in \p Other,
   /// treating both this and \p Other as unsigned ranges.
   ConstantRange multiply(const ConstantRange &Other) const;
@@ -402,6 +410,10 @@ public:
   ConstantRange binaryOr(const ConstantRange &Other) const;
 
   /// Return a new range representing the possible values resulting
+  /// from a binary-xor of a value in this range by a value in \p Other.
+  ConstantRange binaryXor(const ConstantRange &Other) const;
+
+  /// Return a new range representing the possible values resulting
   /// from a left shift of a value in this range by a value in \p Other.
   /// TODO: This isn't fully implemented yet.
   ConstantRange shl(const ConstantRange &Other) const;
@@ -425,6 +437,20 @@ public:
 
   /// Perform a signed saturating subtraction of two constant ranges.
   ConstantRange ssub_sat(const ConstantRange &Other) const;
+
+  /// Perform an unsigned saturating multiplication of two constant ranges.
+  ConstantRange umul_sat(const ConstantRange &Other) const;
+
+  /// Perform a signed saturating multiplication of two constant ranges.
+  ConstantRange smul_sat(const ConstantRange &Other) const;
+
+  /// Perform an unsigned saturating left shift of this constant range by a
+  /// value in \p Other.
+  ConstantRange ushl_sat(const ConstantRange &Other) const;
+
+  /// Perform a signed saturating left shift of this constant range by a
+  /// value in \p Other.
+  ConstantRange sshl_sat(const ConstantRange &Other) const;
 
   /// Return a new range that is the logical not of the current set.
   ConstantRange inverse() const;

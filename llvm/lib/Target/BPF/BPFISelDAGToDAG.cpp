@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsBPF.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -303,7 +304,7 @@ void BPFDAGToDAGISel::PreprocessLoad(SDNode *Node,
 
   LLVM_DEBUG(dbgs() << "Replacing load of size " << size << " with constant "
                     << val << '\n');
-  SDValue NVal = CurDAG->getConstant(val, DL, MVT::i64);
+  SDValue NVal = CurDAG->getConstant(val, DL, LD->getValueType(0));
 
   // After replacement, the current node is dead, we need to
   // go backward one step to make iterator still work

@@ -30,6 +30,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/SafepointIRVerifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetOperations.h"
@@ -38,14 +39,15 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/Value.h"
-#include "llvm/IR/SafepointIRVerifier.h"
 #include "llvm/IR/Statepoint.h"
-#include "llvm/Support/Debug.h"
+#include "llvm/IR/Value.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "safepoint-ir-verifier"
@@ -781,7 +783,7 @@ void GCPtrTracker::transferBlock(const BasicBlock *BB, BasicBlockState &BBS,
 
 void GCPtrTracker::transferInstruction(const Instruction &I, bool &Cleared,
                                        AvailableValueSet &Available) {
-  if (isStatepoint(I)) {
+  if (isa<GCStatepointInst>(I)) {
     Cleared = true;
     Available.clear();
   } else if (containsGCPtrType(I.getType()))

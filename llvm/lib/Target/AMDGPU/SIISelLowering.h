@@ -60,7 +60,7 @@ private:
   SDValue lowerImage(SDValue Op, const AMDGPU::ImageDimIntrinsicInfo *Intr,
                      SelectionDAG &DAG) const;
   SDValue lowerSBuffer(EVT VT, SDLoc DL, SDValue Rsrc, SDValue Offset,
-                       SDValue GLC, SDValue DLC, SelectionDAG &DAG) const;
+                       SDValue CachePolicy, SelectionDAG &DAG) const;
 
   SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_W_CHAIN(SDValue Op, SelectionDAG &DAG) const;
@@ -107,7 +107,7 @@ private:
 
   /// Converts \p Op, which must be of floating point type, to the
   /// floating point type \p VT, by either extending or truncating it.
-  SDValue getFPExtOrFPTrunc(SelectionDAG &DAG,
+  SDValue getFPExtOrFPRound(SelectionDAG &DAG,
                             SDValue Op,
                             const SDLoc &DL,
                             EVT VT) const;
@@ -119,6 +119,7 @@ private:
   /// Custom lowering for ISD::FP_ROUND for MVT::f16.
   SDValue lowerFP_ROUND(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerFMINNUM_FMAXNUM(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerXMULO(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue getSegmentAperture(unsigned AS, const SDLoc &DL,
                              SelectionDAG &DAG) const;
@@ -199,6 +200,15 @@ public:
   /// global value \p GV, false otherwise.
   bool shouldEmitPCReloc(const GlobalValue *GV) const;
 
+  /// \returns true if this should use a literal constant for an LDS address,
+  /// and not emit a relocation for an LDS global.
+  bool shouldUseLDSConstAddress(const GlobalValue *GV) const;
+
+  /// Check if EXTRACT_VECTOR_ELT/INSERT_VECTOR_ELT (<n x e>, var-idx) should be
+  /// expanded into a set of cmp/select instructions.
+  static bool shouldExpandVectorDynExt(unsigned EltSize, unsigned NumElem,
+                                       bool IsDivergentIdx);
+
 private:
   // Analyze a combined offset from an amdgcn_buffer_ intrinsic and store the
   // three offsets (voffset, soffset and instoffset) into the SDValue[3] array
@@ -253,15 +263,18 @@ public:
       MachineMemOperand::Flags Flags = MachineMemOperand::MONone,
       bool *IsFast = nullptr) const override;
 
-  EVT getOptimalMemOpType(uint64_t Size, unsigned DstAlign,
-                          unsigned SrcAlign, bool IsMemset,
-                          bool ZeroMemset,
-                          bool MemcpyStrSrc,
+  EVT getOptimalMemOpType(const MemOp &Op,
                           const AttributeList &FuncAttributes) const override;
 
   bool isMemOpUniform(const SDNode *N) const;
   bool isMemOpHasNoClobberedMemOperand(const SDNode *N) const;
 
+  static bool isNonGlobalAddrSpace(unsigned AS) {
+    return AS == AMDGPUAS::LOCAL_ADDRESS || AS == AMDGPUAS::REGION_ADDRESS ||
+           AS == AMDGPUAS::PRIVATE_ADDRESS;
+  }
+
+  // FIXME: Missing constant_32bit
   static bool isFlatGlobalAddrSpace(unsigned AS) {
     return AS == AMDGPUAS::GLOBAL_ADDRESS ||
            AS == AMDGPUAS::FLAT_ADDRESS ||
@@ -330,7 +343,10 @@ public:
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 
-  Register getRegisterByName(const char* RegName, EVT VT,
+  SDValue lowerDYNAMIC_STACKALLOCImpl(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+
+  Register getRegisterByName(const char* RegName, LLT VT,
                              const MachineFunction &MF) const override;
 
   MachineBasicBlock *splitKillBlock(MachineInstr &MI,
@@ -349,9 +365,9 @@ public:
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                          EVT VT) const override;
   MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override;
-  bool isFMAFasterThanFMulAndFAdd(EVT VT) const override;
-  bool isFMADLegalForFAddFSub(const SelectionDAG &DAG,
-                              const SDNode *N) const override;
+  bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                  EVT VT) const override;
+  bool isFMADLegal(const SelectionDAG &DAG, const SDNode *N) const override;
 
   SDValue splitUnaryVectorOp(SDValue Op, SelectionDAG &DAG) const;
   SDValue splitBinaryVectorOp(SDValue Op, SelectionDAG &DAG) const;
@@ -376,23 +392,28 @@ public:
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                StringRef Constraint, MVT VT) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
+  void LowerAsmOperandForConstraint(SDValue Op,
+                                    std::string &Constraint,
+                                    std::vector<SDValue> &Ops,
+                                    SelectionDAG &DAG) const override;
+  void LowerAsmOperandForConstraintA(SDValue Op,
+                                     std::vector<SDValue> &Ops,
+                                     SelectionDAG &DAG) const;
   SDValue copyToM0(SelectionDAG &DAG, SDValue Chain, const SDLoc &DL,
                    SDValue V) const;
 
   void finalizeLowering(MachineFunction &MF) const override;
 
-  void computeKnownBitsForFrameIndex(const SDValue Op,
+  void computeKnownBitsForFrameIndex(int FrameIdx,
                                      KnownBits &Known,
-                                     const APInt &DemandedElts,
-                                     const SelectionDAG &DAG,
-                                     unsigned Depth = 0) const override;
+                                     const MachineFunction &MF) const override;
 
   bool isSDNodeSourceOfDivergence(const SDNode *N,
     FunctionLoweringInfo *FLI, LegacyDivergenceAnalysis *DA) const override;
 
   bool isCanonicalized(SelectionDAG &DAG, SDValue Op,
                        unsigned MaxDepth = 5) const;
-  bool denormalsEnabledForType(EVT VT) const;
+  bool denormalsEnabledForType(const SelectionDAG &DAG, EVT VT) const;
 
   bool isKnownNeverNaNForTargetNode(SDValue Op,
                                     const SelectionDAG &DAG,
@@ -431,6 +452,10 @@ public:
                                  MachineFunction &MF,
                                  const SIRegisterInfo &TRI,
                                  SIMachineFunctionInfo &Info) const;
+  void allocateSpecialInputVGPRsFixed(CCState &CCInfo,
+                                      MachineFunction &MF,
+                                      const SIRegisterInfo &TRI,
+                                      SIMachineFunctionInfo &Info) const;
 };
 
 } // End namespace llvm

@@ -109,6 +109,16 @@ namespace {
           // Track the operand that kill Reg. We would unset the kill flag of
           // the operand if there is a following redundant load immediate.
           int KillIdx = AfterBBI->findRegisterUseOperandIdx(Reg, true, TRI);
+
+          // We can't just clear implicit kills, so if we encounter one, stop
+          // looking further.
+          if (KillIdx != -1 && AfterBBI->getOperand(KillIdx).isImplicit()) {
+            LLVM_DEBUG(dbgs()
+                       << "Encountered an implicit kill, cannot proceed: ");
+            LLVM_DEBUG(AfterBBI->dump());
+            break;
+          }
+
           if (KillIdx != -1) {
             assert(!DeadOrKillToUnset && "Shouldn't kill same register twice");
             DeadOrKillToUnset = &AfterBBI->getOperand(KillIdx);
@@ -163,8 +173,19 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &MF) override {
-      if (skipFunction(MF.getFunction()) || !RunPreEmitPeephole)
+      if (skipFunction(MF.getFunction()) || !RunPreEmitPeephole) {
+        // Remove UNENCODED_NOP even when this pass is disabled.
+        // This needs to be done unconditionally so we don't emit zeros
+        // in the instruction stream.
+        SmallVector<MachineInstr *, 4> InstrsToErase;
+        for (MachineBasicBlock &MBB : MF)
+          for (MachineInstr &MI : MBB)
+            if (MI.getOpcode() == PPC::UNENCODED_NOP)
+              InstrsToErase.push_back(&MI);
+        for (MachineInstr *MI : InstrsToErase)
+          MI->eraseFromParent();
         return false;
+      }
       bool Changed = false;
       const PPCInstrInfo *TII = MF.getSubtarget<PPCSubtarget>().getInstrInfo();
       const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
@@ -173,6 +194,10 @@ namespace {
         Changed |= removeRedundantLIs(MBB, TRI);
         for (MachineInstr &MI : MBB) {
           unsigned Opc = MI.getOpcode();
+          if (Opc == PPC::UNENCODED_NOP) {
+            InstrsToErase.push_back(&MI);
+            continue;
+          }
           // Detect self copies - these can result from running AADB.
           if (PPCInstrInfo::isSameClassPhysRegCopy(Opc)) {
             const MCInstrDesc &MCID = TII->get(Opc);

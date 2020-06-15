@@ -63,6 +63,8 @@ public:
 
   bool hasCnMips() const { return STI.getFeatureBits()[Mips::FeatureCnMips]; }
 
+  bool hasCnMipsP() const { return STI.getFeatureBits()[Mips::FeatureCnMipsP]; }
+
   bool hasCOP3() const {
     // Only present in MIPS-I and MIPS-II
     return !hasMips32() && !hasMips3();
@@ -70,7 +72,6 @@ public:
 
   DecodeStatus getInstruction(MCInst &Instr, uint64_t &Size,
                               ArrayRef<uint8_t> Bytes, uint64_t Address,
-                              raw_ostream &VStream,
                               raw_ostream &CStream) const override;
 };
 
@@ -562,7 +563,7 @@ static MCDisassembler *createMipselDisassembler(
   return new MipsDisassembler(STI, Ctx, false);
 }
 
-extern "C" void LLVMInitializeMipsDisassembler() {
+extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeMipsDisassembler() {
   // Register the disassembler.
   TargetRegistry::RegisterMCDisassembler(getTheMipsTarget(),
                                          createMipsDisassembler);
@@ -1218,7 +1219,6 @@ static DecodeStatus readInstruction32(ArrayRef<uint8_t> Bytes, uint64_t Address,
 DecodeStatus MipsDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
                                               ArrayRef<uint8_t> Bytes,
                                               uint64_t Address,
-                                              raw_ostream &VStream,
                                               raw_ostream &CStream) const {
   uint32_t Insn;
   DecodeStatus Result;
@@ -1352,6 +1352,14 @@ DecodeStatus MipsDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
   if (hasCnMips()) {
     LLVM_DEBUG(dbgs() << "Trying CnMips table (32-bit opcodes):\n");
     Result = decodeInstruction(DecoderTableCnMips32, Instr, Insn,
+                               Address, this, STI);
+    if (Result != MCDisassembler::Fail)
+      return Result;
+  }
+
+  if (hasCnMipsP()) {
+    LLVM_DEBUG(dbgs() << "Trying CnMipsP table (32-bit opcodes):\n");
+    Result = decodeInstruction(DecoderTableCnMipsP32, Instr, Insn,
                                Address, this, STI);
     if (Result != MCDisassembler::Fail)
       return Result;

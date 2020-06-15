@@ -14,8 +14,8 @@
 #define LLVM_REMARKS_REMARK_H
 
 #include "llvm-c/Remarks.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CBindingWrapping.h"
 #include <string>
@@ -30,8 +30,8 @@ constexpr uint64_t CurrentRemarkVersion = 0;
 struct RemarkLocation {
   /// Absolute path of the source file corresponding to this remark.
   StringRef SourceFilePath;
-  unsigned SourceLine;
-  unsigned SourceColumn;
+  unsigned SourceLine = 0;
+  unsigned SourceColumn = 0;
 };
 
 // Create wrappers for C Binding types (see CBindingWrapping.h).

@@ -79,7 +79,7 @@ namespace llvm {
   void initializeARMExecutionDomainFixPass(PassRegistry&);
 }
 
-extern "C" void LLVMInitializeARMTarget() {
+extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeARMTarget() {
   // Register the target.
   RegisterTargetMachine<ARMLETargetMachine> X(getTheARMLETarget());
   RegisterTargetMachine<ARMLETargetMachine> A(getTheThumbLETarget());
@@ -91,14 +91,15 @@ extern "C" void LLVMInitializeARMTarget() {
   initializeARMLoadStoreOptPass(Registry);
   initializeARMPreAllocLoadStoreOptPass(Registry);
   initializeARMParallelDSPPass(Registry);
-  initializeARMCodeGenPreparePass(Registry);
   initializeARMConstantIslandsPass(Registry);
   initializeARMExecutionDomainFixPass(Registry);
   initializeARMExpandPseudoPass(Registry);
   initializeThumb2SizeReducePass(Registry);
   initializeMVEVPTBlockPass(Registry);
+  initializeMVEVPTOptimisationsPass(Registry);
   initializeMVETailPredicationPass(Registry);
   initializeARMLowOverheadLoopsPass(Registry);
+  initializeMVEGatherScatterLoweringPass(Registry);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -243,7 +244,14 @@ ARMBaseTargetMachine::ARMBaseTargetMachine(const Target &T, const Triple &TT,
     this->Options.NoTrapAfterNoreturn = true;
   }
 
+  // ARM supports the debug entry values.
+  setSupportsDebugEntryValues(true);
+
   initAsmInfo();
+
+  // ARM supports the MachineOutliner.
+  setMachineOutliner(true);
+  setSupportsDefaultOutlining(false);
 }
 
 ARMBaseTargetMachine::~ARMBaseTargetMachine() = default;
@@ -322,14 +330,7 @@ namespace {
 class ARMPassConfig : public TargetPassConfig {
 public:
   ARMPassConfig(ARMBaseTargetMachine &TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {
-    if (TM.getOptLevel() != CodeGenOpt::None) {
-      ARMGenSubtargetInfo STI(TM.getTargetTriple(), TM.getTargetCPU(),
-                              TM.getTargetFeatureString());
-      if (STI.hasFeature(ARM::FeatureUseMISched))
-        substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
-    }
-  }
+      : TargetPassConfig(TM, PM) {}
 
   ARMBaseTargetMachine &getARMTargetMachine() const {
     return getTM<ARMBaseTargetMachine>();
@@ -366,6 +367,7 @@ public:
   void addPreRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
+  void addPreEmitPass2() override;
 
   std::unique_ptr<CSEConfigBase> getCSEConfig() const override;
 };
@@ -412,6 +414,8 @@ void ARMPassConfig::addIRPasses() {
           return ST.hasAnyDataBarrier() && !ST.isThumb1Only();
         }));
 
+  addPass(createMVEGatherScatterLoweringPass());
+
   TargetPassConfig::addIRPasses();
 
   // Run the parallel DSP pass.
@@ -429,7 +433,7 @@ void ARMPassConfig::addIRPasses() {
 
 void ARMPassConfig::addCodeGenPrepare() {
   if (getOptLevel() != CodeGenOpt::None)
-    addPass(createARMCodeGenPreparePass());
+    addPass(createTypePromotionPass());
   TargetPassConfig::addCodeGenPrepare();
 }
 
@@ -488,6 +492,8 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
+    addPass(createMVEVPTOptimisationsPass());
+
     addPass(createMLxExpansionPass());
 
     if (EnableARMLoadStoreOpt)
@@ -523,6 +529,13 @@ void ARMPassConfig::addPreSched2() {
   }
   addPass(createMVEVPTBlockPass());
   addPass(createThumb2ITBlockPass());
+
+  // Add both scheduling passes to give the subtarget an opportunity to pick
+  // between them.
+  if (getOptLevel() != CodeGenOpt::None) {
+    addPass(&PostMachineSchedulerID);
+    addPass(&PostRASchedulerID);
+  }
 }
 
 void ARMPassConfig::addPreEmitPass() {
@@ -536,7 +549,9 @@ void ARMPassConfig::addPreEmitPass() {
   // Don't optimize barriers at -O0.
   if (getOptLevel() != CodeGenOpt::None)
     addPass(createARMOptimizeBarriersPass());
+}
 
+void ARMPassConfig::addPreEmitPass2() {
   addPass(createARMConstantIslandPass());
   addPass(createARMLowOverheadLoopsPass());
 

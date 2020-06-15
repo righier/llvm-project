@@ -6,6 +6,7 @@ set(HWASAN_RTL_SOURCES
   hwasan_allocator.cpp
   hwasan_dynamic_shadow.cpp
   hwasan_exceptions.cpp
+  hwasan_globals.cpp
   hwasan_interceptors.cpp
   hwasan_interceptors_vfork.S
   hwasan_linux.cpp
@@ -29,6 +30,7 @@ set(HWASAN_RTL_HEADERS
   hwasan_dynamic_shadow.h
   hwasan_flags.h
   hwasan_flags.inc
+  hwasan_globals.h
   hwasan_interface_internal.h
   hwasan_malloc_bisect.h
   hwasan_mapping.h
@@ -180,6 +182,8 @@ foreach(arch ${HWASAN_SUPPORTED_ARCH})
 endforeach()
 
 add_compiler_rt_resource_file(hwasan_blacklist hwasan_blacklist.txt hwasan)
+
+add_subdirectory("scripts")
 
 # if(COMPILER_RT_INCLUDE_TESTS)
 #   add_subdirectory(tests)
