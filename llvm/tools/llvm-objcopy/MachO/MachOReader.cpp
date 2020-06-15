@@ -103,6 +103,7 @@ extractSections(const object::MachOObjectFile::LoadCommandInfo &LoadCmd,
       R.Symbol = nullptr; // We'll fill this field later.
       R.Info = MachOObj.getRelocation(RI->getRawDataRefImpl());
       R.Scattered = MachOObj.isRelocationScattered(R.Info);
+      R.Extern = !R.Scattered && MachOObj.getPlainRelocationExternal(R.Info);
       S.Relocations.push_back(R);
     }
 
@@ -203,12 +204,27 @@ void MachOReader::readSymbolTable(Object &O) const {
 }
 
 void MachOReader::setSymbolInRelocationInfo(Object &O) const {
+  std::vector<const Section *> Sections;
+  for (auto &LC : O.LoadCommands)
+    for (std::unique_ptr<Section> &Sec : LC.Sections)
+      Sections.push_back(Sec.get());
+
   for (LoadCommand &LC : O.LoadCommands)
     for (std::unique_ptr<Section> &Sec : LC.Sections)
       for (auto &Reloc : Sec->Relocations)
-        if (!Reloc.Scattered)
-          Reloc.Symbol = O.SymTable.getSymbolByIndex(
-              Reloc.getPlainRelocationSymbolNum(MachOObj.isLittleEndian()));
+        if (!Reloc.Scattered) {
+          const uint32_t SymbolNum =
+              Reloc.getPlainRelocationSymbolNum(MachOObj.isLittleEndian());
+          if (Reloc.Extern) {
+            Reloc.Symbol = O.SymTable.getSymbolByIndex(SymbolNum);
+          } else {
+            // FIXME: Refactor error handling in MachOReader and report an error
+            // if we encounter an invalid relocation.
+            assert(SymbolNum >= 1 && SymbolNum <= Sections.size() &&
+                   "Invalid section index.");
+            Reloc.Sec = Sections[SymbolNum - 1];
+          }
+        }
 }
 
 void MachOReader::readRebaseInfo(Object &O) const {
@@ -267,6 +283,28 @@ void MachOReader::readIndirectSymbolTable(Object &O) const {
   }
 }
 
+void MachOReader::readSwiftVersion(Object &O) const {
+  struct ObjCImageInfo {
+    uint32_t Version;
+    uint32_t Flags;
+  } ImageInfo;
+
+  for (const LoadCommand &LC : O.LoadCommands)
+    for (const std::unique_ptr<Section> &Sec : LC.Sections)
+      if (Sec->Sectname == "__objc_imageinfo" &&
+          (Sec->Segname == "__DATA" || Sec->Segname == "__DATA_CONST" ||
+           Sec->Segname == "__DATA_DIRTY") &&
+          Sec->Content.size() >= sizeof(ObjCImageInfo)) {
+        memcpy(&ImageInfo, Sec->Content.data(), sizeof(ObjCImageInfo));
+        if (MachOObj.isLittleEndian() != sys::IsLittleEndianHost) {
+          sys::swapByteOrder(ImageInfo.Version);
+          sys::swapByteOrder(ImageInfo.Flags);
+        }
+        O.SwiftVersion = (ImageInfo.Flags >> 8) & 0xff;
+        return;
+      }
+}
+
 std::unique_ptr<Object> MachOReader::create() const {
   auto Obj = std::make_unique<Object>();
   readHeader(*Obj);
@@ -281,6 +319,7 @@ std::unique_ptr<Object> MachOReader::create() const {
   readDataInCodeData(*Obj);
   readFunctionStartsData(*Obj);
   readIndirectSymbolTable(*Obj);
+  readSwiftVersion(*Obj);
   return Obj;
 }
 

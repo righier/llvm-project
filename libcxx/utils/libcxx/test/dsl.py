@@ -6,12 +6,13 @@
 #
 #===----------------------------------------------------------------------===##
 
-import distutils.util
 import libcxx.test.newformat
 import lit
+import lit.util
 import os
 import pipes
-import subprocess
+import platform
+import re
 import tempfile
 
 def _memoize(f):
@@ -22,15 +23,27 @@ def _memoize(f):
     return cache[x]
   return memoized
 
-@_memoize
-def _subprocess_call(command):
-  devNull = open(os.devnull, 'w')
-  return subprocess.call(command, shell=True, stdout=devNull, stderr=devNull)
+def _executeScriptInternal(test, commands):
+  """
+  Returns (stdout, stderr, exitCode, timeoutInfo)
 
-@_memoize
-def _subprocess_check_output(command):
-  devNull = open(os.devnull, 'w')
-  return subprocess.check_output(command, shell=True, stderr=devNull)
+  TODO: This really should be easier to access from Lit itself
+  """
+  parsedCommands = libcxx.test.newformat.parseScript(test, preamble=commands)
+
+  class FakeLitConfig(object):
+    def __init__(self):
+      self.isWindows = platform.system() == 'Windows'
+      self.maxIndividualTestTime = 0
+  litConfig = FakeLitConfig()
+  _, tmpBase = libcxx.test.newformat._getTempPaths(test)
+  execDir = os.path.dirname(test.getExecPath())
+  if not os.path.exists(execDir):
+    os.makedirs(execDir)
+  res = lit.TestRunner.executeScriptInternal(test, litConfig, tmpBase, parsedCommands, execDir)
+  if isinstance(res, lit.Test.Result):
+    res = ('', '', 127, None)
+  return res
 
 def _makeConfigTest(config):
   sourceRoot = os.path.join(config.test_exec_root, '__config_src__')
@@ -38,12 +51,63 @@ def _makeConfigTest(config):
   suite = lit.Test.TestSuite('__config__', sourceRoot, execRoot, config)
   if not os.path.exists(sourceRoot):
     os.makedirs(sourceRoot)
-  tmp = tempfile.NamedTemporaryFile(dir=sourceRoot, delete=False)
+  tmp = tempfile.NamedTemporaryFile(dir=sourceRoot, delete=False, suffix='.cpp')
+  tmp.close()
   pathInSuite = [os.path.relpath(tmp.name, sourceRoot)]
   class TestWrapper(lit.Test.Test):
     def __enter__(self):       return self
     def __exit__(self, *args): os.remove(tmp.name)
   return TestWrapper(suite, pathInSuite, config)
+
+def sourceBuilds(config, source):
+  """
+  Return whether the program in the given string builds successfully.
+
+  This is done by compiling and linking a program that consists of the given
+  source with the %{cxx} substitution, and seeing whether that succeeds.
+  """
+  with _makeConfigTest(config) as test:
+    with open(test.getSourcePath(), 'w') as sourceFile:
+      sourceFile.write(source)
+    out, err, exitCode, timeoutInfo = _executeScriptInternal(test, [
+      "mkdir -p %T",
+      "%{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe"
+    ])
+    _executeScriptInternal(test, ['rm %t.exe'])
+    return exitCode == 0
+
+def programOutput(config, program, args=[]):
+  """
+  Compiles a program for the test target, run it on the test target and return
+  the output.
+
+  If the program fails to compile or run, None is returned instead. Note that
+  execution of the program is done through the %{exec} substitution, which means
+  that the program may be run on a remote host depending on what %{exec} does.
+  """
+  with _makeConfigTest(config) as test:
+    with open(test.getSourcePath(), 'w') as source:
+      source.write(program)
+    try:
+      _, _, exitCode, _ = _executeScriptInternal(test, [
+        "mkdir -p %T",
+        "%{cxx} %s %{flags} %{compile_flags} %{link_flags} -o %t.exe",
+      ])
+      if exitCode != 0:
+        return None
+
+      out, err, exitCode, _ = _executeScriptInternal(test, [
+        "%{{exec}} %t.exe {}".format(' '.join(args))
+      ])
+      if exitCode != 0:
+        return None
+
+      actualOut = re.search("command output:\n(.+)\n$", out, flags=re.DOTALL)
+      actualOut = actualOut.group(1) if actualOut else ""
+      return actualOut
+
+    finally:
+      _executeScriptInternal(test, ['rm %t.exe'])
 
 def hasCompileFlag(config, flag):
   """
@@ -53,10 +117,10 @@ def hasCompileFlag(config, flag):
   checking whether that succeeds.
   """
   with _makeConfigTest(config) as test:
-    command = "%{{cxx}} -xc++ {} -Werror -fsyntax-only %{{flags}} %{{compile_flags}} {}".format(os.devnull, flag)
-    command = libcxx.test.newformat.parseScript(test, preamble=[command], fileDependencies=[])[0]
-    result = _subprocess_call(command)
-    return result == 0
+    out, err, exitCode, timeoutInfo = _executeScriptInternal(test, [
+      "%{{cxx}} -xc++ {} -Werror -fsyntax-only %{{flags}} %{{compile_flags}} {}".format(os.devnull, flag)
+    ])
+    return exitCode == 0
 
 def hasLocale(config, locale):
   """
@@ -66,25 +130,14 @@ def hasLocale(config, locale):
   %{exec} -- this means that the command may be executed on a remote host
   depending on the %{exec} substitution.
   """
-  with _makeConfigTest(config) as test:
-    with open(test.getSourcePath(), 'w') as source:
-      source.write("""
-      #include <locale.h>
-      int main(int, char** argv) {{
-        if (::setlocale(LC_ALL, argv[1]) != NULL) return 0;
-        else                                      return 1;
-      }}
-      """)
-    commands = [
-      "mkdir -p %T",
-      "%{cxx} -xc++ %s %{flags} %{compile_flags} %{link_flags} -o %t.exe",
-      "%{{exec}} %t.exe {}".format(pipes.quote(locale)),
-    ]
-    commands = libcxx.test.newformat.parseScript(test, preamble=commands, fileDependencies=['%t.exe'])
-    result = _subprocess_call(' && '.join(commands))
-    cleanup = libcxx.test.newformat.parseScript(test, preamble=['rm %t.exe'], fileDependencies=[])[0]
-    _subprocess_call(cleanup)
-    return result == 0
+  program = """
+    #include <locale.h>
+    int main(int, char** argv) {
+      if (::setlocale(LC_ALL, argv[1]) != NULL) return 0;
+      else                                      return 1;
+    }
+  """
+  return programOutput(config, program, args=[pipes.quote(locale)]) != None
 
 def compilerMacros(config, flags=''):
   """
@@ -97,12 +150,12 @@ def compilerMacros(config, flags=''):
   be added to the compiler invocation when generating the macros.
   """
   with _makeConfigTest(config) as test:
-    command = "%{{cxx}} -xc++ {} -dM -E %{{flags}} %{{compile_flags}} {}".format(os.devnull, flags)
-    command = libcxx.test.newformat.parseScript(test, preamble=[command], fileDependencies=[])[0]
-    unparsed = _subprocess_check_output(command)
+    unparsedOutput, err, exitCode, timeoutInfo = _executeScriptInternal(test, [
+      "%{{cxx}} -xc++ {} -dM -E %{{flags}} %{{compile_flags}} {}".format(os.devnull, flags)
+    ])
     parsedMacros = dict()
-    for line in filter(None, map(str.strip, unparsed.split('\n'))):
-      assert line.startswith('#define ')
+    defines = (l.strip() for l in unparsedOutput.split('\n') if l.startswith('#define '))
+    for line in defines:
       line = line[len('#define '):]
       macro, _, value = line.partition(' ')
       parsedMacros[macro] = value
@@ -186,12 +239,32 @@ class Feature(object):
 
     addTo = lambda subs, sub, flag: [(s, x + ' ' + flag) if s == sub else (s, x) for (s, x) in subs]
     if self._compileFlag:
-      config.substitutions = addTo(config.substitutions, '%{compile_flags}', self._compileFlag)
+      compileFlag = self._compileFlag(config) if callable(self._compileFlag) else self._compileFlag
+      config.substitutions = addTo(config.substitutions, '%{compile_flags}', compileFlag)
     if self._linkFlag:
-      config.substitutions = addTo(config.substitutions, '%{link_flags}', self._linkFlag)
+      linkFlag = self._linkFlag(config) if callable(self._linkFlag) else self._linkFlag
+      config.substitutions = addTo(config.substitutions, '%{link_flags}', linkFlag)
 
     name = self._name(config) if callable(self._name) else self._name
     config.available_features.add(name)
+
+
+def _str_to_bool(s):
+  """
+  Convert a string value to a boolean.
+
+  True values are "y", "yes", "t", "true", "on" and "1", regardless of capitalization.
+  False values are "n", "no", "f", "false", "off" and "0", regardless of capitalization.
+  """
+  trueVals = ["y", "yes", "t", "true", "on", "1"]
+  falseVals = ["n", "no", "f", "false", "off", "0"]
+  lower = s.lower()
+  if lower in trueVals:
+    return True
+  elif lower in falseVals:
+    return False
+  else:
+    raise ValueError("Got string '{}', which isn't a valid boolean".format(s))
 
 
 class Parameter(object):
@@ -199,15 +272,22 @@ class Parameter(object):
   Represents a parameter of a Lit test suite.
 
   Parameters are used to customize the behavior of test suites in a user
-  controllable way, more specifically by passing `--param <KEY>=<VALUE>`
-  when running Lit. Parameters have multiple possible values, and they can
-  have a default value when left unspecified.
+  controllable way. There are two ways of setting the value of a Parameter.
+  The first one is to pass `--param <KEY>=<VALUE>` when running Lit (or
+  equivalenlty to set `litConfig.params[KEY] = VALUE` somewhere in the
+  Lit configuration files. This method will set the parameter globally for
+  all test suites being run.
 
-  Parameters can have a Feature associated to them, in which case the Feature
-  is added to the TestingConfig if the parameter is enabled. It is an error if
-  the Parameter is enabled but the Feature associated to it is not supported,
-  for example trying to set the compilation standard to C++17 when `-std=c++17`
-  is not supported by the compiler.
+  The second method is to set `config.KEY = VALUE` somewhere in the Lit
+  configuration files, which sets the parameter only for the test suite(s)
+  that use that `config` object.
+
+  Parameters can have multiple possible values, and they can have a default
+  value when left unspecified. They can also have a Feature associated to them,
+  in which case the Feature is added to the TestingConfig if the parameter is
+  enabled. It is an error if the Parameter is enabled but the Feature associated
+  to it is not supported, for example trying to set the compilation standard to
+  C++17 when `-std=c++17` is not supported by the compiler.
 
   One important point is that Parameters customize the behavior of the test
   suite in a bounded way, i.e. there should be a finite set of possible choices
@@ -264,8 +344,8 @@ class Parameter(object):
     if len(self._choices) == 0:
       raise ValueError("Parameter '{}' must be given at least one possible value".format(self._name))
 
-    self._parse = lambda x: (distutils.util.strtobool(x) if type is bool and isinstance(x, str)
-                                                         else type(x))
+    self._parse = lambda x: (_str_to_bool(x) if type is bool and isinstance(x, str)
+                                             else type(x))
     self._help = help
     self._feature = feature
     self._default = default
@@ -281,9 +361,10 @@ class Parameter(object):
     return self._name
 
   def getFeature(self, config, litParams):
-    param = litParams.get(self.name, None)
+    param = getattr(config, self.name, None)
+    param = litParams.get(self.name, param)
     if param is None and self._default is None:
-      raise ValueError("Parameter {} doesn't have a default value, but it was not specified in the Lit parameters".format(self.name))
+      raise ValueError("Parameter {} doesn't have a default value, but it was not specified in the Lit parameters or in the Lit config".format(self.name))
     getDefault = lambda: self._default(config) if callable(self._default) else self._default
     value = self._parse(param) if param is not None else getDefault()
     if value not in self._choices:

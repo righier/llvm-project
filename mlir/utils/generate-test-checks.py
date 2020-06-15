@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """A script to generate FileCheck statements for mlir unit tests.
 
 This script is a utility to add FileCheck patterns to an mlir file.
@@ -75,11 +75,11 @@ def process_line(line_chunks, variable_namer):
 
     # If one exists, then output the existing name.
     if variable is not None:
-      output_line += '[[' + variable + ']]'
+      output_line += '%[[' + variable + ']]'
     else:
       # Otherwise, generate a new variable.
       variable = variable_namer.generate_name(ssa_name)
-      output_line += '[[' + variable + ':%.*]]'
+      output_line += '%[[' + variable + ':.*]]'
 
     # Append the non named group.
     output_line += chunk[len(ssa_name):]

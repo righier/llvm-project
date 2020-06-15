@@ -2,6 +2,7 @@ include "config/public_api.td"
 
 include "spec/gnu_ext.td"
 include "spec/linux.td"
+include "spec/llvm_libc_ext.td"
 include "spec/posix.td"
 include "spec/stdc.td"
 
@@ -117,6 +118,20 @@ def IsNanMacro : MacroDef<"isnan"> {
   }];
 }
 
+def FloatT : TypeDecl<"float_t"> {
+  let Decl = [{
+    #define __need_float_t
+    #include <__llvm-libc-stdc-types.h>
+  }];
+}
+
+def DoubleT : TypeDecl<"double_t"> {
+  let Decl = [{
+    #define __need_double_t
+    #include <__llvm-libc-stdc-types.h>
+  }];
+}
+
 def MathAPI : PublicAPI<"math.h"> {
   let Macros = [
     SimpleMacroDef<"MATH_ERRNO", "1">,
@@ -130,16 +145,40 @@ def MathAPI : PublicAPI<"math.h"> {
     IsInfMacro,
     IsNanMacro,
   ];
+  let TypeDeclarations = [
+    DoubleT,
+    FloatT,
+  ];
   let Functions = [
+   "copysign",
+   "copysignf",
+   "ceil",
+   "ceilf",
    "cosf",
+   "fabs",
+   "fabsf",
+   "floor",
+   "floorf",
+   "frexp",
+   "frexpf",
+   "logb",
+   "logbf",
+   "modf",
+   "modff",
+   "expf",
+   "exp2f",
    "round",
+   "roundf",
    "sincosf",
    "sinf",
+   "trunc",
+   "truncf",
   ];
 }
 
 def StringAPI : PublicAPI<"string.h"> {
   let Functions = [
+    "bzero",
     "memcpy",
     "memmove",
     "memcmp",
@@ -279,6 +318,12 @@ def SignalAPI : PublicAPI<"signal.h"> {
   ];
 }
 
+def OnceFlag : TypeDecl<"once_flag"> {
+  let Decl = [{
+    typedef unsigned int once_flag;
+  }];
+}
+
 def MtxT : TypeDecl<"mtx_t"> {
   let Decl = [{
     typedef struct {
@@ -292,8 +337,20 @@ def ThreadStartT : TypeDecl<"thrd_start_t"> {
   let Decl = "typedef int (*thrd_start_t)(void *);";
 }
 
+def CallOnceFuncT : TypeDecl<"__call_once_func_t"> {
+  let Decl = [{
+    typedef void(*__call_once_func_t)(void);
+  }];
+}
+
 def ThreadsAPI : PublicAPI<"threads.h"> {
+  let Macros = [
+    SimpleMacroDef<"ONCE_FLAG_INIT", "0">,
+  ];
+
   let TypeDeclarations = [
+    OnceFlag,
+    CallOnceFuncT,
     MtxT,
     ThreadStartT,
   ];
@@ -310,6 +367,7 @@ def ThreadsAPI : PublicAPI<"threads.h"> {
   ];
 
   let Functions = [
+    "call_once",
     "mtx_init",
     "mtx_lock",
     "mtx_unlock",

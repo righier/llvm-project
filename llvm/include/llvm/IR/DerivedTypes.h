@@ -519,9 +519,8 @@ public:
   /// input type and the same element type.
   static VectorType *getDoubleElementsVectorType(VectorType *VTy) {
     auto EltCnt = VTy->getElementCount();
-    assert((VTy->getNumElements() * 2ull) <= UINT_MAX &&
-           "Too many elements in vector");
-    return VectorType::get(VTy->getElementType(), EltCnt*2);
+    assert((EltCnt.Min * 2ull) <= UINT_MAX && "Too many elements in vector");
+    return VectorType::get(VTy->getElementType(), EltCnt * 2);
   }
 
   /// Return true if the specified type is valid as a element type.
@@ -538,8 +537,6 @@ public:
   }
 };
 
-bool Type::isVectorTy() const { return isa<VectorType>(this); }
-
 /// Class to represent fixed width SIMD vectors
 class FixedVectorType : public VectorType {
 protected:
@@ -548,6 +545,37 @@ protected:
 
 public:
   static FixedVectorType *get(Type *ElementType, unsigned NumElts);
+
+  static FixedVectorType *get(Type *ElementType, const FixedVectorType *FVTy) {
+    return get(ElementType, FVTy->getNumElements());
+  }
+
+  static FixedVectorType *getInteger(FixedVectorType *VTy) {
+    return cast<FixedVectorType>(VectorType::getInteger(VTy));
+  }
+
+  static FixedVectorType *getExtendedElementVectorType(FixedVectorType *VTy) {
+    return cast<FixedVectorType>(VectorType::getExtendedElementVectorType(VTy));
+  }
+
+  static FixedVectorType *getTruncatedElementVectorType(FixedVectorType *VTy) {
+    return cast<FixedVectorType>(
+        VectorType::getTruncatedElementVectorType(VTy));
+  }
+
+  static FixedVectorType *getSubdividedVectorType(FixedVectorType *VTy,
+                                                  int NumSubdivs) {
+    return cast<FixedVectorType>(
+        VectorType::getSubdividedVectorType(VTy, NumSubdivs));
+  }
+
+  static FixedVectorType *getHalfElementsVectorType(FixedVectorType *VTy) {
+    return cast<FixedVectorType>(VectorType::getHalfElementsVectorType(VTy));
+  }
+
+  static FixedVectorType *getDoubleElementsVectorType(FixedVectorType *VTy) {
+    return cast<FixedVectorType>(VectorType::getDoubleElementsVectorType(VTy));
+  }
 
   static bool classof(const Type *T) {
     return T->getTypeID() == FixedVectorTyID;
@@ -562,6 +590,44 @@ protected:
 
 public:
   static ScalableVectorType *get(Type *ElementType, unsigned MinNumElts);
+
+  static ScalableVectorType *get(Type *ElementType,
+                                 const ScalableVectorType *SVTy) {
+    return get(ElementType, SVTy->getMinNumElements());
+  }
+
+  static ScalableVectorType *getInteger(ScalableVectorType *VTy) {
+    return cast<ScalableVectorType>(VectorType::getInteger(VTy));
+  }
+
+  static ScalableVectorType *
+  getExtendedElementVectorType(ScalableVectorType *VTy) {
+    return cast<ScalableVectorType>(
+        VectorType::getExtendedElementVectorType(VTy));
+  }
+
+  static ScalableVectorType *
+  getTruncatedElementVectorType(ScalableVectorType *VTy) {
+    return cast<ScalableVectorType>(
+        VectorType::getTruncatedElementVectorType(VTy));
+  }
+
+  static ScalableVectorType *getSubdividedVectorType(ScalableVectorType *VTy,
+                                                     int NumSubdivs) {
+    return cast<ScalableVectorType>(
+        VectorType::getSubdividedVectorType(VTy, NumSubdivs));
+  }
+
+  static ScalableVectorType *
+  getHalfElementsVectorType(ScalableVectorType *VTy) {
+    return cast<ScalableVectorType>(VectorType::getHalfElementsVectorType(VTy));
+  }
+
+  static ScalableVectorType *
+  getDoubleElementsVectorType(ScalableVectorType *VTy) {
+    return cast<ScalableVectorType>(
+        VectorType::getDoubleElementsVectorType(VTy));
+  }
 
   /// Get the minimum number of elements in this vector. The actual number of
   /// elements in the vector is an integer multiple of this value.
@@ -635,12 +701,6 @@ Type *Type::getWithNewBitWidth(unsigned NewBitWidth) const {
 
 unsigned Type::getPointerAddressSpace() const {
   return cast<PointerType>(getScalarType())->getAddressSpace();
-}
-
-Type *Type::getScalarType() const {
-  if (isVectorTy())
-    return cast<VectorType>(this)->getElementType();
-  return const_cast<Type *>(this);
 }
 
 } // end namespace llvm

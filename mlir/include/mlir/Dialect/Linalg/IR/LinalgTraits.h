@@ -217,6 +217,18 @@ public:
     return getOutputTensorTypes()[i - getNumInputsAndOutputBuffers()]
         .template cast<ShapedType>();
   }
+  /// Return the shaped types for all the inputs and outputs
+  SmallVector<ShapedType, 4> getInputOutputShapedTypes() {
+    SmallVector<Type, 4> inputOutputTypes(
+        this->getOperation()->operand_type_begin(),
+        this->getOperation()->operand_type_end());
+    inputOutputTypes.append(this->getOperation()->result_type_begin(),
+                            this->getOperation()->result_type_end());
+    return llvm::to_vector<4>(
+        llvm::map_range(inputOutputTypes, [](Type type) -> ShapedType {
+          return type.cast<ShapedType>();
+        }));
+  }
 
   //==========================================================================//
   // Other interface methods.
@@ -295,6 +307,13 @@ public:
     return attr;
   }
 
+  SmallVector<AffineMap, 4> getIndexingMaps() {
+    return llvm::to_vector<4>(
+        llvm::map_range(indexing_maps(), [](Attribute attr) -> AffineMap {
+          return attr.cast<AffineMapAttr>().getValue();
+        }));
+  }
+
   AffineMap getIndexingMap(unsigned i) {
     assert(i < getNumInputsAndOutputs());
     return indexing_maps()
@@ -351,10 +370,11 @@ template <typename ConcreteType>
 class NamedStructuredOpTraits
     : public OpTrait::TraitBase<ConcreteType, NamedStructuredOpTraits> {
 public:
-  llvm::Optional<SmallVector<StringRef, 8>> referenceIterators();
-  llvm::Optional<SmallVector<AffineMap, 8>> referenceIndexingMaps();
-  std::function<void(OpBuilder &, Location, ArrayRef<Value>)>
-  emitScalarImplementation();
+  static SmallVector<StringRef, 8> referenceIterators(TypeRange inputTypes,
+                                                      TypeRange outputTypes);
+
+  static SmallVector<AffineMap, 8> referenceIndexingMaps(TypeRange inputTypes,
+                                                         TypeRange outputTypes);
 };
 
 } // namespace linalg

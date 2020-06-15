@@ -200,9 +200,9 @@ static ParseResult parseShuffleOp(OpAsmParser &parser, OperationState &state) {
 // LaunchOp
 //===----------------------------------------------------------------------===//
 
-void LaunchOp::build(Builder *builder, OperationState &result, Value gridSizeX,
-                     Value gridSizeY, Value gridSizeZ, Value blockSizeX,
-                     Value blockSizeY, Value blockSizeZ) {
+void LaunchOp::build(OpBuilder &builder, OperationState &result,
+                     Value gridSizeX, Value gridSizeY, Value gridSizeZ,
+                     Value blockSizeX, Value blockSizeY, Value blockSizeZ) {
   // Add grid and block sizes as op operands, followed by the data operands.
   result.addOperands(
       {gridSizeX, gridSizeY, gridSizeZ, blockSizeX, blockSizeY, blockSizeZ});
@@ -213,7 +213,7 @@ void LaunchOp::build(Builder *builder, OperationState &result, Value gridSizeX,
   Region *kernelRegion = result.addRegion();
   Block *body = new Block();
   body->addArguments(
-      std::vector<Type>(kNumConfigRegionAttributes, builder->getIndexType()));
+      std::vector<Type>(kNumConfigRegionAttributes, builder.getIndexType()));
   kernelRegion->push_back(body);
 }
 
@@ -388,7 +388,7 @@ static ParseResult parseLaunchOp(OpAsmParser &parser, OperationState &result) {
 // LaunchFuncOp
 //===----------------------------------------------------------------------===//
 
-void LaunchFuncOp::build(Builder *builder, OperationState &result,
+void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
                          GPUFuncOp kernelFunc, Value gridSizeX, Value gridSizeY,
                          Value gridSizeZ, Value blockSizeX, Value blockSizeY,
                          Value blockSizeZ, ValueRange kernelOperands) {
@@ -397,13 +397,12 @@ void LaunchFuncOp::build(Builder *builder, OperationState &result,
       {gridSizeX, gridSizeY, gridSizeZ, blockSizeX, blockSizeY, blockSizeZ});
   result.addOperands(kernelOperands);
   auto kernelModule = kernelFunc.getParentOfType<GPUModuleOp>();
-  auto kernelSymbol = builder->getSymbolRefAttr(
-      kernelModule.getName(),
-      {builder->getSymbolRefAttr(kernelFunc.getName())});
+  auto kernelSymbol = builder.getSymbolRefAttr(
+      kernelModule.getName(), {builder.getSymbolRefAttr(kernelFunc.getName())});
   result.addAttribute(getKernelAttrName(), kernelSymbol);
 }
 
-void LaunchFuncOp::build(Builder *builder, OperationState &result,
+void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
                          GPUFuncOp kernelFunc, KernelDim3 gridSize,
                          KernelDim3 blockSize, ValueRange kernelOperands) {
   build(builder, result, kernelFunc, gridSize.x, gridSize.y, gridSize.z,
@@ -458,33 +457,34 @@ static LogicalResult verify(LaunchFuncOp op) {
 // GPUFuncOp
 //===----------------------------------------------------------------------===//
 
-/// Adds a workgroup attribution to "op" of the MemRef type with the given shape
-/// and element type.
-Value GPUFuncOp::addWorkgroupAttribution(ArrayRef<int64_t> shape,
-                                         Type elementType) {
-  unsigned pos = getNumFuncArguments() + getNumWorkgroupAttributions();
-  Block &bodyBlock = body().front();
-  Value attribution = bodyBlock.insertArgument(
-      std::next(bodyBlock.args_begin(), pos),
-      MemRefType::get(shape, elementType, /*affineMapComposition=*/{},
-                      GPUDialect::getWorkgroupAddressSpace()));
-  auto numWorkgroupBuffersAttr =
-      getAttrOfType<IntegerAttr>(getNumWorkgroupAttributionsAttrName());
-  setAttr(getNumWorkgroupAttributionsAttrName(),
-          IntegerAttr::get(numWorkgroupBuffersAttr.getType(),
-                           numWorkgroupBuffersAttr.getValue() + 1));
-  return attribution;
+/// Adds a new block argument that corresponds to buffers located in
+/// workgroup memory.
+BlockArgument GPUFuncOp::addWorkgroupAttribution(Type type) {
+  auto attrName = getNumWorkgroupAttributionsAttrName();
+  auto attr = getAttrOfType<IntegerAttr>(attrName);
+  setAttr(attrName, IntegerAttr::get(attr.getType(), attr.getValue() + 1));
+  return getBody().front().insertArgument(
+      getType().getNumInputs() + attr.getInt(), type);
 }
 
-void GPUFuncOp::build(Builder *builder, OperationState &result, StringRef name,
-                      FunctionType type, ArrayRef<Type> workgroupAttributions,
+/// Adds a new block argument that corresponds to buffers located in
+/// private memory.
+BlockArgument GPUFuncOp::addPrivateAttribution(Type type) {
+  // Buffers on the private memory always come after buffers on the workgroup
+  // memory.
+  return getBody().front().addArgument(type);
+}
+
+void GPUFuncOp::build(OpBuilder &builder, OperationState &result,
+                      StringRef name, FunctionType type,
+                      ArrayRef<Type> workgroupAttributions,
                       ArrayRef<Type> privateAttributions,
                       ArrayRef<NamedAttribute> attrs) {
   result.addAttribute(SymbolTable::getSymbolAttrName(),
-                      builder->getStringAttr(name));
+                      builder.getStringAttr(name));
   result.addAttribute(getTypeAttrName(), TypeAttr::get(type));
   result.addAttribute(getNumWorkgroupAttributionsAttrName(),
-                      builder->getI64IntegerAttr(workgroupAttributions.size()));
+                      builder.getI64IntegerAttr(workgroupAttributions.size()));
   result.addAttributes(attrs);
   Region *body = result.addRegion();
   Block *entryBlock = new Block;
@@ -538,8 +538,8 @@ parseAttributions(OpAsmParser &parser, StringRef keyword,
 ///                 function-attributes? region
 static ParseResult parseGPUFuncOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 8> entryArgs;
-  SmallVector<SmallVector<NamedAttribute, 2>, 1> argAttrs;
-  SmallVector<SmallVector<NamedAttribute, 2>, 1> resultAttrs;
+  SmallVector<NamedAttrList, 1> argAttrs;
+  SmallVector<NamedAttrList, 1> resultAttrs;
   SmallVector<Type, 8> argTypes;
   SmallVector<Type, 4> resultTypes;
   bool isVariadic;
@@ -742,11 +742,11 @@ static LogicalResult verify(gpu::ReturnOp returnOp) {
 // GPUModuleOp
 //===----------------------------------------------------------------------===//
 
-void GPUModuleOp::build(Builder *builder, OperationState &result,
+void GPUModuleOp::build(OpBuilder &builder, OperationState &result,
                         StringRef name) {
-  ensureTerminator(*result.addRegion(), *builder, result.location);
-  result.attributes.push_back(builder->getNamedAttr(
-      ::mlir::SymbolTable::getSymbolAttrName(), builder->getStringAttr(name)));
+  ensureTerminator(*result.addRegion(), builder, result.location);
+  result.attributes.push_back(builder.getNamedAttr(
+      ::mlir::SymbolTable::getSymbolAttrName(), builder.getStringAttr(name)));
 }
 
 static ParseResult parseGPUModuleOp(OpAsmParser &parser,

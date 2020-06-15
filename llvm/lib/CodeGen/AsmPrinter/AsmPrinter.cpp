@@ -418,18 +418,14 @@ void AsmPrinter::emitLinkage(const GlobalValue *GV, MCSymbol *GVSym) const {
     }
     return;
   case GlobalValue::ExternalLinkage:
-    // If external, declare as a global symbol: .globl _foo
     OutStreamer->emitSymbolAttribute(GVSym, MCSA_Global);
     return;
   case GlobalValue::PrivateLinkage:
-    return;
   case GlobalValue::InternalLinkage:
-    if (MAI->hasDotLGloblDirective())
-      OutStreamer->emitSymbolAttribute(GVSym, MCSA_LGlobal);
     return;
-  case GlobalValue::AppendingLinkage:
-  case GlobalValue::AvailableExternallyLinkage:
   case GlobalValue::ExternalWeakLinkage:
+  case GlobalValue::AvailableExternallyLinkage:
+  case GlobalValue::AppendingLinkage:
     llvm_unreachable("Should never emit this");
   }
   llvm_unreachable("Unknown linkage type!");
@@ -452,10 +448,14 @@ MCSymbol *AsmPrinter::getSymbolPreferLocal(const GlobalValue &GV) const {
   // assembler would otherwise be conservative and assume a global default
   // visibility symbol can be interposable, even if the code generator already
   // assumed it.
-  if (TM.getTargetTriple().isOSBinFormatELF() &&
-      GlobalObject::isExternalLinkage(GV.getLinkage()) && GV.isDSOLocal() &&
-      !GV.isDeclaration() && !isa<GlobalIFunc>(GV) && !GV.hasComdat())
-    return getSymbolWithGlobalValueBase(&GV, "$local");
+  if (TM.getTargetTriple().isOSBinFormatELF() && GV.canBenefitFromLocalAlias()) {
+    const Module &M = *GV.getParent();
+    if (TM.getRelocationModel() != Reloc::Static &&
+        M.getPIELevel() == PIELevel::Default)
+      if (GV.isDSOLocal() || (TM.getTargetTriple().isX86() &&
+                              GV.getParent()->noSemanticInterposition()))
+        return getSymbolWithGlobalValueBase(&GV, "$local");
+  }
   return TM.getSymbol(&GV);
 }
 
@@ -681,7 +681,8 @@ void AsmPrinter::emitFunctionHeader() {
   MF->setSection(getObjFileLowering().SectionForGlobal(&F, TM));
   OutStreamer->SwitchSection(MF->getSection());
 
-  emitVisibility(CurrentFnSym, F.getVisibility());
+  if (!MAI->hasVisibilityOnlyWithLinkage())
+    emitVisibility(CurrentFnSym, F.getVisibility());
 
   if (MAI->needsFunctionDescriptors() &&
       F.getLinkage() != GlobalValue::InternalLinkage)
@@ -1489,16 +1490,38 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit remaining GOT equivalent globals.
   emitGlobalGOTEquivs();
 
-  // Emit visibility info for declarations
+  const TargetLoweringObjectFile &TLOF = getObjFileLowering();
+
+  // Emit linkage(XCOFF) and visibility info for declarations
   for (const Function &F : M) {
     if (!F.isDeclarationForLinker())
       continue;
-    GlobalValue::VisibilityTypes V = F.getVisibility();
-    if (V == GlobalValue::DefaultVisibility)
-      continue;
 
     MCSymbol *Name = getSymbol(&F);
-    emitVisibility(Name, V, false);
+    // Function getSymbol gives us the function descriptor symbol for XCOFF.
+
+    if (!TM.getTargetTriple().isOSBinFormatXCOFF()) {
+      GlobalValue::VisibilityTypes V = F.getVisibility();
+      if (V == GlobalValue::DefaultVisibility)
+        continue;
+
+      emitVisibility(Name, V, false);
+      continue;
+    }
+
+    if (F.isIntrinsic())
+      continue;
+
+    // Handle the XCOFF case.
+    // Variable `Name` is the function descriptor symbol (see above). Get the
+    // function entry point symbol.
+    MCSymbol *FnEntryPointSym = TLOF.getFunctionEntryPointSymbol(&F, TM);
+    if (cast<MCSymbolXCOFF>(FnEntryPointSym)->hasRepresentedCsectSet())
+      // Emit linkage for the function entry point.
+      emitLinkage(&F, FnEntryPointSym);
+
+    // Emit linkage for the function descriptor.
+    emitLinkage(&F, Name);
   }
 
   // Emit the remarks section contents.
@@ -1506,8 +1529,6 @@ bool AsmPrinter::doFinalization(Module &M) {
   // not come after debug info.
   if (remarks::RemarkStreamer *RS = M.getContext().getMainRemarkStreamer())
     emitRemarksSection(*RS);
-
-  const TargetLoweringObjectFile &TLOF = getObjFileLowering();
 
   TLOF.emitModuleMetadata(*OutStreamer, M);
 
@@ -1614,10 +1635,10 @@ bool AsmPrinter::doFinalization(Module &M) {
 
   // Emit __morestack address if needed for indirect calls.
   if (MMI->usesMorestackAddr()) {
-    unsigned Align = 1;
+    Align Alignment(1);
     MCSection *ReadOnlySection = getObjFileLowering().getSectionForConstant(
         getDataLayout(), SectionKind::getReadOnly(),
-        /*C=*/nullptr, Align);
+        /*C=*/nullptr, Alignment);
     OutStreamer->SwitchSection(ReadOnlySection);
 
     MCSymbol *AddrSymbol =
@@ -1757,8 +1778,7 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
                                " initalized first.");
 
     // Get the function entry point symbol.
-    CurrentFnSym = OutContext.getOrCreateSymbol(
-        "." + cast<MCSymbolXCOFF>(CurrentFnDescSym)->getUnqualifiedName());
+    CurrentFnSym = getObjFileLowering().getFunctionEntryPointSymbol(&F, TM);
   }
 
   CurrentFnSymForSize = CurrentFnSym;
@@ -1784,10 +1804,10 @@ namespace {
 // Keep track the alignment, constpool entries per Section.
   struct SectionCPs {
     MCSection *S;
-    unsigned Alignment;
+    Align Alignment;
     SmallVector<unsigned, 4> CPEs;
 
-    SectionCPs(MCSection *s, unsigned a) : S(s), Alignment(a) {}
+    SectionCPs(MCSection *s, Align a) : S(s), Alignment(a) {}
   };
 
 } // end anonymous namespace
@@ -1806,7 +1826,7 @@ void AsmPrinter::emitConstantPool() {
   SmallVector<SectionCPs, 4> CPSections;
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
-    unsigned Align = CPE.getAlignment();
+    Align Alignment = CPE.getAlign();
 
     SectionKind Kind = CPE.getSectionKind(&getDataLayout());
 
@@ -1814,8 +1834,8 @@ void AsmPrinter::emitConstantPool() {
     if (!CPE.isMachineConstantPoolEntry())
       C = CPE.Val.ConstVal;
 
-    MCSection *S = getObjFileLowering().getSectionForConstant(getDataLayout(),
-                                                              Kind, C, Align);
+    MCSection *S = getObjFileLowering().getSectionForConstant(
+        getDataLayout(), Kind, C, Alignment);
 
     // The number of sections are small, just do a linear search from the
     // last section to the first.
@@ -1829,11 +1849,11 @@ void AsmPrinter::emitConstantPool() {
     }
     if (!Found) {
       SecIdx = CPSections.size();
-      CPSections.push_back(SectionCPs(S, Align));
+      CPSections.push_back(SectionCPs(S, Alignment));
     }
 
-    if (Align > CPSections[SecIdx].Alignment)
-      CPSections[SecIdx].Alignment = Align;
+    if (Alignment > CPSections[SecIdx].Alignment)
+      CPSections[SecIdx].Alignment = Alignment;
     CPSections[SecIdx].CPEs.push_back(i);
   }
 
@@ -1857,8 +1877,7 @@ void AsmPrinter::emitConstantPool() {
       MachineConstantPoolEntry CPE = CP[CPI];
 
       // Emit inter-object padding for alignment.
-      unsigned AlignMask = CPE.getAlignment() - 1;
-      unsigned NewOffset = (Offset + AlignMask) & ~AlignMask;
+      unsigned NewOffset = alignTo(Offset, CPE.getAlign());
       OutStreamer->emitZeros(NewOffset - Offset);
 
       Type *Ty = CPE.getType();
@@ -2617,9 +2636,10 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
       // [chunk1][chunk2] ... [chunkN].
       // The most significant chunk is chunkN and it should be emitted first.
       // However, due to the alignment issue chunkN contains useless bits.
-      // Realign the chunks so that they contain only useless information:
+      // Realign the chunks so that they contain only useful information:
       // ExtraBits     0       1       (BitWidth / 64) - 1
       //       chu[nk1 chu][nk2 chu] ... [nkN-1 chunkN]
+      ExtraBitsSize = alignTo(ExtraBitsSize, 8);
       ExtraBits = Realigned.getRawData()[0] &
         (((uint64_t)-1) >> (64 - ExtraBitsSize));
       Realigned.lshrInPlace(ExtraBitsSize);
@@ -2640,7 +2660,7 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
     // Emit the extra bits after the 64-bits chunks.
 
     // Emit a directive that fills the expected size.
-    uint64_t Size = AP.getDataLayout().getTypeAllocSize(CI->getType());
+    uint64_t Size = AP.getDataLayout().getTypeStoreSize(CI->getType());
     Size -= (BitWidth / 64) * 8;
     assert(Size && Size * 8 >= ExtraBitsSize &&
            (ExtraBits & (((uint64_t)-1) >> (64 - ExtraBitsSize)))
@@ -2755,20 +2775,22 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
     return AP.OutStreamer->emitZeros(Size);
 
   if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
-    switch (Size) {
-    case 1:
-    case 2:
-    case 4:
-    case 8:
+    const uint64_t StoreSize = DL.getTypeStoreSize(CV->getType());
+
+    if (StoreSize < 8) {
       if (AP.isVerbose())
         AP.OutStreamer->GetCommentOS() << format("0x%" PRIx64 "\n",
                                                  CI->getZExtValue());
-      AP.OutStreamer->emitIntValue(CI->getZExtValue(), Size);
-      return;
-    default:
+      AP.OutStreamer->emitIntValue(CI->getZExtValue(), StoreSize);
+    } else {
       emitGlobalConstantLargeInt(CI, AP);
-      return;
     }
+
+    // Emit tail padding if needed
+    if (Size != StoreSize)
+      AP.OutStreamer->emitZeros(Size - StoreSize);
+
+    return;
   }
 
   if (const ConstantFP *CFP = dyn_cast<ConstantFP>(CV))
@@ -2876,9 +2898,10 @@ MCSymbol *AsmPrinter::GetCPISymbol(unsigned CPID) const {
       const DataLayout &DL = MF->getDataLayout();
       SectionKind Kind = CPE.getSectionKind(&DL);
       const Constant *C = CPE.Val.ConstVal;
-      unsigned Align = CPE.Alignment;
+      Align Alignment = CPE.Alignment;
       if (const MCSectionCOFF *S = dyn_cast<MCSectionCOFF>(
-              getObjFileLowering().getSectionForConstant(DL, Kind, C, Align))) {
+              getObjFileLowering().getSectionForConstant(DL, Kind, C,
+                                                         Alignment))) {
         if (MCSymbol *Sym = S->getCOMDATSymbol()) {
           if (Sym->isUndefined())
             OutStreamer->emitSymbolAttribute(Sym, MCSA_Global);

@@ -24,15 +24,18 @@
 #include "Compiler.h"
 #include "Diagnostics.h"
 #include "Headers.h"
-#include "Path.h"
 #include "Preamble.h"
 #include "index/CanonicalIncludes.h"
+#include "support/Path.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/PrecompiledPreamble.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Tooling/CompilationDatabase.h"
 #include "clang/Tooling/Syntax/Tokens.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/None.h"
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringRef.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -101,6 +104,10 @@ public:
 
   /// Returns the version of the ParseInputs this AST was built from.
   llvm::StringRef version() const { return Version; }
+
+  /// Returns the version of the ParseInputs used to build Preamble part of this
+  /// AST. Might be None if no Preamble is used.
+  llvm::Optional<llvm::StringRef> preambleVersion() const;
 
 private:
   ParsedAST(llvm::StringRef Version,

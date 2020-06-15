@@ -45,6 +45,7 @@ public:
     AppleA11,
     AppleA12,
     AppleA13,
+    Carmel,
     CortexA35,
     CortexA53,
     CortexA55,
@@ -65,7 +66,8 @@ public:
     ThunderXT81,
     ThunderXT83,
     ThunderXT88,
-    TSV110
+    TSV110,
+    ThunderX3T110
   };
 
 protected:
@@ -208,6 +210,8 @@ protected:
   bool UseEL2ForTP = false;
   bool UseEL3ForTP = false;
   bool AllowTaggedGlobals = false;
+  bool HardenSlsRetBr = false;
+  bool HardenSlsBlr = false;
   uint8_t MaxInterleaveFactor = 2;
   uint8_t VectorInsertExtractBaseCost = 3;
   uint16_t CacheLineSize = 0;
@@ -360,6 +364,9 @@ public:
            hasFuseAES() || hasFuseArithmeticLogic() ||
            hasFuseCCSelect() || hasFuseLiterals();
   }
+
+  bool hardenSlsRetBr() const { return HardenSlsRetBr; }
+  bool hardenSlsBlr() const { return HardenSlsBlr; }
 
   bool useEL1ForTP() const { return UseEL1ForTP; }
   bool useEL2ForTP() const { return UseEL2ForTP; }

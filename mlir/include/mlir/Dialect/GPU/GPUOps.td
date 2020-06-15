@@ -16,7 +16,7 @@
 include "mlir/Dialect/GPU/GPUBase.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "mlir/Interfaces/SideEffects.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 // Type constraint accepting standard integers, indices and wrapped LLVM integer
 // types.
@@ -84,6 +84,55 @@ def GPU_ThreadIdOp : GPU_IndexOp<"thread_id"> {
     %tIdX = "gpu.thread_id"() {dimension = "x"} : () -> (index)
     ```
   }];
+}
+
+def GPU_SubgroupIdOp : GPU_Op<"subgroup_id", [NoSideEffect]>,
+    Arguments<(ins)>, Results<(outs Index:$result)> {
+  let description = [{
+    Returns the subgroup id, i.e. the index of the current subgroup within the
+    workgroup.
+
+    Example:
+
+    ```mlir
+    %sgId = gpu.subgroup_id : index
+    ```
+  }];
+
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let verifier = [{ return success(); }];
+}
+
+def GPU_NumSubgroupsOp : GPU_Op<"num_subgroups", [NoSideEffect]>,
+    Arguments<(ins)>, Results<(outs Index:$result)> {
+  let description = [{
+    Returns the number of subgroups within a workgroup.
+
+    Example:
+
+    ```mlir
+    %numSg = gpu.num_subgroups : index
+    ```
+  }];
+
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let verifier = [{ return success(); }];
+}
+
+def GPU_SubgroupSizeOp : GPU_Op<"subgroup_size", [NoSideEffect]>,
+    Arguments<(ins)>, Results<(outs Index:$result)> {
+  let description = [{
+    Returns the number of threads within a subgroup.
+
+    Example:
+
+    ```mlir
+    %sgSz = gpu.subgroup_size : index
+    ```
+  }];
+
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let verifier = [{ return success(); }];
 }
 
 def GPU_GPUFuncOp : GPU_Op<"func", [HasParent<"GPUModuleOp">,
@@ -154,17 +203,13 @@ def GPU_GPUFuncOp : GPU_Op<"func", [HasParent<"GPUModuleOp">,
   let skipDefaultBuilders = 1;
 
   let builders = [
-    OpBuilder<"Builder *builder, OperationState &result, StringRef name, "
+    OpBuilder<"OpBuilder &builder, OperationState &result, StringRef name, "
               "FunctionType type, ArrayRef<Type> workgroupAttributions = {}, "
               "ArrayRef<Type> privateAttributions = {}, "
               "ArrayRef<NamedAttribute> attrs = {}">
   ];
 
   let extraClassDeclaration = [{
-    /// Adds a workgroup attribution of the MemRef type with the given shape and
-    /// element type.
-    Value addWorkgroupAttribution(ArrayRef<int64_t> shape, Type elementType);
-
     /// Returns `true` if the GPU function defined by this Op is a kernel, i.e.
     /// it is intended to be launched from host.
     bool isKernel() {
@@ -198,24 +243,30 @@ def GPU_GPUFuncOp : GPU_Op<"func", [HasParent<"GPUModuleOp">,
       return {begin, end};
     }
 
-    // Adds a new block argument that corresponds to buffers located in
-    // workgroup memory.
-    BlockArgument addWorkgroupAttribution(Type type) {
-      auto attrName = getNumWorkgroupAttributionsAttrName();
-      auto attr = getAttrOfType<IntegerAttr>(attrName);
-      setAttr(attrName, IntegerAttr::get(attr.getType(), attr.getValue() + 1));
-      return getBody().front().insertArgument(
-          getType().getNumInputs() + attr.getInt(), type);
-    }
+    /// Adds a new block argument that corresponds to buffers located in
+    /// workgroup memory.
+    BlockArgument addWorkgroupAttribution(Type type);
 
+    /// Returns the number of buffers located in the private memory.
+    unsigned getNumPrivateAttributions() {
+      return getBody().front().getNumArguments() - getType().getNumInputs() -
+          getNumWorkgroupAttributions();
+    }
+ 
     /// Returns a list of block arguments that correspond to buffers located in
     /// the private memory.
     ArrayRef<BlockArgument> getPrivateAttributions() {
+      // Buffers on the private memory always come after buffers on the workgroup
+      // memory.
       auto begin =
           std::next(getBody().front().args_begin(),
                     getType().getNumInputs() + getNumWorkgroupAttributions());
       return {begin, getBody().front().args_end()};
     }
+
+    /// Adds a new block argument that corresponds to buffers located in
+    /// private memory.
+    BlockArgument addPrivateAttribution(Type type);
 
     /// Returns the name of the attribute containing the number of buffers
     /// located in the workgroup memory.
@@ -323,11 +374,11 @@ def GPU_LaunchFuncOp : GPU_Op<"launch_func">,
   let skipDefaultBuilders = 1;
 
   let builders = [
-    OpBuilder<"Builder *builder, OperationState &result, GPUFuncOp kernelFunc, "
+    OpBuilder<"OpBuilder &builder, OperationState &result, GPUFuncOp kernelFunc, "
               "Value gridSizeX, Value gridSizeY, Value gridSizeZ, "
               "Value blockSizeX, Value blockSizeY, Value blockSizeZ, "
               "ValueRange kernelOperands">,
-    OpBuilder<"Builder *builder, OperationState &result, GPUFuncOp kernelFunc, "
+    OpBuilder<"OpBuilder &builder, OperationState &result, GPUFuncOp kernelFunc, "
               "KernelDim3 gridSize, KernelDim3 blockSize, "
               "ValueRange kernelOperands">
   ];
@@ -442,7 +493,7 @@ def GPU_LaunchOp : GPU_Op<"launch">,
   let skipDefaultBuilders = 1;
 
   let builders = [
-    OpBuilder<"Builder *builder, OperationState &result, Value gridSizeX,"
+    OpBuilder<"OpBuilder &builder, OperationState &result, Value gridSizeX,"
               "Value gridSizeY, Value gridSizeZ, Value blockSizeX,"
               "Value blockSizeY, Value blockSizeZ">
   ];
@@ -489,7 +540,7 @@ def GPU_ReturnOp : GPU_Op<"return", [HasParent<"GPUFuncOp">, NoSideEffect,
     by an invocation of the `gpu.func`.
   }];
 
-  let builders = [OpBuilder<"Builder *builder, OperationState &result", " // empty">];
+  let builders = [OpBuilder<"OpBuilder &builder, OperationState &result", " // empty">];
 
   let parser = [{ return parseReturnOp(parser, result); }];
   let printer = [{ p << getOperationName(); }];
@@ -668,7 +719,7 @@ def GPU_GPUModuleOp : GPU_Op<"module", [
 
     ```
   }];
-  let builders = [OpBuilder<"Builder *builder, OperationState &result, "
+  let builders = [OpBuilder<"OpBuilder &builder, OperationState &result, "
                             "StringRef name">];
   let parser = [{ return ::parseGPUModuleOp(parser, result); }];
   let printer = [{ return ::print(p, *this); }];

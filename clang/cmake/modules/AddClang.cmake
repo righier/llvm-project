@@ -45,7 +45,7 @@ endmacro()
 
 macro(add_clang_library name)
   cmake_parse_arguments(ARG
-    "SHARED;INSTALL_WITH_TOOLCHAIN"
+    "SHARED;STATIC;INSTALL_WITH_TOOLCHAIN"
     ""
     "ADDITIONAL_HEADERS"
     ${ARGN})
@@ -81,7 +81,10 @@ macro(add_clang_library name)
       ${ARG_ADDITIONAL_HEADERS} # It may contain unparsed unknown args.
       )
   endif()
-  if(ARG_SHARED)
+
+  if(ARG_SHARED AND ARG_STATIC)
+    set(LIBTYPE SHARED STATIC)
+  elseif(ARG_SHARED)
     set(LIBTYPE SHARED)
   else()
     # llvm_add_library ignores BUILD_SHARED_LIBS if STATIC is explicitly set,
@@ -99,7 +102,12 @@ macro(add_clang_library name)
   endif()
   llvm_add_library(${name} ${LIBTYPE} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
 
-  foreach(lib ${name} ${name}_static)
+  set(libs ${name})
+  if(ARG_SHARED AND ARG_STATIC)
+    list(APPEND libs ${name}_static)
+  endif()
+
+  foreach(lib ${libs})
     if(TARGET ${lib})
       target_link_libraries(${lib} INTERFACE ${LLVM_COMMON_LIBS})
 

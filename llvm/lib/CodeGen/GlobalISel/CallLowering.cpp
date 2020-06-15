@@ -22,6 +22,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Target/TargetMachine.h"
 
 #define DEBUG_TYPE "call-lowering"
 
@@ -52,7 +53,7 @@ bool CallLowering::lowerCall(MachineIRBuilder &MIRBuilder, const CallBase &CB,
 
   // Try looking through a bitcast from one function type to another.
   // Commonly happens with calls to objc_msgSend().
-  const Value *CalleeV = CB.getCalledValue()->stripPointerCasts();
+  const Value *CalleeV = CB.getCalledOperand()->stripPointerCasts();
   if (const Function *F = dyn_cast<Function>(CalleeV))
     Info.Callee = MachineOperand::CreateGA(F, 0);
   else
@@ -96,10 +97,12 @@ void CallLowering::setArgFlags(CallLowering::ArgInfo &Arg, unsigned OpIdx,
     Flags.setSwiftError();
   if (Attrs.hasAttribute(OpIdx, Attribute::ByVal))
     Flags.setByVal();
+  if (Attrs.hasAttribute(OpIdx, Attribute::Preallocated))
+    Flags.setPreallocated();
   if (Attrs.hasAttribute(OpIdx, Attribute::InAlloca))
     Flags.setInAlloca();
 
-  if (Flags.isByVal() || Flags.isInAlloca()) {
+  if (Flags.isByVal() || Flags.isInAlloca() || Flags.isPreallocated()) {
     Type *ElementTy = cast<PointerType>(Arg.Ty)->getElementType();
 
     auto Ty = Attrs.getAttribute(OpIdx, Attribute::ByVal).getValueAsType();
