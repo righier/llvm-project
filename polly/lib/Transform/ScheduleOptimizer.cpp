@@ -261,16 +261,27 @@ static cl::list<int>
                       cl::Hidden, cl::ZeroOrMore, cl::CommaSeparated,
                       cl::cat(PollyCategory));
 
+static cl::opt<bool> Reschedule("polly-reschedule", 
+  cl::desc("Optimize SCoPs using ISL (unless a pragma transformation is applied)"), 
+  cl::init(true), cl::ZeroOrMore, cal::cat(PollyCategory));
+
+static cl::opt<bool> Postopts("polly-postopts",
+  cl::desc("Perform post-rescheduling opts such as tiling (unless a pragma transformation is applied)"),
+  cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
 static cl::opt<bool>
     PMBasedOpts("polly-pattern-matching-based-opts",
                 cl::desc("Perform optimizations based on pattern matching"),
                 cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
 
 static cl::opt<bool>
     PragmaBasedOpts("polly-pragma-based-opts",
                     cl::desc("Apply pragma transformations instead heuristics "
                              "(if any pragma is present)"),
                     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+
 
 static cl::opt<bool> OptimizedScops(
     "polly-optimized-scops",
@@ -5582,7 +5593,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   isl::schedule Schedule;
   if (ManuallyTransformed) {
     Schedule = ManuallyTransformed;
-  } else {
+  } else if (Reschedule) {
     isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
     Schedule = SC.compute_schedule();
     isl_options_set_on_error(Ctx, OnErrorStatus);
@@ -5602,10 +5613,12 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   Function &F = S.getFunction();
   auto *TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D)};
-  if (ManuallyTransformed) {
-    NewSchedule = prevectSchedule(Schedule, &OAI);
-  } else {
+  if (Postopts && !ManuallyTransformed) {
     NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
+  } else {
+    // If not applying post-rescheduling optimizations, still honor prevectorization which can be switched off separately.
+    // Not that PMBased-opts are skipped as well
+    NewSchedule = prevectSchedule(Schedule, &OAI);
   }
 
   LLVM_DEBUG({
