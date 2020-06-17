@@ -263,7 +263,7 @@ static cl::list<int>
 
 static cl::opt<bool> Reschedule("polly-reschedule", 
   cl::desc("Optimize SCoPs using ISL (unless a pragma transformation is applied)"), 
-  cl::init(true), cl::ZeroOrMore, cal::cat(PollyCategory));
+  cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<bool> Postopts("polly-postopts",
   cl::desc("Perform post-rescheduling opts such as tiling (unless a pragma transformation is applied)"),
@@ -280,6 +280,11 @@ static cl::opt<bool>
                     cl::desc("Apply pragma transformations instead heuristics "
                              "(if any pragma is present)"),
                     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<bool>
+   IgnoreDepcheck("polly-pragma-ignore-depcheck",
+                    cl::desc("Skip the dependency check for pragma-based transformations"),
+                    cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 
 
@@ -5280,7 +5285,7 @@ public:
   checkDependencyViolation(llvm::MDNode *LoopMD, llvm::Value *CodeRegion,
                            const isl::noexceptions::schedule_node &OrigBand,
                            StringRef DebugLocAttr, StringRef TransPrefix,
-                           StringRef RemarkName, StringRef ViolationEffect) {
+                           StringRef RemarkName, StringRef TransformationName) {
     // Check legality
     // FIXME: This assumes that there was no dependency violation before; If
     // there are any before, we should remove those dependencies.
@@ -5289,6 +5294,20 @@ public:
 
     auto &Ctx = LoopMD->getContext();
     LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
+
+
+    if (IgnoreDepcheck) {
+      LLVM_DEBUG(dbgs() << "Still accepting transformation due to -polly-ignore-depcheck\n");
+      if (ORE) {
+        auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
+        // Each '<<' on ORE is visible in the YAML output; to avoid breaking changes, use Twine.
+        ORE->emit(OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
+          << (Twine("WARNING: Could not verify dependencies for ") + Twine(TransformationName))
+          .str());
+      }
+      return Result;
+    }
+
     LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
 
     if (ORE) {
@@ -5297,9 +5316,7 @@ public:
       // changes, use Twine.
       ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, RemarkName, Loc,
                                                   CodeRegion)
-                << (Twine(ViolationEffect) +
-                    ": transformation would violate dependencies")
-                       .str());
+        << (Twine("not applying ") + TransformationName + ": cannot ensure semantic equivalence due to possible dependency violations").str());
     }
 
     // If illegal, revert and remove the transformation.
@@ -5349,20 +5366,20 @@ public:
         checkDependencyViolation(LoopMD, CodeRegion, Band,
                                  "llvm.loop.reverse.loc", "llvm.loop.reverse.",
                                  "FailedRequestedReversal",
-                                 "loop not reversed");
+                                 "loop reversal");
       } else if (AttrName == "llvm.loop.tile.enable") {
         // TODO: Read argument (0 to disable)
         Result = applyLoopTiling(LoopMD, Band);
         checkDependencyViolation(LoopMD, CodeRegion, Band, "llvm.loop.tile.loc",
                                  "llvm.loop.tile.", "FailedRequestedTiling",
-                                 "loop(s) not tiled");
+                                 "loop tiling");
       } else if (AttrName == "llvm.loop.interchange.enable") {
         // TODO: Read argument (0 to disable)
         Result = applyLoopInterchange(LoopMD, Band);
         checkDependencyViolation(
             LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
             "llvm.loop.interchange.", "FailedRequestedInterchange",
-            "loops not interchanged");
+            "loop interchange");
       } else if (AttrName == "llvm.loop.unroll.enable") {
         // TODO: Read argument (0 to disable)
         // Also: llvm.loop.unroll.disable is a thing
@@ -5373,7 +5390,7 @@ public:
         checkDependencyViolation(
             LoopMD, CodeRegion, Band, "llvm.loop.unroll_and_jam.loc",
             "llvm.loop.unroll_and_jam.", "FailedRequestedUnrollAndJam",
-            "loops not unroll-and-jammed");
+            "unroll-and-jam");
       } else if (AttrName == "llvm.data.pack.enable") {
         // TODO: When is this transformation illegal? E.g. non-access?
         Result = applyArrayPacking(LoopMD, Band, F, S, ORE, CodeRegion);

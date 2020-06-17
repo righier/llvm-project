@@ -48,7 +48,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // IR: !43 = !{!"llvm.loop.tile.size", i32 16}
 
 
-// WARN: pragma-id-tile-illegal.c:7:1: warning: loop(s) not tiled: transformation would violate dependencies
+// WARN: pragma-id-tile-illegal.c:7:1: warning: not applying loop tiling: cannot ensure semantic equivalence due to possible dependency violations [-Wpass-failed=polly-opt-isl]
 // WARN: #pragma clang loop(i, j) tile sizes(16, 32)
 // WARN: ^
 // WARN: 1 warning generated.
