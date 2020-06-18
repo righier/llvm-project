@@ -5297,12 +5297,12 @@ public:
 
 
     if (IgnoreDepcheck) {
-      LLVM_DEBUG(dbgs() << "Still accepting transformation due to -polly-ignore-depcheck\n");
+      LLVM_DEBUG(dbgs() << "Still accepting transformation due to -polly-pragma-ignore-depcheck\n");
       if (ORE) {
         auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
         // Each '<<' on ORE is visible in the YAML output; to avoid breaking changes, use Twine.
         ORE->emit(OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
-          << (Twine("WARNING: Could not verify dependencies for ") + Twine(TransformationName))
+          << (Twine("Could not verify dependencies for ") + TransformationName + "; still applying because of -polly-pragma-ignore-depcheck")
           .str());
       }
       return Result;
