@@ -915,6 +915,38 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, AccessType AccType, isl::map AccRel)
   Id = isl::id::alloc(Stmt->getParent()->getIslCtx(), IdName, this);
 }
 
+MemoryAccess::MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
+  this->Statement = Parent;
+  auto IdName = AccToClone->getId().get_name() + "_clone";
+
+  this->Id = isl::id::alloc(Parent->getParent()->getIslCtx(), IdName, this);
+  this->Kind = AccToClone->Kind;
+  this->AccType = AccToClone->getType();
+  this->RedType = AccToClone->RedType;
+
+  this->InvalidDomain = AccToClone->getInvalidDomain();
+  this->BaseAddr = AccToClone->BaseAddr;
+  this->ElementType = AccToClone->getElementType();
+  this->Sizes = AccToClone->Sizes;
+  this->AccessInstruction = AccToClone->getAccessInstruction();
+  this->Incoming = AccToClone->Incoming;
+  this->AccessValue = AccToClone->AccessValue;
+  this->IsAffine = AccToClone->IsAffine;
+  this->Subscripts = AccToClone->Subscripts;
+  this->FAD = AccToClone->FAD;
+
+  // TODO: As a clone, the AccessRelation has never been updated. Might set only
+  // (Original)AccessRelation, or both to the same relation.
+  this->AccessRelation = AccToClone->AccessRelation;
+  this->AccessRelation =
+      this->AccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
+
+  this->NewAccessRelation = AccToClone->NewAccessRelation;
+  if (this->NewAccessRelation)
+    this->NewAccessRelation = this->NewAccessRelation.set_tuple_id(
+        isl::dim::in, Parent->getDomainId());
+}
+
 MemoryAccess::~MemoryAccess() = default;
 
 void MemoryAccess::realignParams() {
@@ -1196,21 +1228,18 @@ void ScopStmt::realignParams() {
 ScopStmt::ScopStmt(Scop &parent, Region &R, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> EntryBlockInstructions)
-    : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), R(&R),
-      Build(nullptr), BaseName(Name), SurroundingLoop(SurroundingLoop),
+    : Parent(parent), R(&R), BaseName(Name), SurroundingLoop(SurroundingLoop),
       Instructions(EntryBlockInstructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> Instructions)
-    : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(&bb),
-      Build(nullptr), BaseName(Name), SurroundingLoop(SurroundingLoop),
+    : Parent(parent), BB(&bb), BaseName(Name), SurroundingLoop(SurroundingLoop),
       Instructions(Instructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
                    isl::set NewDomain)
-    : Parent(parent), InvalidDomain(nullptr), Domain(NewDomain),
-      Build(nullptr) {
+    : Parent(parent), Domain(NewDomain) {
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   isl::id Id = isl::id::alloc(getIslCtx(), getBaseName(), this);
@@ -1224,6 +1253,33 @@ ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
   Access = new MemoryAccess(this, MemoryAccess::AccessType::READ, SourceRel);
   parent.addAccessFunction(Access);
   addAccess(Access);
+}
+
+ScopStmt::ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain)
+    : Parent(parent) {
+  auto Ctx = parent.getIslCtx();
+
+  this->BB = StmtToClone->getBasicBlock();
+  this->R = StmtToClone->getRegion();
+  this->SurroundingLoop = StmtToClone->getSurroundingLoop();
+  this->Instructions = StmtToClone->getInstructions();
+  this->BaseName = (Twine(StmtToClone->getBaseName()) + Twine("_clone")).str();
+  this->Build = StmtToClone->getAstBuild();
+  this->NestLoops = StmtToClone->NestLoops;
+
+  auto NewId = isl::id::alloc(Ctx, BaseName, this);
+  Domain = Domain.project_out(isl::dim::set, 0, 0).set_tuple_id(NewId);
+  this->Domain = Domain;
+  this->InvalidDomain = StmtToClone->getInvalidDomain()
+                            .project_out(isl::dim::set, 0, 0)
+                            .set_tuple_id(NewId);
+
+  for (auto MA : *StmtToClone) {
+    auto NewMA = new MemoryAccess(this, MA);
+    Parent.addAccessFunction(NewMA, /*IsPrimary=*/false);
+    addAccess(NewMA);
+  }
+  // this->InstructionToAccess
 }
 
 ScopStmt::~ScopStmt() = default;
@@ -1868,6 +1924,7 @@ ScopArrayInfo *Scop::createScopArrayInfo(Type *ElementType,
     else
       SCEVSizes.push_back(nullptr);
 
+  // FIXME: This could potentially just lookup a matching array
   auto *SAI = getOrCreateScopArrayInfo(nullptr, ElementType, SCEVSizes,
                                        MemoryKind::Array, BaseName.c_str());
   return SAI;
@@ -2378,6 +2435,40 @@ bool Scop::restrictDomains(isl::union_set Domain) {
 
 ScalarEvolution *Scop::getSE() const { return SE; }
 
+// Create an isl_multi_union_aff that defines an identity mapping from the
+// elements of USet to their N-th dimension.
+//
+// # Example:
+//
+//            Domain: { A[i,j]; B[i,j,k] }
+//                 N: 1
+//
+// Resulting Mapping: { {A[i,j] -> [(j)]; B[i,j,k] -> [(j)] }
+//
+// @param USet   A union set describing the elements for which to generate a
+//               mapping.
+// @param N      The dimension to map to.
+// @returns      A mapping from USet to its N-th dimension.
+static isl::multi_union_pw_aff mapToDimension(isl::union_set USet, int N) {
+  assert(N >= 0);
+  assert(USet);
+  assert(!USet.is_empty());
+
+  auto Result = isl::union_pw_multi_aff::empty(USet.get_space());
+
+  for (isl::set S : USet.get_set_list()) {
+    int Dim = S.dim(isl::dim::set);
+    auto PMA = isl::pw_multi_aff::project_out_map(S.get_space(), isl::dim::set,
+                                                  N, Dim - N);
+    if (N > 1)
+      PMA = PMA.drop_dims(isl::dim::out, 0, N - 1);
+
+    Result = Result.add_pw_multi_aff(PMA);
+  }
+
+  return isl::multi_union_pw_aff(isl::union_pw_multi_aff(Result));
+}
+
 void Scop::addScopStmt(BasicBlock *BB, StringRef Name, Loop *SurroundingLoop,
                        std::vector<Instruction *> Instructions) {
   assert(BB && "Unexpected nullptr!");
@@ -2413,6 +2504,25 @@ void Scop::addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
       InstStmtMap[&Inst] = Stmt;
     }
   }
+}
+
+ScopStmt *Scop::addClonedStmt(ScopStmt *StmtToClone, isl::set Domain) {
+  assert(StmtToClone);
+  assert(Domain);
+  assert(StmtToClone->isBlockStmt() &&
+         "cloning other statements not supported yet");
+
+  Stmts.emplace_back(*this, StmtToClone, Domain);
+  return &Stmts.back();
+
+#if 0
+	auto *Stmt = &Stmts.back();
+	StmtMap[BB].push_back(Stmt);
+	for (Instruction *Inst : Instructions) {
+		assert(!InstStmtMap.count(Inst) &&
+			"Unexpected statement corresponding to the instruction.");
+		InstStmtMap[Inst] = Stmt;
+#endif
 }
 
 ScopStmt *Scop::addScopStmt(isl::map SourceRel, isl::map TargetRel,
