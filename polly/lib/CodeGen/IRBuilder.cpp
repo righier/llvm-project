@@ -194,8 +194,12 @@ void ScopAnnotator::annotate(Instruction *Inst) {
   if (!Inst->mayReadOrWriteMemory())
     return;
 
-  if (!ParallelLoops.empty())
+  if (!ParallelLoops.empty()) {
+    llvm::dbgs() << "annotating parallel access to";
+    Inst->print(llvm::dbgs(), true);
+    llvm::dbgs() << "\n";
     Inst->setMetadata("llvm.mem.parallel_loop_access", ParallelLoops.back());
+  }
 
   // TODO: Use the ScopArrayInfo once available here.
   if (!AliasScopeDomain)
