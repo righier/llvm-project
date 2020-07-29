@@ -34,6 +34,7 @@
 #include <cassert>
 #include <cstddef>
 #include <forward_list>
+#include "llvm/Support/JSON.h"
 
 using namespace llvm;
 
@@ -2754,6 +2755,7 @@ private:
   DominatorTree &DT;
   AssumptionCache &AC;
   OptimizationRemarkEmitter &ORE;
+
 
 public:
   ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
