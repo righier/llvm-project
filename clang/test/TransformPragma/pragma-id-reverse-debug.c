@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -gno-column-info -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
 
 void pragma_id_reverse(int n, double A[n]) {
 #pragma clang loop(myloop) reverse

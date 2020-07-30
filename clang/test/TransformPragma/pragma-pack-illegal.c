@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -gno-column-info -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -emit-llvm -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -debug-info-kind=limited -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=WARN
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -emit-llvm -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -o /dev/null -mllvm -debug-only=polly-ast %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
 
@@ -43,7 +43,7 @@ void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
 // IR: !44 = !DILocation(line: 9, scope: !31)
 
 
-// WARN: pragma-pack-illegal.c:9:1: warning: array not packed: All array accesses must be affine
+// WARN: pragma-pack-illegal.c:9:24: warning: array not packed: All array accesses must be affine [-Wpass-failed=polly-opt-isl]
 // WARN: #pragma clang loop pack array(A)
 // WARN: ^
 // WARN: 1 warning generated.

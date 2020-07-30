@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -gno-column-info -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -O3 -emit-llvm -debug-info-kind=limited -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=WARN
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -O3 -emit-llvm -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -o /dev/null -mllvm -debug-only=polly-ast %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
 
@@ -48,7 +48,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // IR: !43 = !{!"llvm.loop.tile.size", i32 16}
 
 
-// WARN: pragma-id-tile-illegal.c:7:1: warning: not applying loop tiling: cannot ensure semantic equivalence due to possible dependency violations [-Wpass-failed=polly-opt-isl]
+// WARN: pragma-id-tile-illegal.c:7:26: warning: not applying loop tiling: cannot ensure semantic equivalence due to possible dependency violations [-Wpass-failed=polly-opt-isl]
 // WARN: #pragma clang loop(i, j) tile sizes(16, 32)
 // WARN: ^
 // WARN: 1 warning generated.

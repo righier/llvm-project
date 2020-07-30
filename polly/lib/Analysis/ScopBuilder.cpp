@@ -54,6 +54,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
+#include "llvm/IR/DebugInfoMetadata.h"
 
 using namespace llvm;
 using namespace polly;
@@ -1138,6 +1139,22 @@ static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
   return Prev.sequence(Succ);
 }
 
+static json::Array* combineInSequence(json::Array *Prev, json::Array* Succ) {
+  if (!Prev)
+    return Succ;
+  if (!Succ)
+    return Prev;
+
+
+ auto Result  =new json::Array();
+ for (auto X : *Prev)
+   Result->emplace_back(X);
+ for (auto X : *Succ)
+   Result->emplace_back(X);
+ return Result;
+}
+
+
 // Create an isl_multi_union_aff that defines an identity mapping from the
 // elements of USet to their N-th dimension.
 //
@@ -1178,6 +1195,8 @@ void ScopBuilder::buildSchedule() {
   buildSchedule(scop->getRegion().getNode(), LoopStack);
   assert(LoopStack.size() == 1 && LoopStack.back().L == L);
   scop->setScheduleTree(LoopStack[0].Schedule);
+  assert(!this->LoopNest);
+ this-> LoopNest = LoopStack[0].Nest;
 }
 
 /// To generate a schedule for the elements in a Region we traverse the Region
@@ -1266,6 +1285,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     isl::union_set UDomain{Stmt->getDomain()};
     auto StmtSchedule = isl::schedule::from_domain(UDomain);
     LoopData->Schedule = combineInSequence(LoopData->Schedule, StmtSchedule);
+    LoopData->Nest = combineInSequence(LoopData->Nest, nullptr);
   }
 
   // Check if we just processed the last node in this loop. If we did, finalize
@@ -1281,6 +1301,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   while (LoopData->L &&
          LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
     isl::schedule Schedule = LoopData->Schedule;
+    auto Subloopnest = LoopData->Nest;
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
@@ -1302,6 +1323,44 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
                        .get_schedule();
 
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
+    
+      auto LoopId =  L->getLoopID();
+      auto BeginLoc = LoopId ? LoopId->getOperand(1).get() : nullptr;
+     auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
+
+     json::Object Loop;
+     if (Start) {
+       Loop["filename"] = Start->getFilename();
+       Loop["line"] = Start->getLine();
+       Loop["column"] = Start->getColumn();
+     }
+
+     Loop["function"] = RN->getEntry()->getParent()->getName();
+     {
+       SmallVector<char, 255> Buf;
+       raw_svector_ostream OS(Buf);
+       RN->getEntry()->printAsOperand(OS,/*PrintType=*/false);
+       Loop["entry"] = Buf;
+     }
+     {
+       BasicBlock* BBExit = RN->getEntry();
+       if (RN->isSubRegion()) {
+         auto* LocalRegion = RN->getNodeAs<Region>();
+         BBExit = LocalRegion->getExit();
+       }
+
+       SmallVector<char, 255> Buf;
+       raw_svector_ostream OS(Buf);
+       BBExit->printAsOperand(OS,/*PrintType=*/false);
+       Loop["exit"] = Buf;
+     }
+     
+     if (Subloopnest)
+       Loop["subloops"] = json::Value(std::move(*Subloopnest));
+     else
+       Loop["subloops"] = json::Array();
+      auto Nest = new json::Array({std::move(Loop)});
+      LoopData->Nest =  combineInSequence(LoopData->Nest, Nest);
     }
 
     LoopData->NumBlocksProcessed += NumBlocksProcessed;
