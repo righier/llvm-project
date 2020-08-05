@@ -4343,14 +4343,14 @@ TEST_P(SyntaxTreeTest, SynthesizedNodes) {
   buildTree("", GetParam());
 
   auto *C = syntax::createPunctuation(*Arena, tok::comma);
-  ASSERT_NE(C, nullptr);
+ // ASSERT_NE(C, nullptr);
   EXPECT_EQ(C->token()->kind(), tok::comma);
   EXPECT_TRUE(C->canModify());
   EXPECT_FALSE(C->isOriginal());
   EXPECT_TRUE(C->isDetached());
 
   auto *S = syntax::createEmptyStatement(*Arena);
-  ASSERT_NE(S, nullptr);
+//  ASSERT_NE(S, nullptr);
   EXPECT_TRUE(S->canModify());
   EXPECT_FALSE(S->isOriginal());
   EXPECT_TRUE(S->isDetached());
