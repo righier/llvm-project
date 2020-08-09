@@ -319,7 +319,7 @@ public:
     initializeStructurizeCFGPass(*PassRegistry::getPassRegistry());
   }
 
-  bool doInitialization(Region *R, RGPassManager &RGM) override;
+  bool doInitialization(Module&) override;
 
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
@@ -350,8 +350,8 @@ INITIALIZE_PASS_END(StructurizeCFG, "structurizecfg", "Structurize the CFG",
                     false, false)
 
 /// Initialize the types and constants used in the pass
-bool StructurizeCFG::doInitialization(Region *R, RGPassManager &RGM) {
-  LLVMContext &Context = R->getEntry()->getContext();
+bool StructurizeCFG::doInitialization(Module&M) {
+  LLVMContext& Context = M.getContext();// R->getEntry()->getContext();
 
   Boolean = Type::getInt1Ty(Context);
   BoolTrue = ConstantInt::getTrue(Context);
