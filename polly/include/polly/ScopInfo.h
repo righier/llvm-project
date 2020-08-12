@@ -34,6 +34,7 @@
 #include <cassert>
 #include <cstddef>
 #include <forward_list>
+#include "llvm/Support/JSON.h"
 
 using namespace llvm;
 
@@ -720,6 +721,9 @@ public:
   /// @param AccRel     The access relation that describes the memory access.
   MemoryAccess(ScopStmt *Stmt, AccessType AccType, isl::map AccRel);
 
+  /// Clone a access for a new ScopStmt.
+  explicit MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone);
+
   MemoryAccess(const MemoryAccess &) = delete;
   MemoryAccess &operator=(const MemoryAccess &) = delete;
   ~MemoryAccess();
@@ -747,7 +751,7 @@ public:
   }
 
   /// Get the type of a memory access.
-  enum AccessType getType() { return AccType; }
+  enum AccessType getType() const { return AccType; }
 
   /// Is this a reduction like access?
   bool isReductionLike() const { return RedType != RT_NONE; }
@@ -1162,13 +1166,16 @@ public:
 
   /// Create a copy statement.
   ///
-  /// @param Stmt       The parent statement.
+  /// @param Scop       The parent SCoP.
   /// @param SourceRel  The source location.
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would
   ///                   be executed.
   ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
            isl::set Domain);
+
+  // Clone a statement with a new domain.
+  explicit ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain);
 
   ScopStmt(const ScopStmt &) = delete;
   const ScopStmt &operator=(const ScopStmt &) = delete;
@@ -1280,6 +1287,8 @@ public:
   ///
   /// @return The iteration domain of this ScopStmt.
   isl::set getDomain() const;
+
+  void setDomain(isl::set Domain) { this->Domain = Domain; }
 
   /// Get the space of the iteration domain
   ///
@@ -1949,6 +1958,10 @@ private:
   void addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
                    std::vector<Instruction *> EntryBlockInstructions);
 
+public:
+  ScopStmt *addClonedStmt(ScopStmt *StmtToClone, isl::set Domain);
+
+private:
   /// Remove statements from the list of scop statements.
   ///
   /// @param ShouldDelete  A function that returns true if the statement passed
@@ -2006,7 +2019,6 @@ public:
   ///
   /// A new statement will be created and added to the statement vector.
   ///
-  /// @param Stmt       The parent statement.
   /// @param SourceRel  The source location.
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would
@@ -2016,8 +2028,11 @@ public:
 
   /// Add the access function to all MemoryAccess objects of the Scop
   ///        created in this pass.
-  void addAccessFunction(MemoryAccess *Access) {
+  void addAccessFunction(MemoryAccess *Access, bool IsPrimary = true) {
     AccessFunctions.emplace_back(Access);
+
+    if (!IsPrimary)
+      return;
 
     // Register value definitions.
     if (Access->isWrite() && Access->isOriginalValueKind()) {
@@ -2694,6 +2709,7 @@ raw_ostream &operator<<(raw_ostream &OS, const Scop &scop);
 class ScopInfoRegionPass : public RegionPass {
   /// The Scop pointer which is used to construct a Scop.
   std::unique_ptr<Scop> S;
+  json::Array * LoopNests=nullptr;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2714,6 +2730,7 @@ public:
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
   void releaseMemory() override { S.reset(); }
+  bool doFinalization(Module&) override;
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
@@ -2740,6 +2757,8 @@ private:
   DominatorTree &DT;
   AssumptionCache &AC;
   OptimizationRemarkEmitter &ORE;
+  json::Array * LoopNests=nullptr;
+
 
 public:
   ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
@@ -2758,6 +2777,9 @@ public:
       return MapIt->second.get();
     return nullptr;
   }
+
+
+  auto getLoopNests() { return LoopNests; }
 
   /// Recompute the Scop-Information for a function.
   ///
@@ -2805,6 +2827,7 @@ struct ScopInfoPrinterPass : public PassInfoMixin<ScopInfoPrinterPass> {
 /// region pass manager.
 class ScopInfoWrapperPass : public FunctionPass {
   std::unique_ptr<ScopInfo> Result;
+  json::Array * LoopNests=nullptr;
 
 public:
   ScopInfoWrapperPass() : FunctionPass(ID) {}
@@ -2819,11 +2842,14 @@ public:
   bool runOnFunction(Function &F) override;
 
   void releaseMemory() override { Result.reset(); }
+  bool doFinalization(Module&) override;
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
+
+Loop *getLoopSurroundingScop(Scop &S, LoopInfo &LI);
 } // end namespace polly
 
 #endif // POLLY_SCOPINFO_H
