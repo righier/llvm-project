@@ -1146,7 +1146,7 @@ static json::Array* combineInSequence(json::Array *Prev, json::Array* Succ) {
     return Prev;
 
 
- auto Result  =new json::Array();
+ auto Result = new json::Array();
  for (auto X : *Prev)
    Result->emplace_back(X);
  for (auto X : *Succ)
@@ -1331,11 +1331,15 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
      json::Object Loop;
      if (Start) {
        Loop["filename"] = Start->getFilename();
+       Loop["directory"] = Start->getDirectory();
+       Loop["path"] = (Twine(Start->getDirectory()) + llvm::sys::path::get_separator() + Start->getFilename()).str();
+       if (Start->getSource())
+         Loop["source"] = Start->getSource().getValue().str();
        Loop["line"] = Start->getLine();
        Loop["column"] = Start->getColumn();
      }
 
-     Loop["function"] = RN->getEntry()->getParent()->getName();
+     Loop["function"] = RN->getEntry()->getParent()->getName().str();
      {
        SmallVector<char, 255> Buf;
        raw_svector_ostream OS(Buf);

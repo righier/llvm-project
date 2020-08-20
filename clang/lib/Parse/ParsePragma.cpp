@@ -1285,6 +1285,7 @@ enum class TransformClauseKind {
   ReversedId,  // reverse
   Sizes,       // tile
   Permutation, // interchange
+  PermutedIds, // interchange
   Array,       // pack
   FloorIds,    // tile
   TileIds,     // tile
@@ -1312,6 +1313,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("reversed_id", TransformClauseKind::ReversedId)
                   .Case("sizes", TransformClauseKind::Sizes)
                   .Case("permutation", TransformClauseKind::Permutation)
+                  .Case("permuted_ids", TransformClauseKind::PermutedIds)
                   .Case("array", TransformClauseKind::Array)
                   .Case("floor_ids", TransformClauseKind::FloorIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
@@ -1387,7 +1389,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
   case TransformClauseKind::FloorIds:
   case TransformClauseKind::TileIds:
-  case TransformClauseKind::Permutation: {
+  case TransformClauseKind::Permutation:
+  case TransformClauseKind::PermutedIds: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
     while (true) {
@@ -1741,6 +1744,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     ArgHints.push_back((IdentifierLoc *)nullptr);
 
     SmallVector<ArgsUnion, 4> Permutation;
+    SmallVector<ArgsUnion, 4> PermutedIds;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -1754,12 +1758,21 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         assert(Permutation.empty());
         Permutation = std::move(ClauseArgs);
         break;
+      case TransformClauseKind::PermutedIds:
+        assert(!ClauseArgs.empty());
+        assert(PermutedIds.empty());
+        PermutedIds = std::move(ClauseArgs);
+        break;
       }
     }
 
     for (auto PermuteId : Permutation)
       ArgHints.push_back(PermuteId);
-    ArgHints.push_back((IdentifierLoc *)nullptr);
+    ArgHints.push_back((IdentifierLoc *)nullptr); // NULL terminator
+
+    for (auto PermutedId : PermutedIds)
+      ArgHints.push_back(PermutedId);
+    ArgHints.push_back((IdentifierLoc *)nullptr); // NULL terminator
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));

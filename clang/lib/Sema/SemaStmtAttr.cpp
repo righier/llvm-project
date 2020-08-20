@@ -221,12 +221,24 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
     PermutationLocs.push_back(Ident);
     Permutation.push_back(Ident->Ident->getName());
   }
+
+  SmallVector<IdentifierLoc *, 4> PermutedIdLocs;
+  SmallVector<StringRef, 4> PermutedId;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    PermutedIdLocs.push_back(Ident);
+    PermutedId.push_back(Ident->Ident->getName());
+  }
+
   assert(NumArgs == i && "Must consume all args");
   assert(ApplyOns.size() >= 2);
   assert(ApplyOns.size() == Permutation.size());
   return LoopInterchangeAttr::CreateImplicit(
       S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth,
-      Permutation.data(), Permutation.size(), A.getRange());
+      Permutation.data(), Permutation.size(), PermutedId.data(), PermutedId.size(), A.getRange());
 }
 
 static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {

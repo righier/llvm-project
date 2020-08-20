@@ -657,26 +657,33 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N)))}));
   addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, TopmostOrig);
 
-  StringMap<int> NewPos;
+  StringMap<int> NewPos; // old name -> new index
   for (auto PermutedName : Transform.Permutation) {
-    NewPos.insert({PermutedName, NewPos.size()});
+    auto NewIndex = NewPos.size();
+    NewPos.insert({PermutedName, NewIndex});
   }
 
-  SmallVector<Metadata *, 4> Permutation;
-  Permutation.push_back(
-      MDString::get(Ctx, "llvm.loop.interchange.permutation"));
+
+  SmallVector<Metadata *, 4> Permutation; // old index -> MDNode
+  SmallVector<StringRef, 4> NewId; // old index -> new name
+  for (int i = 0; i < N; i += 1)
+    NewId.push_back(StringRef());
+
+  Permutation.push_back(MDString::get(Ctx, "llvm.loop.interchange.permutation"));
   for (int i = 0; i < N; i += 1) {
     auto LoopName = On[i]->Name;
-    auto Pos = NewPos.lookup(LoopName);
-    Permutation.push_back(
-        ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, Pos))));
+    auto NewIndex = NewPos.lookup(LoopName);
+    Permutation.push_back(ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
+    if (NewIndex < Transform.PermutedIds.size())
+      NewId[i] = Transform.PermutedIds[NewIndex];
   }
   TopmostOrig->addTransformMD(MDNode::get(Ctx, Permutation));
 
   SmallVector<VirtualLoopInfo *, 4> LoopsToPermute;
   for (int i = 0; i < N; i += 1) {
     auto Orig = On[i];
-    auto Permuted = new VirtualLoopInfo(Orig->Name);
+    auto PermutedId = NewId[i].empty() ? Orig->Name : NewId[i];
+    auto Permuted = new VirtualLoopInfo(PermutedId);
     LoopsToPermute.push_back(Permuted);
 
     // Inherit all attributes.
@@ -693,9 +700,9 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
     Orig->addFollowup("llvm.loop.interchange.followup_interchanged", Permuted);
   }
 
-  for (auto NewLoop : LoopsToPermute) {
+  for (auto NewLoop : LoopsToPermute) 
     NamedLoopMap.insert({NewLoop->Name, NewLoop});
-  }
+  
 
   SmallVector<VirtualLoopInfo *, 4> NewPermutation;
   NewPermutation.resize(N);
@@ -1178,7 +1185,10 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           makeArrayRef(LInterchange->applyOn_begin(),
                        LInterchange->applyOn_size()),
           makeArrayRef(LInterchange->permutation_begin(),
-                       LInterchange->permutation_size())));
+                       LInterchange->permutation_size()),
+          makeArrayRef(LInterchange->permutedIds_begin(),
+                       LInterchange->permutedIds_size())
+        ));
       continue;
     }
 

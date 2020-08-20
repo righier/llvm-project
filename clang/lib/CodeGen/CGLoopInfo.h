@@ -71,6 +71,7 @@ struct LoopTransformation {
   llvm::StringRef TilePeel;
 
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
+  llvm::SmallVector<llvm::StringRef, 4> PermutedIds;
   clang::DeclRefExpr *Array;
   bool OnHeap = false;
   llvm::StringRef IslSize;
@@ -150,7 +151,8 @@ struct LoopTransformation {
   static LoopTransformation
   createInterchange(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
                     llvm::ArrayRef<llvm::StringRef> ApplyOns,
-                    llvm::ArrayRef<llvm::StringRef> Permutation) {
+                    llvm::ArrayRef<llvm::StringRef> Permutation,
+                    llvm::ArrayRef<llvm::StringRef> PermutedIds) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
@@ -160,6 +162,8 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     for (auto P : Permutation)
       Result.Permutation.push_back(P);
+    for (auto PermId : PermutedIds)
+      Result.PermutedIds.push_back(PermId);
     return Result;
   }
 

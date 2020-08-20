@@ -3305,7 +3305,7 @@ def LoopInterchange : Attr {
   let Spellings = [Pragma<"", "interchange">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicStringArgument<"Permutation">];
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicStringArgument<"Permutation">, VariadicStringArgument<"PermutedIds">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -3332,8 +3332,18 @@ def LoopInterchange : Attr {
 				OS << " permutation(";
 				bool First=true;
 				for (auto PermId : permutation()) {
-				  if (!First) {
-					  OS << ", ";}
+				  if (!First) { OS << ", "; }
+				  OS << PermId;
+				  First = false;
+				}
+				OS << ")";
+			}
+
+      if (permutedIds_size()) {
+				OS << " permutedIds(";
+				bool First=true;
+				for (auto PermId : permutedIds()) {
+				  if (!First) { OS << ", "; }
 				  OS << PermId;
 				  First = false;
 				}
