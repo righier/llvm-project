@@ -853,6 +853,15 @@ Constant *llvm::ConstantFoldExtractElementInstruction(Constant *Val,
       }
       return CE->getWithOperands(Ops, ValVTy->getElementType(), false,
                                  Ops[0]->getType()->getPointerElementType());
+    } else if (CE->getOpcode() == Instruction::InsertElement) {
+      if (const auto *IEIdx = dyn_cast<ConstantInt>(CE->getOperand(2))) {
+        if (APSInt::isSameValue(APSInt(IEIdx->getValue()),
+                                APSInt(CIdx->getValue()))) {
+          return CE->getOperand(1);
+        } else {
+          return ConstantExpr::getExtractElement(CE->getOperand(0), CIdx);
+        }
+      }
     }
   }
 
@@ -910,7 +919,8 @@ Constant *llvm::ConstantFoldShuffleVectorInstruction(Constant *V1, Constant *V2,
                                                      ArrayRef<int> Mask) {
   auto *V1VTy = cast<VectorType>(V1->getType());
   unsigned MaskNumElts = Mask.size();
-  ElementCount MaskEltCount = {MaskNumElts, isa<ScalableVectorType>(V1VTy)};
+  auto MaskEltCount =
+      ElementCount::get(MaskNumElts, isa<ScalableVectorType>(V1VTy));
   Type *EltTy = V1VTy->getElementType();
 
   // Undefined shuffle mask -> undefined value.

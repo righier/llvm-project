@@ -1359,7 +1359,7 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST_,
       .clampScalar(EltTypeIdx, S32, S64)
       .clampScalar(VecTypeIdx, S32, S64)
       .clampScalar(IdxTypeIdx, S32, S32)
-      .clampMaxNumElements(1, S32, 32)
+      .clampMaxNumElements(VecTypeIdx, S32, 32)
       // TODO: Clamp elements for 64-bit vectors?
       // It should only be necessary with variable indexes.
       // As a last resort, lower to the stack
@@ -1434,7 +1434,10 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST_,
 
   // FIXME: Clamp maximum size
   getActionDefinitionsBuilder(G_CONCAT_VECTORS)
-    .legalIf(isRegisterType(0));
+    .legalIf(all(isRegisterType(0), isRegisterType(1)))
+    .clampMaxNumElements(0, S32, 32)
+    .clampMaxNumElements(1, S16, 2) // TODO: Make 4?
+    .clampMaxNumElements(0, S16, 64);
 
   // TODO: Don't fully scalarize v2s16 pieces? Or combine out thosse
   // pre-legalize.
