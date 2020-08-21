@@ -83,6 +83,11 @@ CodeGenFunction::~CodeGenFunction() {
   if (getLangOpts().OpenMP && CurFn)
     CGM.getOpenMPRuntime().functionFinished(*this);
 
+  // Loop stack has to be finished before OpenMPBuilder's finalize because:
+  // * CGLoopInfo create temporary LoopIDs to be completed in the finish mthod()
+  // * OpenMPBuilder looks into debug locations inside the LoopID.
+  LoopStack.finish();
+
   // If we have an OpenMPIRBuilder we want to finalize functions (incl.
   // outlining etc) at some point. Doing it once the function codegen is done
   // seems to be a reasonable spot. We do it here, as opposed to the deletion
@@ -90,8 +95,6 @@ CodeGenFunction::~CodeGenFunction() {
   // been "emitted" to the outside, thus, modifications are still sensible.
   if (CGM.getLangOpts().OpenMPIRBuilder)
     CGM.getOpenMPRuntime().getOMPBuilder().finalize();
-
-  LoopStack.finish();
 }
 
 // Map the LangOption for exception behavior into
