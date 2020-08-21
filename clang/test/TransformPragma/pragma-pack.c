@@ -36,7 +36,7 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_pack([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 {
+// IR-LABEL: define dso_local void @pragma_pack([128 x double]* noalias align 8 dereferenceable(262144) %C, [256 x double]* noalias align 8 dereferenceable(262144) %A) #0 {
 // IR:         %A.addr = alloca [256 x double]*, align 8
 // IR:         %5 = load double, double* %arrayidx5, align 8, !llvm.access !2
 //

@@ -45,7 +45,7 @@ int main() {
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_id_interchange_unrolling([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 {
+// IR-LABEL: define dso_local void @pragma_id_interchange_unrolling([128 x double]* noalias align 8 dereferenceable(262144) %C, [256 x double]* noalias align 8 dereferenceable(262144) %A) #0 {
 // IR:         br label %for.cond1, !llvm.loop !2
 // IR:         br label %for.cond, !llvm.loop !9
 //

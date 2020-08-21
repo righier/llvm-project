@@ -61,7 +61,7 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias nonnull %C, double* noalias nonnull %A, double* noalias nonnull %B) #0 {
+// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias nonnull align 8 %C, double* noalias nonnull align 8 %A, double* noalias nonnull align 8 %B) #0 {
 // IR-DAG:   !"llvm.loop.tile.enable"
 // IR-DAG:   !"llvm.loop.interchange.enable"
 // IR-DAG:   !"llvm.data.pack.enable"
