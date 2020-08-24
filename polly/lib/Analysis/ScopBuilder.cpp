@@ -1196,7 +1196,11 @@ void ScopBuilder::buildSchedule() {
   assert(LoopStack.size() == 1 && LoopStack.back().L == L);
   scop->setScheduleTree(LoopStack[0].Schedule);
   assert(!this->LoopNest);
- this-> LoopNest = LoopStack[0].Nest;
+  this->LoopNest = LoopStack[0].Nest;
+  if (!this->LoopNest) {
+    // Ensure member if there is not loop at all (-polly-process-unprofitable)
+    this->LoopNest = new json::Array();
+  }
 }
 
 /// To generate a schedule for the elements in a Region we traverse the Region
@@ -1364,7 +1368,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
      else
        Loop["subloops"] = json::Array();
       auto Nest = new json::Array({std::move(Loop)});
-      LoopData->Nest =  combineInSequence(LoopData->Nest, Nest);
+      LoopData->Nest = combineInSequence(LoopData->Nest, Nest);
     }
 
     LoopData->NumBlocksProcessed += NumBlocksProcessed;

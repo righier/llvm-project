@@ -2807,13 +2807,17 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   S = SB.getScop(); // take ownership of scop object
 
   auto ThisNest =  SB.getLoopNest();
-  auto TNest = *ThisNest;
-  if (!this->LoopNests) {
-    this->LoopNests = new json::Array();
+  if (ThisNest) {
+    auto TNest = *ThisNest;
+
+    if (!this->LoopNests) {
+      // First occurrence to fill out the array.
+      this->LoopNests = new json::Array();
+    }
+    json::Object Root;
+    Root["topmost"] = json::Value(std::move(TNest));
+    this->LoopNests->emplace_back(std::move(Root));
   }
-  json::Object Root;
-  Root["topmost"] = json::Value(std::move(TNest));
-  this->LoopNests->emplace_back(std::move(Root));
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
   if (S) {
@@ -2998,10 +3002,12 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
 
   Result.reset(new ScopInfo{DL, SD, SE, LI, AA, DT, AC, ORE});
 
-  if (!LoopNests)
-    LoopNests = new json::Array();
-  for (auto X : *Result->getLoopNests())
-    LoopNests->push_back(X);
+  if (Result->getLoopNests()) {
+    if (!LoopNests)
+      LoopNests = new json::Array();
+    for (auto X : *Result->getLoopNests())
+      LoopNests->push_back(X);
+  }
 
   return false;
 }
