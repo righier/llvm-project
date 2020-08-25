@@ -1329,7 +1329,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
     
       auto LoopId =  L->getLoopID();
-      auto BeginLoc = LoopId ? LoopId->getOperand(1).get() : nullptr;
+      auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1) ? LoopId->getOperand(1).get() : nullptr;
      auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
      json::Object Loop;
