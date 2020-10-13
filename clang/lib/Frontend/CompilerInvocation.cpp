@@ -1464,8 +1464,12 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       std::string(Args.getLastArgValue(OPT_fsymbol_partition_EQ));
 
   Opts.ForceAAPCSBitfieldLoad = Args.hasArg(OPT_ForceAAPCSBitfieldLoad);
+  
+  Opts.DisableLegacyLoopTransformation =
+    Args.hasArg(OPT_disable_legacy_loop_transformations);
 
-  Opts.PassByValueIsNoAlias = Args.hasArg(OPT_fpass_by_value_is_noalias);
+  Opts.DisableLegacyLoopTransformation =
+      Args.hasArg(OPT_disable_legacy_loop_transformations);
   return Success;
 }
 
