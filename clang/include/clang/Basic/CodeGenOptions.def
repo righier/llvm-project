@@ -408,6 +408,8 @@ CODEGENOPT(ForceAAPCSBitfieldLoad, 1, 0)
 CODEGENOPT(PassByValueIsNoAlias, 1, 0)
 
 
+CODEGENOPT(DisableLegacyLoopTransformation, 1, 0)
+
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT
 #undef VALUE_CODEGENOPT
