@@ -89,7 +89,7 @@ CudaInstallationDetector::CudaInstallationDetector(
           D.SysRoot + "/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v" +
           Ver);
   } else {
-    StringRef CMakeCudaPath = CLANG_CUDA_TOOLKIT_ROOT_DIR;
+    std::string CMakeCudaPath = CLANG_CUDA_TOOLKIT_ROOT_DIR;
     if (!CMakeCudaPath.empty())
       Candidates.emplace_back(CMakeCudaPath, /*StrictChecking=*/false);
 
