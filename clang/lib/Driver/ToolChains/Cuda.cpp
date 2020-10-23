@@ -89,6 +89,10 @@ CudaInstallationDetector::CudaInstallationDetector(
           D.SysRoot + "/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v" +
           Ver);
   } else {
+    std::string CMakeCudaPath = CLANG_CUDA_TOOLKIT_ROOT_DIR;
+    if (!CMakeCudaPath.empty())
+      Candidates.emplace_back(CMakeCudaPath, /*StrictChecking=*/false);
+
     if (!Args.hasArg(clang::driver::options::OPT_cuda_path_ignore_env)) {
       // Try to find ptxas binary. If the executable is located in a directory
       // called 'bin/', its parent directory might be a good guess for a valid
