@@ -57,6 +57,9 @@
 /* Directory where gcc is installed. */
 #define GCC_INSTALL_PREFIX "${GCC_INSTALL_PREFIX}"
 
+/* Directory where CUDA is installed. */
+#define CLANG_CUDA_TOOLKIT_ROOT_DIR "${CUDA_TOOLKIT_ROOT_DIR}"
+
 /* Define if we have libxml2 */
 #cmakedefine CLANG_HAVE_LIBXML ${CLANG_HAVE_LIBXML}
 
