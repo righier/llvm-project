@@ -112,10 +112,12 @@ mark_as_advanced(
 ################################################################################
 # Looking for CUDA...
 ################################################################################
-if (CUDA_TOOLKIT_ROOT_DIR)
-  set(LIBOMPTARGET_CUDA_TOOLKIT_ROOT_DIR_PRESET TRUE)
-endif()
-find_package(CUDA QUIET)
+
+# How CUDA is detected should be consistent with Clang.
+#
+# /usr/lib/cuda is a special case for Debian/Ubuntu to have nvidia-cuda-toolkit
+# work out of the box. More info on http://bugs.debian.org/882505
+find_package(CUDA QUIET PATHS "/usr/lib/cuda")
 
 # Try to get the highest Nvidia GPU architecture the system supports
 if (CUDA_FOUND)
@@ -221,31 +223,3 @@ mark_as_advanced(
   LIBOMPTARGET_DEP_VEO_FOUND
   LIBOMPTARGET_DEP_VEO_INCLUDE_DIRS)
 
-# Looking for CUDA libdevice subdirectory
-#
-# Special case for Debian/Ubuntu to have nvidia-cuda-toolkit work
-# out of the box. More info on http://bugs.debian.org/882505
-################################################################################
-
-set(LIBOMPTARGET_CUDA_LIBDEVICE_SUBDIR nvvm/libdevice)
-
-# Don't alter CUDA_TOOLKIT_ROOT_DIR if the user specified it, if a value was
-# already cached for it, or if it already has libdevice.  Otherwise, on
-# Debian/Ubuntu, look where the nvidia-cuda-toolkit package normally installs
-# libdevice.
-if (NOT LIBOMPTARGET_CUDA_TOOLKIT_ROOT_DIR_PRESET AND
-    NOT EXISTS
-      "${CUDA_TOOLKIT_ROOT_DIR}/${LIBOMPTARGET_CUDA_LIBDEVICE_SUBDIR}")
-  find_program(LSB_RELEASE lsb_release)
-  if (LSB_RELEASE)
-    execute_process(COMMAND ${LSB_RELEASE} -is
-      OUTPUT_VARIABLE LSB_RELEASE_ID
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    set(candidate_dir /usr/lib/cuda)
-    if ((LSB_RELEASE_ID STREQUAL "Debian" OR LSB_RELEASE_ID STREQUAL "Ubuntu")
-        AND EXISTS "${candidate_dir}/${LIBOMPTARGET_CUDA_LIBDEVICE_SUBDIR}")
-      set(CUDA_TOOLKIT_ROOT_DIR "${candidate_dir}" CACHE PATH
-          "Toolkit location." FORCE)
-    endif()
-  endif()
-endif()

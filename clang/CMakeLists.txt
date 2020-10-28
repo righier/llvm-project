@@ -309,7 +309,11 @@ set(CUDA_ARCH_FLAGS "sm_35")
 
 # Try to find the highest Nvidia GPU architecture the system supports
 if (NOT DEFINED CLANG_OPENMP_NVPTX_DEFAULT_ARCH)
-  find_package(CUDA QUIET)
+  # How CUDA is detected should be consistent with libomptarget.
+  #
+  # /usr/lib/cuda is a special case for Debian/Ubuntu to have nvidia-cuda-toolkit
+  # work out of the box. More info on http://bugs.debian.org/882505
+  find_package(CUDA QUIET PATHS "/usr/lib/cuda")
   if (CUDA_FOUND)
     cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS)
   endif()
