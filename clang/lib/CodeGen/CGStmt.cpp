@@ -804,7 +804,7 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
     LoopMustProgress = true;
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(),
+  LoopStack.push(LoopHeader.getBlock(),  CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
                  WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()), LoopMustProgress);
 
@@ -905,7 +905,7 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
     LoopMustProgress = true;
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
+  LoopStack.push(LoopBody, CurFn,  CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()), LoopMustProgress);
 
