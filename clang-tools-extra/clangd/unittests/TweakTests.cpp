@@ -2884,6 +2884,17 @@ using xx::yy;
 void fun() {
   yy();
 }
+)cpp"},
+            // Existing using with non-namespace part.
+            {R"cpp(
+#include "test.hpp"
+using one::two::ee::ee_one;
+one::t^wo::cc c;
+)cpp",
+             R"cpp(
+#include "test.hpp"
+using one::two::cc;using one::two::ee::ee_one;
+cc c;
 )cpp"}};
   llvm::StringMap<std::string> EditedFiles;
   for (const auto &Case : Cases) {
@@ -2892,7 +2903,7 @@ void fun() {
 namespace one {
 void oo() {}
 namespace two {
-enum ee {};
+enum ee {ee_one};
 void ff() {}
 class cc {
 public:
@@ -3082,6 +3093,12 @@ TEST_F(PopulateSwitchTest, Test) {
           // Duplicated constant names all in switch
           Function,
           R""(enum Enum {A,B,b=B}; ^switch (A) {case A:case B:break;})"",
+          "unavailable",
+      },
+      {
+          // Enum is dependent type
+          File,
+          R""(template<typename T> void f() {enum Enum {A}; ^switch (A) {}})"",
           "unavailable",
       },
   };

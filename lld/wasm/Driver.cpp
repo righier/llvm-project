@@ -379,6 +379,9 @@ static void readConfigs(opt::InputArgList &args) {
   config->importTable = args.hasArg(OPT_import_table);
   config->ltoo = args::getInteger(args, OPT_lto_O, 2);
   config->ltoPartitions = args::getInteger(args, OPT_lto_partitions, 1);
+  config->ltoNewPassManager = args.hasFlag(OPT_lto_new_pass_manager,
+                                           OPT_lto_no_new_pass_manager, false);
+  config->ltoDebugPassManager = args.hasArg(OPT_lto_debug_pass_manager);
   config->mapFile = args.getLastArgValue(OPT_Map);
   config->optimize = args::getInteger(args, OPT_O, 0);
   config->outputFile = args.getLastArgValue(OPT_o);
@@ -973,7 +976,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
       warn(Twine("symbol exported via --export not found: ") + arg->getValue());
   }
 
-  if (!config->relocatable) {
+  if (!config->relocatable && !config->isPic) {
     // Add synthetic dummies for weak undefined functions.  Must happen
     // after LTO otherwise functions may not yet have signatures.
     symtab->handleWeakUndefines();

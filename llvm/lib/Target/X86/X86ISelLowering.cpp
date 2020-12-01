@@ -922,9 +922,7 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setOperationAction(ISD::SADDSAT,            MVT::v8i16, Legal);
     setOperationAction(ISD::USUBSAT,            MVT::v8i16, Legal);
     setOperationAction(ISD::SSUBSAT,            MVT::v8i16, Legal);
-    setOperationAction(ISD::UADDSAT,            MVT::v4i32, Custom);
     setOperationAction(ISD::USUBSAT,            MVT::v4i32, Custom);
-    setOperationAction(ISD::UADDSAT,            MVT::v2i64, Custom);
     setOperationAction(ISD::USUBSAT,            MVT::v2i64, Custom);
 
     setOperationAction(ISD::INSERT_VECTOR_ELT,  MVT::v8i16, Custom);
@@ -1103,6 +1101,8 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setOperationAction(ISD::UMIN,               MVT::v8i16, Legal);
     setOperationAction(ISD::UMIN,               MVT::v4i32, Legal);
 
+    setOperationAction(ISD::UADDSAT,            MVT::v4i32, Custom);
+
     // FIXME: Do we need to handle scalar-to-vector here?
     setOperationAction(ISD::MUL,                MVT::v4i32, Legal);
 
@@ -1141,6 +1141,10 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
       setOperationAction(ISD::SINT_TO_FP,        MVT::v4i64, Custom);
       setOperationAction(ISD::STRICT_SINT_TO_FP, MVT::v4i64, Custom);
     }
+  }
+
+  if (!Subtarget.useSoftFloat() && Subtarget.hasSSE42()) {
+    setOperationAction(ISD::UADDSAT,            MVT::v2i64, Custom);
   }
 
   if (!Subtarget.useSoftFloat() && Subtarget.hasXOP()) {
@@ -3067,8 +3071,9 @@ SDValue X86TargetLowering::LowerCallResult(
                         // This truncation won't change the value.
                         DAG.getIntPtrConstant(1, dl));
 
-    if (VA.isExtInLoc() && (VA.getValVT().getScalarType() == MVT::i1)) {
+    if (VA.isExtInLoc()) {
       if (VA.getValVT().isVector() &&
+          VA.getValVT().getScalarType() == MVT::i1 &&
           ((VA.getLocVT() == MVT::i64) || (VA.getLocVT() == MVT::i32) ||
            (VA.getLocVT() == MVT::i16) || (VA.getLocVT() == MVT::i8))) {
         // promoting a mask type (v*i1) into a register of type i64/i32/i16/i8
@@ -17590,12 +17595,14 @@ static SDValue lowerV8I64Shuffle(const SDLoc &DL, ArrayRef<int> Mask,
     return Rotate;
 
   // Try to use PALIGNR.
-  if (SDValue Rotate = lowerShuffleAsByteRotate(DL, MVT::v8i64, V1, V2, Mask,
-                                                Subtarget, DAG))
-    return Rotate;
+  if (Subtarget.hasBWI())
+    if (SDValue Rotate = lowerShuffleAsByteRotate(DL, MVT::v8i64, V1, V2, Mask,
+                                                  Subtarget, DAG))
+      return Rotate;
 
   if (SDValue Unpck = lowerShuffleWithUNPCK(DL, MVT::v8i64, Mask, V1, V2, DAG))
     return Unpck;
+
   // If we have AVX512F support, we can use VEXPAND.
   if (SDValue V = lowerShuffleToEXPAND(DL, MVT::v8i64, Zeroable, Mask, V1, V2,
                                        DAG, Subtarget))
@@ -26886,17 +26893,6 @@ static SDValue LowerADDSAT_SUBSAT(SDValue Op, SelectionDAG &DAG,
   EVT SetCCResultType =
       TLI.getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), VT);
 
-  if (Opcode == ISD::UADDSAT && !TLI.isOperationLegal(ISD::UMIN, VT)) {
-    // uaddsat X, Y --> (X >u (X + Y)) ? -1 : X + Y
-    SDValue Add = DAG.getNode(ISD::ADD, DL, VT, X, Y);
-    SDValue Cmp = DAG.getSetCC(DL, SetCCResultType, X, Add, ISD::SETUGT);
-    // TODO: Move this to DAGCombiner?
-    if (SetCCResultType == VT &&
-        DAG.ComputeNumSignBits(Cmp) == VT.getScalarSizeInBits())
-      return DAG.getNode(ISD::OR, DL, VT, Cmp, Add);
-    return DAG.getSelect(DL, VT, Cmp, DAG.getAllOnesConstant(DL, VT), Add);
-  }
-
   if (Opcode == ISD::USUBSAT && !TLI.isOperationLegal(ISD::UMAX, VT)) {
     // usubsat X, Y --> (X >u Y) ? X - Y : 0
     SDValue Sub = DAG.getNode(ISD::SUB, DL, VT, X, Y);
@@ -26958,22 +26954,6 @@ static SDValue LowerMINMAX(SDValue Op, SelectionDAG &DAG) {
 
   if (VT == MVT::v32i16 || VT == MVT::v64i8)
     return splitVectorIntBinary(Op, DAG);
-
-  SDLoc DL(Op);
-  unsigned Opcode = Op.getOpcode();
-  SDValue N0 = Op.getOperand(0);
-  SDValue N1 = Op.getOperand(1);
-
-  // For pre-SSE41, we can perform UMIN/UMAX v8i16 by using psubusw.
-  if (VT == MVT::v8i16) {
-    assert((Opcode == ISD::UMIN || Opcode == ISD::UMAX) &&
-           "Unexpected MIN/MAX opcode");
-    if (Opcode == ISD::UMIN)
-      return DAG.getNode(ISD::SUB, DL, VT, N0,
-                         DAG.getNode(ISD::USUBSAT, DL, VT, N0, N1));
-    return DAG.getNode(ISD::ADD, DL, VT,
-                       DAG.getNode(ISD::USUBSAT, DL, VT, N1, N0), N0);
-  }
 
   // Default to expand.
   return SDValue();
@@ -40929,128 +40909,6 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
       Cond = DAG.getSetCC(SDLoc(Cond), Cond.getValueType(),
                           Cond.getOperand(0), Cond.getOperand(1), NewCC);
       return DAG.getSelect(DL, VT, Cond, LHS, RHS);
-    }
-  }
-
-  // Match VSELECTs into subs with unsigned saturation.
-  if (N->getOpcode() == ISD::VSELECT && Cond.getOpcode() == ISD::SETCC &&
-      // psubus is available in SSE2 for i8 and i16 vectors.
-      Subtarget.hasSSE2() && VT.getVectorNumElements() >= 2 &&
-      isPowerOf2_32(VT.getVectorNumElements()) &&
-      (VT.getVectorElementType() == MVT::i8 ||
-       VT.getVectorElementType() == MVT::i16)) {
-    ISD::CondCode CC = cast<CondCodeSDNode>(Cond.getOperand(2))->get();
-
-    // Check if one of the arms of the VSELECT is a zero vector. If it's on the
-    // left side invert the predicate to simplify logic below.
-    SDValue Other;
-    if (ISD::isBuildVectorAllZeros(LHS.getNode())) {
-      Other = RHS;
-      CC = ISD::getSetCCInverse(CC, VT.getVectorElementType());
-    } else if (ISD::isBuildVectorAllZeros(RHS.getNode())) {
-      Other = LHS;
-    }
-
-    if (Other.getNode() && Other->getNumOperands() == 2 &&
-        Other->getOperand(0) == Cond.getOperand(0)) {
-      SDValue OpLHS = Other->getOperand(0), OpRHS = Other->getOperand(1);
-      SDValue CondRHS = Cond->getOperand(1);
-
-      // Look for a general sub with unsigned saturation first.
-      // x >= y ? x-y : 0 --> subus x, y
-      // x >  y ? x-y : 0 --> subus x, y
-      if ((CC == ISD::SETUGE || CC == ISD::SETUGT) &&
-          Other->getOpcode() == ISD::SUB && OpRHS == CondRHS)
-        return DAG.getNode(ISD::USUBSAT, DL, VT, OpLHS, OpRHS);
-
-      if (auto *OpRHSBV = dyn_cast<BuildVectorSDNode>(OpRHS)) {
-        if (isa<BuildVectorSDNode>(CondRHS)) {
-          // If the RHS is a constant we have to reverse the const
-          // canonicalization.
-          // x > C-1 ? x+-C : 0 --> subus x, C
-          auto MatchUSUBSAT = [](ConstantSDNode *Op, ConstantSDNode *Cond) {
-            return (!Op && !Cond) ||
-                   (Op && Cond &&
-                    Cond->getAPIntValue() == (-Op->getAPIntValue() - 1));
-          };
-          if (CC == ISD::SETUGT && Other->getOpcode() == ISD::ADD &&
-              ISD::matchBinaryPredicate(OpRHS, CondRHS, MatchUSUBSAT,
-                                        /*AllowUndefs*/ true)) {
-            OpRHS = DAG.getNode(ISD::SUB, DL, VT, DAG.getConstant(0, DL, VT),
-                                OpRHS);
-            return DAG.getNode(ISD::USUBSAT, DL, VT, OpLHS, OpRHS);
-          }
-
-          // Another special case: If C was a sign bit, the sub has been
-          // canonicalized into a xor.
-          // FIXME: Would it be better to use computeKnownBits to determine
-          //        whether it's safe to decanonicalize the xor?
-          // x s< 0 ? x^C : 0 --> subus x, C
-          if (auto *OpRHSConst = OpRHSBV->getConstantSplatNode()) {
-            if (CC == ISD::SETLT && Other.getOpcode() == ISD::XOR &&
-                ISD::isBuildVectorAllZeros(CondRHS.getNode()) &&
-                OpRHSConst->getAPIntValue().isSignMask()) {
-              // Note that we have to rebuild the RHS constant here to ensure we
-              // don't rely on particular values of undef lanes.
-              OpRHS = DAG.getConstant(OpRHSConst->getAPIntValue(), DL, VT);
-              return DAG.getNode(ISD::USUBSAT, DL, VT, OpLHS, OpRHS);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Match VSELECTs into add with unsigned saturation.
-  if (N->getOpcode() == ISD::VSELECT && Cond.getOpcode() == ISD::SETCC &&
-      // paddus is available in SSE2 for i8 and i16 vectors.
-      Subtarget.hasSSE2() && VT.getVectorNumElements() >= 2 &&
-      isPowerOf2_32(VT.getVectorNumElements()) &&
-      (VT.getVectorElementType() == MVT::i8 ||
-       VT.getVectorElementType() == MVT::i16)) {
-    ISD::CondCode CC = cast<CondCodeSDNode>(Cond.getOperand(2))->get();
-
-    SDValue CondLHS = Cond->getOperand(0);
-    SDValue CondRHS = Cond->getOperand(1);
-
-    // Check if one of the arms of the VSELECT is vector with all bits set.
-    // If it's on the left side invert the predicate to simplify logic below.
-    SDValue Other;
-    if (ISD::isBuildVectorAllOnes(LHS.getNode())) {
-      Other = RHS;
-      CC = ISD::getSetCCInverse(CC, VT.getVectorElementType());
-    } else if (ISD::isBuildVectorAllOnes(RHS.getNode())) {
-      Other = LHS;
-    }
-
-    if (Other.getNode() && Other.getOpcode() == ISD::ADD) {
-      SDValue OpLHS = Other.getOperand(0), OpRHS = Other.getOperand(1);
-
-      // Canonicalize condition operands.
-      if (CC == ISD::SETUGE) {
-        std::swap(CondLHS, CondRHS);
-        CC = ISD::SETULE;
-      }
-
-      // We can test against either of the addition operands.
-      // x <= x+y ? x+y : ~0 --> addus x, y
-      // x+y >= x ? x+y : ~0 --> addus x, y
-      if (CC == ISD::SETULE && Other == CondRHS &&
-          (OpLHS == CondLHS || OpRHS == CondLHS))
-        return DAG.getNode(ISD::UADDSAT, DL, VT, OpLHS, OpRHS);
-
-      if (isa<BuildVectorSDNode>(OpRHS) && isa<BuildVectorSDNode>(CondRHS) &&
-          CondLHS == OpLHS) {
-        // If the RHS is a constant we have to reverse the const
-        // canonicalization.
-        // x > ~C ? x+C : ~0 --> addus x, C
-        auto MatchUADDSAT = [](ConstantSDNode *Op, ConstantSDNode *Cond) {
-          return Cond->getAPIntValue() == ~Op->getAPIntValue();
-        };
-        if (CC == ISD::SETULE &&
-            ISD::matchBinaryPredicate(OpRHS, CondRHS, MatchUADDSAT))
-          return DAG.getNode(ISD::UADDSAT, DL, VT, OpLHS, OpRHS);
-      }
     }
   }
 

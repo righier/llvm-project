@@ -6510,9 +6510,7 @@ static void checkDLLAttributeRedeclaration(Sema &S, NamedDecl *OldDecl,
   // special MSVC extension: in the last case, the declaration is treated as if
   // it were marked dllexport.
   bool IsInline = false, IsStaticDataMember = false, IsQualifiedFriend = false;
-  bool IsMicrosoft =
-      S.Context.getTargetInfo().getCXXABI().isMicrosoft() ||
-      S.Context.getTargetInfo().getTriple().isWindowsItaniumEnvironment();
+  bool IsMicrosoftABI  = S.Context.getTargetInfo().shouldDLLImportComdatSymbols();
   if (const auto *VD = dyn_cast<VarDecl>(NewDecl)) {
     // Ignore static data because out-of-line definitions are diagnosed
     // separately.
@@ -6526,9 +6524,9 @@ static void checkDLLAttributeRedeclaration(Sema &S, NamedDecl *OldDecl,
   }
 
   if (OldImportAttr && !HasNewAttr &&
-      (!IsInline || (IsMicrosoft && IsTemplate)) && !IsStaticDataMember &&
+      (!IsInline || (IsMicrosoftABI && IsTemplate)) && !IsStaticDataMember &&
       !NewDecl->isLocalExternDecl() && !IsQualifiedFriend) {
-    if (IsMicrosoft && IsDefinition) {
+    if (IsMicrosoftABI && IsDefinition) {
       S.Diag(NewDecl->getLocation(),
              diag::warn_redeclaration_without_import_attribute)
           << NewDecl;
@@ -6545,7 +6543,7 @@ static void checkDLLAttributeRedeclaration(Sema &S, NamedDecl *OldDecl,
       OldDecl->dropAttr<DLLImportAttr>();
       NewDecl->dropAttr<DLLImportAttr>();
     }
-  } else if (IsInline && OldImportAttr && !IsMicrosoft) {
+  } else if (IsInline && OldImportAttr && !IsMicrosoftABI) {
     // In MinGW, seeing a function declared inline drops the dllimport
     // attribute.
     OldDecl->dropAttr<DLLImportAttr>();
@@ -8593,12 +8591,21 @@ static bool isOpenCLSizeDependentType(ASTContext &C, QualType Ty) {
 static OpenCLParamType getOpenCLKernelParameterType(Sema &S, QualType PT) {
   if (PT->isPointerType()) {
     QualType PointeeType = PT->getPointeeType();
-    if (PointeeType->isPointerType())
-      return PtrPtrKernelParam;
     if (PointeeType.getAddressSpace() == LangAS::opencl_generic ||
         PointeeType.getAddressSpace() == LangAS::opencl_private ||
         PointeeType.getAddressSpace() == LangAS::Default)
       return InvalidAddrSpacePtrKernelParam;
+
+    if (PointeeType->isPointerType()) {
+      // This is a pointer to pointer parameter.
+      // Recursively check inner type.
+      OpenCLParamType ParamKind = getOpenCLKernelParameterType(S, PointeeType);
+      if (ParamKind == InvalidAddrSpacePtrKernelParam ||
+          ParamKind == InvalidKernelParam)
+        return ParamKind;
+
+      return PtrPtrKernelParam;
+    }
     return PtrKernelParam;
   }
 
@@ -8651,11 +8658,17 @@ static void checkIsValidOpenCLKernelParameter(
 
   switch (getOpenCLKernelParameterType(S, PT)) {
   case PtrPtrKernelParam:
-    // OpenCL v1.2 s6.9.a:
-    // A kernel function argument cannot be declared as a
-    // pointer to a pointer type.
-    S.Diag(Param->getLocation(), diag::err_opencl_ptrptr_kernel_param);
-    D.setInvalidType();
+    // OpenCL v3.0 s6.11.a:
+    // A kernel function argument cannot be declared as a pointer to a pointer
+    // type. [...] This restriction only applies to OpenCL C 1.2 or below.
+    if (S.getLangOpts().OpenCLVersion < 120 &&
+        !S.getLangOpts().OpenCLCPlusPlus) {
+      S.Diag(Param->getLocation(), diag::err_opencl_ptrptr_kernel_param);
+      D.setInvalidType();
+      return;
+    }
+
+    ValidTypes.insert(PT.getTypePtr());
     return;
 
   case InvalidAddrSpacePtrKernelParam:
