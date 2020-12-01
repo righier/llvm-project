@@ -1314,6 +1314,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     --Dimension;
 
     if (Schedule) {
+      bool IsPerfectNest = Schedule.get_root().get_child(0).n_children() == 1; // Root is a domain node
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
@@ -1363,9 +1364,10 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
        Loop["exit"] = Buf;
      }
      
-     if (Subloopnest)
+     if (Subloopnest) {
        Loop["subloops"] = json::Value(std::move(*Subloopnest));
-     else
+       Loop["perfectnest"] = IsPerfectNest;
+     } else
        Loop["subloops"] = json::Array();
       auto Nest = new json::Array({std::move(Loop)});
       LoopData->Nest = combineInSequence(LoopData->Nest, Nest);
