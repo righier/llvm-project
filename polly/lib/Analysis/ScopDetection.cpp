@@ -220,6 +220,8 @@ static cl::opt<bool, true> XPollyInvariantLoadHoisting(
     cl::location(PollyInvariantLoadHoisting), cl::Hidden, cl::ZeroOrMore,
     cl::init(false), cl::cat(PollyCategory));
 
+
+
 /// The minimal trip count under which loops are considered unprofitable.
 static const unsigned MIN_LOOP_TRIP_COUNT = 8;
 
