@@ -1605,6 +1605,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.ForceAAPCSBitfieldLoad = Args.hasArg(OPT_ForceAAPCSBitfieldLoad);
   Opts.AAPCSBitfieldWidth =
       Args.hasFlag(OPT_AAPCSBitfieldWidth, OPT_ForceNoAAPCSBitfieldWidth, true);
+      
+       
+  Opts.DisableLegacyLoopTransformation =
+    Args.hasArg(OPT_disable_legacy_loop_transformations);
 
   Opts.PassByValueIsNoAlias = Args.hasArg(OPT_fpass_by_value_is_noalias);
 
