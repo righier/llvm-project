@@ -721,6 +721,9 @@ defm gpu_allow_device_init : OptInFFlag<"gpu-allow-device-init",
 defm gpu_defer_diag : OptInFFlag<"gpu-defer-diag",
   "Defer", "Don't defer", " host/device related diagnostic messages"
   " for CUDA/HIP">;
+defm gpu_exclude_wrong_side_overloads : OptInFFlag<"gpu-exclude-wrong-side-overloads",
+  "Always exclude wrong side overloads", "Exclude wrong side overloads only if there are same side overloads",
+  " in overloading resolution for CUDA/HIP", [HelpHidden]>;
 def gpu_max_threads_per_block_EQ : Joined<["--"], "gpu-max-threads-per-block=">,
   Flags<[CC1Option]>,
   HelpText<"Default max threads per block for kernel launch bounds for HIP">;
@@ -1349,7 +1352,7 @@ def fglobal_isel : Flag<["-"], "fglobal-isel">, Group<f_clang_Group>,
 def fexperimental_isel : Flag<["-"], "fexperimental-isel">, Group<f_clang_Group>,
   Alias<fglobal_isel>;
 defm experimental_new_pass_manager : BooleanMarshalledFFlag<"experimental-new-pass-manager", "CodeGenOpts.ExperimentalNewPassManager",
-  "static_cast<unsigned>(ENABLE_EXPERIMENTAL_NEW_PASS_MANAGER)", "Enables an experimental new pass manager in LLVM.",
+  "static_cast<unsigned>(LLVM_ENABLE_NEW_PASS_MANAGER)", "Enables an experimental new pass manager in LLVM.",
   "Disables an experimental new pass manager in LLVM.">, Group<f_clang_Group>, Flags<[CC1Option]>;
 def fexperimental_strict_floating_point : Flag<["-"], "fexperimental-strict-floating-point">,
   Group<f_clang_Group>, Flags<[CC1Option]>,
@@ -2636,8 +2639,6 @@ def mno_mfocrf : Flag<["-"], "mno-mfocrf">, Group<m_ppc_Features_Group>;
 def mno_mfcrf : Flag<["-"], "mno-mfcrf">, Alias<mno_mfocrf>;
 def mpopcntd : Flag<["-"], "mpopcntd">, Group<m_ppc_Features_Group>;
 def mno_popcntd : Flag<["-"], "mno-popcntd">, Group<m_ppc_Features_Group>;
-def mqpx : Flag<["-"], "mqpx">, Group<m_ppc_Features_Group>;
-def mno_qpx : Flag<["-"], "mno-qpx">, Group<m_ppc_Features_Group>;
 def mcrbits : Flag<["-"], "mcrbits">, Group<m_ppc_Features_Group>;
 def mno_crbits : Flag<["-"], "mno-crbits">, Group<m_ppc_Features_Group>;
 def minvariant_function_descriptors :

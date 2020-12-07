@@ -1910,7 +1910,7 @@ private:
   //@}
 
   /// Initialize this ScopBuilder.
-  void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree &DT,
+  void init(AAResults &AA, AssumptionCache &AC, DominatorTree &DT,
             LoopInfo &LI);
 
   /// Add parameter constraints to @p C that imply a non-empty domain.
@@ -2754,7 +2754,7 @@ private:
   ScopDetection &SD;
   ScalarEvolution &SE;
   LoopInfo &LI;
-  AliasAnalysis &AA;
+  AAResults &AA;
   DominatorTree &DT;
   AssumptionCache &AC;
   OptimizationRemarkEmitter &ORE;
@@ -2763,8 +2763,8 @@ private:
 
 public:
   ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
-           LoopInfo &LI, AliasAnalysis &AA, DominatorTree &DT,
-           AssumptionCache &AC, OptimizationRemarkEmitter &ORE);
+           LoopInfo &LI, AAResults &AA, DominatorTree &DT, AssumptionCache &AC,
+           OptimizationRemarkEmitter &ORE);
 
   /// Get the Scop object for the given Region.
   ///

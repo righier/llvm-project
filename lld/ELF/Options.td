@@ -64,6 +64,10 @@ defm optimize_bb_jumps: BB<"optimize-bb-jumps",
     "Remove direct jumps at the end to the next basic block",
     "Do not remove any direct jumps at the end to the next basic block (default)">;
 
+defm fortran_common : BB<"fortran-common",
+    "Search archive members for definitions to override COMMON symbols (default)",
+    "Do not search archive members for definitions to override COMMON symbols">;
+
 defm split_stack_adjust_size
     : Eq<"split-stack-adjust-size",
          "Specify adjustment to stack size when a split-stack function calls a "
@@ -526,8 +530,9 @@ def lto_debug_pass_manager: FF<"lto-debug-pass-manager">,
   HelpText<"Debug new pass manager">;
 def lto_emit_asm: FF<"lto-emit-asm">,
   HelpText<"Emit assembly code">;
-def lto_new_pass_manager: FF<"lto-new-pass-manager">,
-  HelpText<"Use new pass manager">;
+defm lto_new_pass_manager: BB<"lto-new-pass-manager",
+  "Use new pass manager",
+  "Use legacy pass manager">;
 def lto_newpm_passes: JJ<"lto-newpm-passes=">,
   HelpText<"Passes to run during LTO">;
 def lto_O: JJ<"lto-O">, MetaVarName<"<opt-level>">,

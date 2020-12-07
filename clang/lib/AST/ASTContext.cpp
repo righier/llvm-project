@@ -883,10 +883,10 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
   if (!LangOpts.CPlusPlus) return nullptr;
 
   switch (T.getCXXABI().getKind()) {
+  case TargetCXXABI::AppleARM64:
   case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericARM: // Same as Itanium at this level
   case TargetCXXABI::iOS:
-  case TargetCXXABI::iOS64:
   case TargetCXXABI::WatchOS:
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericMIPS:
@@ -2360,12 +2360,6 @@ unsigned ASTContext::getTypeUnadjustedAlign(const Type *T) const {
 
 unsigned ASTContext::getOpenMPDefaultSimdAlign(QualType T) const {
   unsigned SimdAlign = getTargetInfo().getSimdDefaultAlign();
-  // Target ppc64 with QPX: simd default alignment for pointer to double is 32.
-  if ((getTargetInfo().getTriple().getArch() == llvm::Triple::ppc64 ||
-       getTargetInfo().getTriple().getArch() == llvm::Triple::ppc64le) &&
-      getTargetInfo().getABI() == "elfv1-qpx" &&
-      T->isSpecificBuiltinType(BuiltinType::Double))
-    SimdAlign = 256;
   return SimdAlign;
 }
 
@@ -10871,13 +10865,13 @@ MangleContext *ASTContext::createMangleContext(const TargetInfo *T) {
   if (!T)
     T = Target;
   switch (T->getCXXABI().getKind()) {
+  case TargetCXXABI::AppleARM64:
   case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericItanium:
   case TargetCXXABI::GenericARM:
   case TargetCXXABI::GenericMIPS:
   case TargetCXXABI::iOS:
-  case TargetCXXABI::iOS64:
   case TargetCXXABI::WebAssembly:
   case TargetCXXABI::WatchOS:
   case TargetCXXABI::XL:

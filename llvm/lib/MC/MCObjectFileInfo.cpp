@@ -883,6 +883,14 @@ void MCObjectFileInfo::initXCOFFMCObjectFileInfo(const Triple &T) {
   // The TOC-base always has 0 size, but 4 byte alignment.
   TOCBaseSection->setAlignment(Align(4));
 
+  LSDASection = Ctx->getXCOFFSection(".gcc_except_table",
+                                     XCOFF::StorageMappingClass::XMC_RO,
+                                     XCOFF::XTY_SD, SectionKind::getReadOnly());
+
+  CompactUnwindSection =
+      Ctx->getXCOFFSection(".eh_info_table", XCOFF::StorageMappingClass::XMC_RW,
+                           XCOFF::XTY_SD, SectionKind::getData());
+
   // DWARF sections for XCOFF are not csects. They are special STYP_DWARF
   // sections, and the individual DWARF sections are distinguished by their
   // section subtype.
@@ -966,9 +974,6 @@ MCSection *MCObjectFileInfo::getDwarfComdatSection(const char *Name,
     return Ctx->getELFSection(Name, ELF::SHT_PROGBITS, ELF::SHF_GROUP, 0,
                               utostr(Hash));
   case Triple::Wasm:
-    // FIXME: When using dwarf 5, the .debug_info section is used for type units
-    // but that section already exists, so attempting to get it as a comdate
-    // section triggers an assert.
     return Ctx->getWasmSection(Name, SectionKind::getMetadata(), utostr(Hash),
                                MCContext::GenericSectionID);
   case Triple::MachO:

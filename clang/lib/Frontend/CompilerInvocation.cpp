@@ -58,6 +58,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/MC/MCTargetOptions.h"
@@ -2391,6 +2392,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.CPlusPlus14 = Std.isCPlusPlus14();
   Opts.CPlusPlus17 = Std.isCPlusPlus17();
   Opts.CPlusPlus20 = Std.isCPlusPlus20();
+  Opts.CPlusPlus2b = Std.isCPlusPlus2b();
   Opts.Digraphs = Std.hasDigraphs();
   Opts.GNUMode = Std.isGNUMode();
   Opts.GNUInline = !Opts.C99 && !Opts.CPlusPlus;
@@ -2695,6 +2697,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   if (Args.hasArg(OPT_fno_cuda_host_device_constexpr))
     Opts.CUDAHostDeviceConstexpr = 0;
+
+  if (Args.hasArg(OPT_fgpu_exclude_wrong_side_overloads))
+    Opts.GPUExcludeWrongSideOverloads = 1;
 
   if (Args.hasArg(OPT_fgpu_defer_diag))
     Opts.GPUDeferDiag = 1;
