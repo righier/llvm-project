@@ -19,19 +19,22 @@ using namespace clang;
 void LoopHintAttr::printPrettyPragma(raw_ostream &OS,
                                      const PrintingPolicy &Policy) const {
   unsigned SpellingIndex = getAttributeSpellingListIndex();
-  // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
-  // "nounroll" is already emitted as the pragma name.
-  if (SpellingIndex == Pragma_nounroll ||
-      SpellingIndex == Pragma_nounroll_and_jam)
+  if (SpellingIndex == Pragma_nounroll) {
+    OS << "nounroll";
     return;
-  else if (SpellingIndex == Pragma_unroll ||
-           SpellingIndex == Pragma_unroll_and_jam) {
-    OS << ' ' << getValueString(Policy);
+  } else if (SpellingIndex == Pragma_nounroll_and_jam) {
+    OS << "nounroll_and_jam";
+    return;
+  } else if (SpellingIndex == Pragma_unroll) {
+    OS << "unroll " << getValueString(Policy);
+    return;
+  } else if (SpellingIndex == Pragma_unroll_and_jam) {
+    OS << "unroll_and_jam " << getValueString(Policy);
     return;
   }
 
   assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-  OS << ' ' << getOptionName(option) << getValueString(Policy);
+  OS << "clang loop " << getOptionName(option) << getValueString(Policy);
 }
 
 // Return a string containing the loop hint argument including the
