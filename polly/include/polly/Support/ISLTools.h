@@ -14,6 +14,8 @@
 #ifndef POLLY_ISLTOOLS_H
 #define POLLY_ISLTOOLS_H
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/iterator.h"
 #include "isl/isl-noexceptions.h"
 
@@ -184,6 +186,11 @@ isl::space getScatterSpace(const isl::union_map &Schedule);
 /// @return { Space[] -> Space[] }
 ///         A map that maps each value of @p USet to itself.
 isl::union_map makeIdentityMap(const isl::union_set &USet, bool RestrictDomain);
+isl::map makeIdentityMap(const isl::set &USet, bool RestrictDomain);
+
+isl::basic_map castSpace(isl::basic_map Orig, isl::space NewSpace);
+isl::map castSpace(isl::map Orig, isl::space NewSpace);
+isl::map castRangeSpace(isl::map Orig, isl::space NewRangeSpace);
 
 /// Reverse the nested map tuple in @p Map's domain.
 ///
@@ -194,6 +201,10 @@ isl::map reverseDomain(isl::map Map);
 
 /// Piecewise reverseDomain(isl::map).
 isl::union_map reverseDomain(const isl::union_map &UMap);
+
+isl::map reverseRange(isl::map Map);
+
+isl::union_map reverseRange(const isl::union_map &UMap);
 
 /// Add a constant to one dimension of a set.
 ///
@@ -486,6 +497,84 @@ isl::set subtractParams(isl::set Set, isl::set Params);
 /// value. Otherwise, return NaN.
 isl::val getConstant(isl::pw_aff PwAff, bool Max, bool Min);
 
+struct TupleNest;
+
+struct TupleInfo {
+  TupleNest *Parent = nullptr;
+  isl::space Space;
+  int Offset = -1;
+
+  TupleInfo(){};
+  TupleInfo(TupleNest *Parent, isl::space Space, int Offset)
+      : Parent(Parent), Space(Space), Offset(Offset) {}
+
+  // ~TupleInfo() {
+  //     int a = 0;
+  // }
+};
+
+struct SpaceRef {
+  isl::space Space;
+  // std::unique_ptr<  SpaceRef > Domain;
+  // std::unique_ptr< SpaceRef > Range;
+  const SpaceRef *Domain = nullptr, *Range = nullptr;
+  const TupleInfo *Tuple = nullptr;
+
+  // SpaceRef(){}
+  SpaceRef(isl::space Space) : Space(Space) { assert(Space.is_set()); }
+  // SpaceRef(const SpaceRef &Domain, const SpaceRef &Range) : Domain(new
+  // SpaceRef( Domain)), Range(new SpaceRef( Range)) {}
+  SpaceRef(const SpaceRef &Domain, const SpaceRef &Range)
+      : Domain(&Domain), Range(&Range) {}
+  SpaceRef(const TupleInfo &Tuple) : Tuple(&Tuple) {}
+
+#if 0
+  SpaceRef(const SpaceRef &That) : Space (That.Space ), Tuple (That.Tuple) {
+	  if (That.Domain)
+		  Domain = std::make_unique<SpaceRef>(*That.Domain);
+	  if (That.Range)
+		  Range.reset(new SpaceRef(*That.Range));
+  }
+#endif
+};
+
+struct TupleNest {
+  isl::set Ref;
+  llvm::StringMap<TupleInfo> Tuples;
+
+  const TupleInfo &operator[](llvm::StringRef Name) const {
+    assert(Tuples.count(Name));
+    return const_cast<TupleNest *>(this)->Tuples[Name];
+  }
+
+  TupleNest(isl::set Ref, llvm::StringRef ModelStr);
+  TupleNest(isl::map Ref, llvm::StringRef ModelStr);
+  // TODO: union_map/union_set
+};
+
+isl::set
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &NewNesting);
+
+isl::map
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &Domain, const SpaceRef &Range);
+
+isl::set rebuildSetNesting(const TupleNest &Nest, llvm::StringRef NewModelStr);
+isl::map rebuildMapNesting(const TupleNest &Nest, llvm::StringRef NewModelStr);
+
+isl::set rebuildNesting(isl::set Set, llvm::StringRef ModelStr,
+                        llvm::StringRef NewModelStr);
+isl::map rebuildNesting(isl::map Map, llvm::StringRef ModelStr,
+                        llvm::StringRef NewModelStr);
+
+/// @param { Domain[] -> Range[...,Pos,...] }
+/// @param { Domain[] -> [Pos] }
+isl::basic_map isolateDim(isl::basic_map BMap, int Pos);
+isl::map isolateDim(isl::map Map, int Pos);
+
 /// Dump a description of the argument to llvm::errs().
 ///
 /// In contrast to isl's dump function, there are a few differences:
@@ -592,6 +681,9 @@ void dumpExpanded(__isl_keep isl_map *Map);
 void dumpExpanded(__isl_keep isl_union_set *USet);
 void dumpExpanded(__isl_keep isl_union_map *UMap);
 /// @}
+
+void printSorted(const isl::map &Map, llvm::raw_ostream &OS);
+
 } // namespace polly
 
 #endif /* POLLY_ISLTOOLS_H */
