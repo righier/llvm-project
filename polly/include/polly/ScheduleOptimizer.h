@@ -200,6 +200,7 @@ private:
                         const llvm::TargetTransformInfo *TTI,
                         polly::MatMulInfoTy &MMI);
 
+public:
   /// Check if this node is a band node we want to tile.
   ///
   /// We look for innermost band nodes where individual dimensions are marked as
@@ -243,6 +244,7 @@ private:
                                              unsigned DimToVectorize,
                                              int VectorWidth);
 
+private:
   /// Apply additional optimizations on the bands in the schedule tree.
   ///
   /// We are looking for an innermost band node and apply the following
