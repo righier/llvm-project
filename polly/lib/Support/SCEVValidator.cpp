@@ -52,11 +52,17 @@ public:
   /// Construct a result with a certain type and no parameters.
   ValidatorResult(SCEVType::TYPE Type) : Type(Type) {
     assert(Type != SCEVType::PARAM && "Did you forget to pass the parameter");
+    if (Type == SCEVType::INVALID) {
+      int a = 0;
+    }
   }
 
   /// Construct a result with a certain type and a single parameter.
   ValidatorResult(SCEVType::TYPE Type, const SCEV *Expr) : Type(Type) {
     Parameters.insert(Expr);
+    if (Type == SCEVType::INVALID) {
+      int a = 0;
+    }
   }
 
   /// Get the type of the ValidatorResult.
