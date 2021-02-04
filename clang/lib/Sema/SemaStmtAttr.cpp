@@ -239,7 +239,8 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
   assert(ApplyOns.size() == Permutation.size());
   return LoopInterchangeAttr::CreateImplicit(
       S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth,
-      Permutation.data(), Permutation.size(), PermutedId.data(), PermutedId.size(), A.getRange());
+      Permutation.data(), Permutation.size(), PermutedId.data(),
+      PermutedId.size(), A.getRange());
 }
 
 static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {

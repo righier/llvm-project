@@ -30,11 +30,11 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/JSON.h"
 #include "isl/isl-noexceptions.h"
 #include <cassert>
 #include <cstddef>
 #include <forward_list>
-#include "llvm/Support/JSON.h"
 
 using namespace llvm;
 
@@ -2741,7 +2741,7 @@ raw_ostream &operator<<(raw_ostream &OS, const Scop &scop);
 class ScopInfoRegionPass : public RegionPass {
   /// The Scop pointer which is used to construct a Scop.
   std::unique_ptr<Scop> S;
-  json::Array * LoopNests=nullptr;
+  json::Array *LoopNests = nullptr;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2762,7 +2762,7 @@ public:
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
   void releaseMemory() override { S.reset(); }
-  bool doFinalization(Module&) override;
+  bool doFinalization(Module &) override;
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
@@ -2789,8 +2789,7 @@ private:
   DominatorTree &DT;
   AssumptionCache &AC;
   OptimizationRemarkEmitter &ORE;
-  json::Array * LoopNests=nullptr;
-
+  json::Array *LoopNests = nullptr;
 
 public:
   ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
@@ -2809,7 +2808,6 @@ public:
       return MapIt->second.get();
     return nullptr;
   }
-
 
   auto getLoopNests() { return LoopNests; }
 
@@ -2859,7 +2857,7 @@ struct ScopInfoPrinterPass : public PassInfoMixin<ScopInfoPrinterPass> {
 /// region pass manager.
 class ScopInfoWrapperPass : public FunctionPass {
   std::unique_ptr<ScopInfo> Result;
-  json::Array * LoopNests=nullptr;
+  json::Array *LoopNests = nullptr;
 
 public:
   ScopInfoWrapperPass() : FunctionPass(ID) {}
@@ -2874,7 +2872,7 @@ public:
   bool runOnFunction(Function &F) override;
 
   void releaseMemory() override { Result.reset(); }
-  bool doFinalization(Module&) override;
+  bool doFinalization(Module &) override;
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 

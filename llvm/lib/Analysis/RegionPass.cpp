@@ -62,8 +62,6 @@ bool RGPassManager::runOnFunction(Function &F) {
   if (RQ.empty()) // No regions, skip calling finalizers
     return false;
 
-
-
   // Walk Regions
   while (!RQ.empty()) {
 
@@ -139,8 +137,6 @@ bool RGPassManager::runOnFunction(Function &F) {
     RI->clearNodeCache();
   }
 
-
-
   // Print the region tree after all pass.
   LLVM_DEBUG(dbgs() << "\nRegion tree of function " << F.getName()
                     << " after all region Pass:\n";
@@ -149,26 +145,26 @@ bool RGPassManager::runOnFunction(Function &F) {
   return Changed;
 }
 
-bool RGPassManager::doInitialization(Module&M) {
+bool RGPassManager::doInitialization(Module &M) {
   bool Changed = false;
 
   // Initialization
-  //for (Region *R : RQ) {
-    for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
-      RegionPass *RP = (RegionPass *)getContainedPass(Index);
-      Changed |= RP->doInitialization(M);
-    }
+  // for (Region *R : RQ) {
+  for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
+    RegionPass *RP = (RegionPass *)getContainedPass(Index);
+    Changed |= RP->doInitialization(M);
+  }
   //}
 
   return Changed;
 }
 
-bool RGPassManager::doFinalization(Module&M) {
+bool RGPassManager::doFinalization(Module &M) {
   bool Changed = false;
 
   // Finalization
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
-    RegionPass *P = (RegionPass*)getContainedPass(Index);
+    RegionPass *P = (RegionPass *)getContainedPass(Index);
     Changed |= P->doFinalization(M);
   }
 

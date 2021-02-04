@@ -59,6 +59,8 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "isl/aff.h"
 #include "isl/local_space.h"
@@ -66,8 +68,6 @@
 #include "isl/options.h"
 #include "isl/set.h"
 #include <cassert>
-#include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/FormatVariadic.h"
 
 using namespace llvm;
 using namespace polly;
@@ -169,7 +169,8 @@ static cl::list<std::string> IslArgs("polly-isl-arg",
                                      cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<std::string> PollyLoopNestOutputFile("polly-output-loopnest",
-  cl::Optional, cl::cat(PollyCategory));
+                                                    cl::Optional,
+                                                    cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
@@ -2833,7 +2834,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   ScopBuilder SB(R, AC, AA, DL, DT, LI, SD, SE, ORE);
   S = SB.getScop(); // take ownership of scop object
 
-  auto ThisNest =  SB.getLoopNest();
+  auto ThisNest = SB.getLoopNest();
   if (ThisNest) {
     auto TNest = *ThisNest;
 
@@ -2857,7 +2858,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   return false;
 }
 
-bool ScopInfoRegionPass::doFinalization(Module&)  {
+bool ScopInfoRegionPass::doFinalization(Module &) {
   if (!LoopNests)
     return false;
 
@@ -2868,13 +2869,11 @@ bool ScopInfoRegionPass::doFinalization(Module&)  {
   json::Object Output;
   Output["loopnests"] = std::move(A);
 
-
   json::Value V = json::Value(std::move(Output));
 
   // Write to file.
   std::error_code EC;
   ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_Text);
-
 
   errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
 
@@ -2941,7 +2940,7 @@ void ScopInfo::recompute() {
     if (!S)
       continue;
 
-    auto ThisNest =  SB.getLoopNest();
+    auto ThisNest = SB.getLoopNest();
     auto TNest = *ThisNest;
     if (!this->LoopNests) {
       this->LoopNests = new json::Array();
@@ -2949,7 +2948,6 @@ void ScopInfo::recompute() {
     json::Object Root;
     Root["topmost"] = json::Value(std::move(TNest));
     this->LoopNests->emplace_back(std::move(Root));
-
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
     ScopDetection::LoopStats Stats =
@@ -3039,7 +3037,7 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
   return false;
 }
 
-bool ScopInfoWrapperPass::doFinalization(Module&)  {
+bool ScopInfoWrapperPass::doFinalization(Module &) {
   if (!Result)
     return false;
 
@@ -3049,32 +3047,30 @@ bool ScopInfoWrapperPass::doFinalization(Module&)  {
   if (PollyLoopNestOutputFile.empty())
     return false;
 
-     json::Array A = *LoopNests;
-     json::Object Output;
-     Output["loopnests"] = std::move(A);
+  json::Array A = *LoopNests;
+  json::Object Output;
+  Output["loopnests"] = std::move(A);
 
+  json::Value V = json::Value(std::move(Output));
 
-     json::Value V = json::Value(std::move(Output));
+  // Write to file.
+  std::error_code EC;
+  ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_Text);
 
-     // Write to file.
-     std::error_code EC;
-     ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_Text);
+  errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
 
+  if (!EC) {
+    F.os() << formatv("{0:3}", V);
+    F.os().close();
+    if (!F.os().has_error()) {
+      errs() << "\n";
+      F.keep();
+      return false;
+    }
+  }
 
-     errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
-
-     if (!EC) {
-       F.os() << formatv("{0:3}", V);
-       F.os().close();
-       if (!F.os().has_error()) {
-         errs() << "\n";
-         F.keep();
-         return false;
-       }
-     }
-
-     errs() << "  error opening file for writing!\n";
-     F.os().clear_error();
+  errs() << "  error opening file for writing!\n";
+  F.os().clear_error();
 
   return false;
 }

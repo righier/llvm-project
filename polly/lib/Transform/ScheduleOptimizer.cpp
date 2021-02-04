@@ -261,19 +261,22 @@ static cl::list<int>
                       cl::Hidden, cl::ZeroOrMore, cl::CommaSeparated,
                       cl::cat(PollyCategory));
 
-static cl::opt<bool> Reschedule("polly-reschedule", 
-  cl::desc("Optimize SCoPs using ISL (unless a pragma transformation is applied)"), 
-  cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+static cl::opt<bool> Reschedule(
+    "polly-reschedule",
+    cl::desc(
+        "Optimize SCoPs using ISL (unless a pragma transformation is applied)"),
+    cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-static cl::opt<bool> Postopts("polly-postopts",
-  cl::desc("Perform post-rescheduling opts such as tiling (unless a pragma transformation is applied)"),
-  cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+static cl::opt<bool>
+    Postopts("polly-postopts",
+             cl::desc("Perform post-rescheduling opts such as tiling (unless a "
+                      "pragma transformation is applied)"),
+             cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<bool>
     PMBasedOpts("polly-pattern-matching-based-opts",
                 cl::desc("Perform optimizations based on pattern matching"),
                 cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
-
 
 static cl::opt<bool>
     PragmaBasedOpts("polly-pragma-based-opts",
@@ -281,12 +284,10 @@ static cl::opt<bool>
                              "(if any pragma is present)"),
                     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-static cl::opt<bool>
-   IgnoreDepcheck("polly-pragma-ignore-depcheck",
-                    cl::desc("Skip the dependency check for pragma-based transformations"),
-                    cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
-
-
+static cl::opt<bool> IgnoreDepcheck(
+    "polly-pragma-ignore-depcheck",
+    cl::desc("Skip the dependency check for pragma-based transformations"),
+    cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<bool> OptimizedScops(
     "polly-optimized-scops",
@@ -3471,8 +3472,8 @@ collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
                         ArrayRef<Instruction *> Insts, Scop &S) {
   auto &R = S.getRegion();
 
-  DenseSet<Instruction*> InstSet;
-  InstSet.insert(Insts.begin(), Insts.end() );
+  DenseSet<Instruction *> InstSet;
+  InstSet.insert(Insts.begin(), Insts.end());
 
   for (auto &Stmt : S) {
     for (auto *Acc : Stmt) {
@@ -5297,15 +5298,19 @@ public:
     auto &Ctx = LoopMD->getContext();
     LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
 
-
     if (IgnoreDepcheck) {
-      LLVM_DEBUG(dbgs() << "Still accepting transformation due to -polly-pragma-ignore-depcheck\n");
+      LLVM_DEBUG(dbgs() << "Still accepting transformation due to "
+                           "-polly-pragma-ignore-depcheck\n");
       if (ORE) {
         auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
-        // Each '<<' on ORE is visible in the YAML output; to avoid breaking changes, use Twine.
-        ORE->emit(OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
-          << (Twine("Could not verify dependencies for ") + TransformationName + "; still applying because of -polly-pragma-ignore-depcheck")
-          .str());
+        // Each '<<' on ORE is visible in the YAML output; to avoid breaking
+        // changes, use Twine.
+        ORE->emit(
+            OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
+            << (Twine("Could not verify dependencies for ") +
+                TransformationName +
+                "; still applying because of -polly-pragma-ignore-depcheck")
+                   .str());
       }
       return Result;
     }
@@ -5318,7 +5323,10 @@ public:
       // changes, use Twine.
       ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, RemarkName, Loc,
                                                   CodeRegion)
-        << (Twine("not applying ") + TransformationName + ": cannot ensure semantic equivalence due to possible dependency violations").str());
+                << (Twine("not applying ") + TransformationName +
+                    ": cannot ensure semantic equivalence due to possible "
+                    "dependency violations")
+                       .str());
     }
 
     // If illegal, revert and remove the transformation.
@@ -5367,8 +5375,7 @@ public:
         Result = applyLoopReversal(LoopMD, Band);
         checkDependencyViolation(LoopMD, CodeRegion, Band,
                                  "llvm.loop.reverse.loc", "llvm.loop.reverse.",
-                                 "FailedRequestedReversal",
-                                 "loop reversal");
+                                 "FailedRequestedReversal", "loop reversal");
       } else if (AttrName == "llvm.loop.tile.enable") {
         // TODO: Read argument (0 to disable)
         Result = applyLoopTiling(LoopMD, Band);
@@ -5635,8 +5642,9 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   if (Postopts && !ManuallyTransformed) {
     NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
   } else {
-    // If not applying post-rescheduling optimizations, still honor prevectorization which can be switched off separately.
-    // Not that PMBased-opts are skipped as well
+    // If not applying post-rescheduling optimizations, still honor
+    // prevectorization which can be switched off separately. Not that
+    // PMBased-opts are skipped as well
     NewSchedule = prevectSchedule(Schedule, &OAI);
   }
 

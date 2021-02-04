@@ -38,6 +38,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
@@ -54,7 +55,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
-#include "llvm/IR/DebugInfoMetadata.h"
 
 using namespace llvm;
 using namespace polly;
@@ -1139,21 +1139,19 @@ static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
   return Prev.sequence(Succ);
 }
 
-static json::Array* combineInSequence(json::Array *Prev, json::Array* Succ) {
+static json::Array *combineInSequence(json::Array *Prev, json::Array *Succ) {
   if (!Prev)
     return Succ;
   if (!Succ)
     return Prev;
 
-
- auto Result = new json::Array();
- for (auto X : *Prev)
-   Result->emplace_back(X);
- for (auto X : *Succ)
-   Result->emplace_back(X);
- return Result;
+  auto Result = new json::Array();
+  for (auto X : *Prev)
+    Result->emplace_back(X);
+  for (auto X : *Succ)
+    Result->emplace_back(X);
+  return Result;
 }
-
 
 // Create an isl_multi_union_aff that defines an identity mapping from the
 // elements of USet to their N-th dimension.
@@ -1314,7 +1312,8 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     --Dimension;
 
     if (Schedule) {
-      bool IsPerfectNest = Schedule.get_root().get_child(0).n_children() == 1; // Root is a domain node
+      bool IsPerfectNest = Schedule.get_root().get_child(0).n_children() ==
+                           1; // Root is a domain node
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
@@ -1328,47 +1327,51 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
                        .get_schedule();
 
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
-    
-      auto LoopId =  L->getLoopID();
-      auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1) ? LoopId->getOperand(1).get() : nullptr;
-     auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
-     json::Object Loop;
-     if (Start) {
-       Loop["filename"] = Start->getFilename();
-       Loop["directory"] = Start->getDirectory();
-       Loop["path"] = (Twine(Start->getDirectory()) + llvm::sys::path::get_separator() + Start->getFilename()).str();
-       if (Start->getSource())
-         Loop["source"] = Start->getSource().getValue().str();
-       Loop["line"] = Start->getLine();
-       Loop["column"] = Start->getColumn();
-     }
+      auto LoopId = L->getLoopID();
+      auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
+                          ? LoopId->getOperand(1).get()
+                          : nullptr;
+      auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
-     Loop["function"] = RN->getEntry()->getParent()->getName().str();
-     {
-       SmallVector<char, 255> Buf;
-       raw_svector_ostream OS(Buf);
-       RN->getEntry()->printAsOperand(OS,/*PrintType=*/false);
-       Loop["entry"] = Buf;
-     }
-     {
-       BasicBlock* BBExit = RN->getEntry();
-       if (RN->isSubRegion()) {
-         auto* LocalRegion = RN->getNodeAs<Region>();
-         BBExit = LocalRegion->getExit();
-       }
+      json::Object Loop;
+      if (Start) {
+        Loop["filename"] = Start->getFilename();
+        Loop["directory"] = Start->getDirectory();
+        Loop["path"] = (Twine(Start->getDirectory()) +
+                        llvm::sys::path::get_separator() + Start->getFilename())
+                           .str();
+        if (Start->getSource())
+          Loop["source"] = Start->getSource().getValue().str();
+        Loop["line"] = Start->getLine();
+        Loop["column"] = Start->getColumn();
+      }
 
-       SmallVector<char, 255> Buf;
-       raw_svector_ostream OS(Buf);
-       BBExit->printAsOperand(OS,/*PrintType=*/false);
-       Loop["exit"] = Buf;
-     }
-     
-     if (Subloopnest) {
-       Loop["subloops"] = json::Value(std::move(*Subloopnest));
-       Loop["perfectnest"] = IsPerfectNest;
-     } else
-       Loop["subloops"] = json::Array();
+      Loop["function"] = RN->getEntry()->getParent()->getName().str();
+      {
+        SmallVector<char, 255> Buf;
+        raw_svector_ostream OS(Buf);
+        RN->getEntry()->printAsOperand(OS, /*PrintType=*/false);
+        Loop["entry"] = Buf;
+      }
+      {
+        BasicBlock *BBExit = RN->getEntry();
+        if (RN->isSubRegion()) {
+          auto *LocalRegion = RN->getNodeAs<Region>();
+          BBExit = LocalRegion->getExit();
+        }
+
+        SmallVector<char, 255> Buf;
+        raw_svector_ostream OS(Buf);
+        BBExit->printAsOperand(OS, /*PrintType=*/false);
+        Loop["exit"] = Buf;
+      }
+
+      if (Subloopnest) {
+        Loop["subloops"] = json::Value(std::move(*Subloopnest));
+        Loop["perfectnest"] = IsPerfectNest;
+      } else
+        Loop["subloops"] = json::Array();
       auto Nest = new json::Array({std::move(Loop)});
       LoopData->Nest = combineInSequence(LoopData->Nest, Nest);
     }

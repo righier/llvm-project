@@ -276,7 +276,7 @@ struct LoopAttributes {
 
   llvm::StringRef LoopId;
   std::vector<LoopTransformation> TransformationStack;
-  
+
   /// Value for whether the loop is required to make progress.
   bool MustProgress;
 };

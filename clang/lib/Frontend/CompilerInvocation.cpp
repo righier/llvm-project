@@ -1344,10 +1344,8 @@ bool CompilerInvocation::ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args,
 
   Opts.EmitVersionIdentMetadata = Args.hasFlag(OPT_Qy, OPT_Qn, true);
 
-      
-       
   Opts.DisableLegacyLoopTransformation =
-    Args.hasArg(OPT_disable_legacy_loop_transformations);
+      Args.hasArg(OPT_disable_legacy_loop_transformations);
 
   return Success;
 }

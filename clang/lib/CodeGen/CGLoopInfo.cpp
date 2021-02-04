@@ -217,7 +217,7 @@ LoopInfo::createLoopVectorizeMetadata(const LoopAttributes &Attrs,
   Optional<bool> Enabled;
   if (Attrs.VectorizeEnable == LoopAttributes::Disable)
     Enabled = false;
-  else if (Attrs.VectorizeScalable != LoopAttributes::Unspecified || 
+  else if (Attrs.VectorizeScalable != LoopAttributes::Unspecified ||
            Attrs.VectorizeEnable != LoopAttributes::Unspecified ||
            Attrs.VectorizePredicateEnable != LoopAttributes::Unspecified ||
            Attrs.InterleaveCount != 0 || Attrs.VectorizeWidth != 0 ||
@@ -681,17 +681,18 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
     NewPos.insert({PermutedName, NewIndex});
   }
 
-
   SmallVector<Metadata *, 4> Permutation; // old index -> MDNode
-  SmallVector<StringRef, 4> NewId; // old index -> new name
+  SmallVector<StringRef, 4> NewId;        // old index -> new name
   for (int i = 0; i < N; i += 1)
     NewId.push_back(StringRef());
 
-  Permutation.push_back(MDString::get(Ctx, "llvm.loop.interchange.permutation"));
+  Permutation.push_back(
+      MDString::get(Ctx, "llvm.loop.interchange.permutation"));
   for (int i = 0; i < N; i += 1) {
     auto LoopName = On[i]->Name;
     auto NewIndex = NewPos.lookup(LoopName);
-    Permutation.push_back(ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
+    Permutation.push_back(
+        ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
     if (NewIndex < Transform.PermutedIds.size())
       NewId[i] = Transform.PermutedIds[NewIndex];
   }
@@ -718,9 +719,8 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
     Orig->addFollowup("llvm.loop.interchange.followup_interchanged", Permuted);
   }
 
-  for (auto NewLoop : LoopsToPermute) 
+  for (auto NewLoop : LoopsToPermute)
     NamedLoopMap.insert({NewLoop->Name, NewLoop});
-  
 
   SmallVector<VirtualLoopInfo *, 4> NewPermutation;
   NewPermutation.resize(N);
@@ -1129,7 +1129,8 @@ LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
                               const llvm::DebugLoc &EndLoc) {
   assert(Header);
   auto *Parent = Active.empty() ? nullptr : Active.back();
-  auto NewLoop = new LoopInfo(Header, F, &CGF, StagedAttrs, StartLoc, EndLoc, Parent);
+  auto NewLoop =
+      new LoopInfo(Header, F, &CGF, StagedAttrs, StartLoc, EndLoc, Parent);
   if (Parent)
     Parent->addSubloop(NewLoop);
   OriginalLoops.push_back(NewLoop);
@@ -1206,8 +1207,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           makeArrayRef(LInterchange->permutation_begin(),
                        LInterchange->permutation_size()),
           makeArrayRef(LInterchange->permutedIds_begin(),
-                       LInterchange->permutedIds_size())
-        ));
+                       LInterchange->permutedIds_size())));
       continue;
     }
 
