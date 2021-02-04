@@ -2928,7 +2928,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
 
   // Extract non-full tiles.
   if (RectangularPeel) {
-    //  union_pw_multi_aff
+    // union_pw_multi_aff
     auto Partial = isl::manage(
         isl_schedule_node_band_get_partial_schedule(TheCollapsedBand.get()));
     auto Domains = TheCollapsedBand.get_domain();
@@ -2974,18 +2974,21 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     }
 
     auto OuterDomains = Domains.subtract(InsideDomains);
-    auto Filters = isl::union_set_list::alloc(IslCtx, 2);
-    Filters = Filters.add(InsideDomains);
-    Filters = Filters.add(OuterDomains);
-    auto InnerAndOuter = OuterBand.insert_sequence(Filters);
+    // Empty OuterDomains means it was already rectangular.
+    if (!OuterDomains.is_empty()) {
+      auto Filters = isl::union_set_list::alloc(IslCtx, 2);
+      Filters = Filters.add(InsideDomains);
+      Filters = Filters.add(OuterDomains);
+      auto InnerAndOuter = OuterBand.insert_sequence(Filters);
 
-    MarkRemoverPlain MarkCleaner;
-    auto Peeled = MarkCleaner.visit(InnerAndOuter.get_child(1));
+      MarkRemoverPlain MarkCleaner;
+      auto Peeled = MarkCleaner.visit(InnerAndOuter.get_child(1));
 
-    UniqueStmtRewriterPlain Visitor(Peeled);
-    auto Result = Visitor.visit(Peeled.get_schedule());
+      UniqueStmtRewriterPlain Visitor(Peeled);
+      auto Result = Visitor.visit(Peeled.get_schedule());
 
-    return Result;
+      return Result;
+    }
   }
 
   auto Transformed = OuterBand.get_schedule();
