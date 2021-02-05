@@ -43,7 +43,7 @@ void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
 // IR: !44 = !DILocation(line: 9, scope: !31)
 
 
-// WARN: pragma-pack-illegal.c:9:24: warning: array not packed: All array accesses must be affine [-Wpass-failed=polly-opt-isl]
+// WARN: pragma-pack-illegal.c:9:24: warning: array not packed: All array accesses must be affine [-Wpass-failed=polly-opt-manual]
 // WARN: #pragma clang loop pack array(A)
 // WARN: ^
 // WARN: 1 warning generated.
