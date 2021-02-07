@@ -12,33 +12,21 @@
 #ifndef POLLY_MANUALOPTIMIZER_H
 #define POLLY_MANUALOPTIMIZER_H
 
-
 #include "isl/isl-noexceptions.h"
 
-
-
 namespace llvm {
- class  OptimizationRemarkEmitter;
+class OptimizationRemarkEmitter;
 }
 
 namespace polly {
-  class Scop;
-  struct Dependences;
+class Scop;
+struct Dependences;
 
-
-  isl::schedule applyManualTransformations(Scop& S, isl::schedule Sched, isl::schedule_constraints& SC, const Dependences& D,llvm ::OptimizationRemarkEmitter* ORE);
-
+isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
+                                         isl::schedule_constraints &SC,
+                                         const Dependences &D,
+                                         llvm ::OptimizationRemarkEmitter *ORE);
 
 } // namespace polly
 
 #endif /* POLLY_MANUALOPTIMIZER_H */
-
-
-
-
-
-
-
-
-
-

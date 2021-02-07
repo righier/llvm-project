@@ -22,11 +22,8 @@ namespace polly {
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
 
-
-
-
-isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor, bool Full);
-
+isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
+                              bool Full);
 
 } // namespace polly
 

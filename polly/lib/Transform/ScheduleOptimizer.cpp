@@ -49,12 +49,12 @@
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/ManualOptimizer.h"
 #include "polly/Options.h"
 #include "polly/ScheduleTreeTransform.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Simplify.h"
-#include "polly/ManualOptimizer.h"
 #include "polly/Support/ISLOStream.h"
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/STLExtras.h"
@@ -284,8 +284,6 @@ static cl::opt<bool>
                     cl::desc("Apply pragma transformations instead heuristics "
                              "(if any pragma is present)"),
                     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
-
-
 
 static cl::opt<bool> OptimizedScops(
     "polly-optimized-scops",
@@ -1540,8 +1538,6 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
       },
       &Version);
 }
-
-
 
 #if 0
 
@@ -4402,7 +4398,6 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
 }
 
 #endif
-
 
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration

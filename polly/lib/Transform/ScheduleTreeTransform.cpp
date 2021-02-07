@@ -12,18 +12,14 @@
 
 #include "polly/ScheduleTreeTransform.h"
 #include "polly/Support/ISLTools.h"
+#include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Constants.h"
-#include "polly/Support/ScopHelper.h"
-
+#include "llvm/IR/Metadata.h"
 
 using namespace polly;
 using namespace llvm;
-
-
-
 
 namespace {
 
@@ -517,7 +513,6 @@ isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
   return NewSched;
 }
 
-
 static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   if (!LoopMD)
     return nullptr;
@@ -533,7 +528,7 @@ static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
 }
 
 static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
-  StringRef Name) {
+                                                StringRef Name) {
   auto MD = findNamedMetadataNode(LoopMD, Name);
   if (!MD)
     return None;
@@ -547,9 +542,8 @@ static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
   }
 }
 
-
 static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
-  StringRef Name) {
+                                                  StringRef Name) {
   Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
   if (!AttrMD)
     return None;
@@ -562,7 +556,7 @@ static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
 }
 
 static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
-  StringRef Name) {
+                                                    StringRef Name) {
   auto MD = findNamedMetadataNode(LoopMD, Name);
   if (!MD)
     return None;
@@ -573,7 +567,7 @@ static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
     return true;
   case 2:
     ConstantInt *IntMD =
-      mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get());
+        mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get());
     return IntMD->getZExtValue() != 0;
   }
   llvm_unreachable("unexpected number of options");
@@ -604,11 +598,10 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   return nullptr;
 }
 
-
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
   while (isl_schedule_node_get_type(MarkOrBand.get()) ==
-    isl_schedule_node_mark) {
+         isl_schedule_node_mark) {
     if (isBandMark(MarkOrBand))
       MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
     else
@@ -617,12 +610,11 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   return MarkOrBand;
 }
 
-
 /// Return the (one-dimensional) set of numbers that are divisible by @p Factor
 /// with remainder @p Offset. isDivisibleBySet(Ctx, 4, 0) = { [i] : floord(i,4)
 /// = 0 } isDivisibleBySet(Ctx, 4, 1) = { [i] : floord(i,4) = 1 }
 static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
-  int64_t Offset) {
+                                       int64_t Offset) {
   auto ValFactor = isl::val(Ctx, Factor);
   auto Unispace = isl::space(Ctx, 0, 1);
   auto LUnispace = isl::local_space(Unispace);
@@ -632,15 +624,13 @@ static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
   auto AffOffset = isl::aff(LUnispace, ValOffset);
   auto DivMul = Id.mod(ValFactor);
   auto Divisible = isl::basic_map::from_aff(
-    DivMul); //.equate(isl::dim::in, 0, isl::dim::out, 0);
+      DivMul); //.equate(isl::dim::in, 0, isl::dim::out, 0);
   auto Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
   return Modulo.domain();
 }
 
-
-
 static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
-  StringRef Name) {
+                                                           StringRef Name) {
   Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
   if (!AttrMD)
     return None;
@@ -652,11 +642,9 @@ static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
   return StrMD->getString();
 }
 
-
-
 static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
-  StringRef TransName,
-  StringRef Name = StringRef()) {
+                                   StringRef TransName,
+                                   StringRef Name = StringRef()) {
   // TODO: Deprecate Name
   // TODO: Only return one when needed.
   // TODO: If no FollowupLoopMD provided, derive attributes heuristically
@@ -664,12 +652,12 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
   BandAttr *Attr = new BandAttr();
 
   auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
-    .getValueOr(StringRef());
+                       .getValueOr(StringRef());
   if (GivenName.empty())
     GivenName = Name;
   if (GivenName.empty())
     GivenName =
-    TransName; // TODO: Don't use trans name as LoopName, but as label
+        TransName; // TODO: Don't use trans name as LoopName, but as label
   Attr->LoopName = GivenName.str();
   Attr->Metadata = FollowupLoopMD;
   // TODO: Inherit properties if 'FollowupLoopMD' (followup) is not used
@@ -677,28 +665,25 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
   return getIslLoopAttr(Ctx, Attr);
 }
 
-
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
   assert(moveToBandMark(Band).is_equal(Band) &&
-    "Don't add a two marks for a band");
+         "Don't add a two marks for a band");
   Band = isl::manage(
-    isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+      isl_schedule_node_insert_mark(Band.release(), Mark.release()));
   return Band.get_child(0);
 }
 
-
-
-
- isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor, bool Full ) {
+isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
+                                     int Factor, bool Full) {
   assert(BandToUnroll);
   auto Ctx = BandToUnroll.get_ctx();
-
 
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
 
-  auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  auto PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
   assert(PartialSched.dim(isl::dim::out) == 1);
 
   isl::schedule_node Result;
@@ -718,13 +703,13 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
     PartialSchedUSet.foreach_point([&Elts](isl::point P) -> isl::stat {
       Elts.push_back(P);
       return isl::stat::ok();
-      });
+    });
 
     llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
       auto C1 = P1.get_coordinate_val(isl::dim::set, 0);
       auto C2 = P2.get_coordinate_val(isl::dim::set, 0);
       return C1.lt(C2);
-      });
+    });
 
     auto NumIts = Elts.size();
     auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), NumIts));
@@ -757,19 +742,19 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
     // Here we assume the schedule stride is one and starts with 0, which is not
     // necessarily the case.
     auto StridedPartialSchedUAff =
-      isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+        isl::union_pw_aff::empty(PartialSchedUAff.get_space());
     auto ValFactor = isl::val(Ctx, Factor);
     PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,
-      &ValFactor](
-        isl::pw_aff PwAff) -> isl::stat {
-          auto Space = PwAff.get_space();
-          auto Universe = isl::set::universe(Space.domain());
-          auto AffFactor = isl::manage(
-            isl_pw_aff_val_on_domain(Universe.copy(), ValFactor.copy()));
-          auto DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
-          StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
-          return isl::stat::ok();
-      });
+                                     &ValFactor](
+                                        isl::pw_aff PwAff) -> isl::stat {
+      auto Space = PwAff.get_space();
+      auto Universe = isl::set::universe(Space.domain());
+      auto AffFactor = isl::manage(
+          isl_pw_aff_val_on_domain(Universe.copy(), ValFactor.copy()));
+      auto DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
+      StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
+      return isl::stat::ok();
+    });
 
     auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), Factor));
     for (int i = 0; i < Factor; i += 1) {
@@ -798,14 +783,3 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
 
   llvm_unreachable("Negative unroll factor");
 }
-
-
-
-
-
-
-
-
-
-
-
