@@ -593,134 +593,10 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
 
 
- static bool operator==(const LoopIdentification &LHS,
-   const LoopIdentification &RHS) {
-   auto LHSLoop = LHS.getLoop();
-   auto RHSLoop = RHS.getLoop();
-
-   if (LHSLoop && RHSLoop)
-     return LHSLoop == RHSLoop;
-
-   auto LHSIslId = LHS.getIslId();
-   auto RHSIslId = RHS.getIslId();
-   isl::ctx Ctx(nullptr);
-   if (LHSIslId)
-     Ctx = LHSIslId.get_ctx();
-   if (RHSIslId)
-     Ctx = RHSIslId.get_ctx();
-   if (Ctx.get()) {
-     LHSIslId = LHS.getIslId(Ctx);
-     RHSIslId = RHS.getIslId(Ctx);
-     if (LHSIslId && RHSIslId)
-       return LHSIslId.get() == RHSIslId.get();
-   }
-
-   auto LHSMetadata = LHS.getMetadata();
-   auto RHSMetadata = RHS.getMetadata();
-   if (LHSMetadata && RHSMetadata)
-     return LHSMetadata == RHSMetadata;
-
-   auto LHSName = LHS.getName();
-   auto RHSName = RHS.getName();
-   if (!LHSName.empty() && !RHSName.empty())
-     return LHSName == RHSName;
-
-   llvm_unreachable("No means to determine whether both define the same loop");
- }
 
 
 
 
- static isl::stat
-   foreachTopdown(const isl::schedule Sched,
-     const std::function<isl::boolean(isl::schedule_node)> &Func) {
-   auto Result = isl_schedule_foreach_schedule_node_top_down(
-     Sched.get(),
-     [](__isl_keep isl_schedule_node *nodeptr, void *user) -> isl_bool {
-       isl::schedule_node Node = isl::manage_copy(nodeptr);
-       auto &Func = *static_cast<
-         const std::function<isl::boolean(isl::schedule_node)> *>(user);
-       auto Result = Func(std::move(Node));
-
-       // FIXME: No direct access to isl::boolean's val.
-       if (Result.is_true())
-         return isl_bool_true;
-       if (Result.is_false())
-         return isl_bool_false;
-       return isl_bool_error;
-     },
-     (void *)&Func);
-   return isl::stat(Result); // FIXME: No isl::manage(isl_stat)
- }
-
-
- static isl::schedule_node findBand(const isl::schedule Sched, StringRef Name) {
-   isl::schedule_node Result;
-   foreachTopdown(
-     Sched, [Name, &Result](isl::schedule_node Node) -> isl::boolean {
-       if (isl_schedule_node_get_type(Node.get()) != isl_schedule_node_mark)
-         return true;
-
-       auto MarkId = Node.mark_get_id();
-       if (MarkId.get_name() == Name) {
-         auto NewResult = Node.get_child(0);
-         assert(!Result || (Result.get() == NewResult.get()));
-         Result = NewResult;
-         return isl::boolean(); // abort();
-       }
-
-       return true;
-     });
-   return Result;
- }
-
-
-
- static bool isSameLoopId(isl::id LHS, MDNode *RHS) {
-   auto L = static_cast<Loop *>(LHS.get_user());
-   return L->getLoopID() == RHS;
- }
-
- static isl::schedule_node findBand(const isl::schedule Sched, MDNode *LoopId) {
-   isl::schedule_node Result;
-   foreachTopdown(
-     Sched, [LoopId, &Result](isl::schedule_node Node) -> isl::boolean {
-       if (isl_schedule_node_get_type(Node.get()) != isl_schedule_node_mark)
-         return true;
-
-       auto MarkId = Node.mark_get_id();
-       if (isSameLoopId(MarkId, LoopId)) {
-         auto NewResult = Node.get_child(0);
-         assert(!Result || (Result.get() == NewResult.get()));
-         Result = NewResult;
-         return isl::boolean(); // abort();
-       }
-
-       return true;
-     });
-   return Result;
- }
-
- static isl::schedule_node findBand(const isl::schedule Sched, LoopIdentification LoopId) {
-   isl::schedule_node Result;
-   foreachTopdown(
-     Sched, [LoopId, &Result](isl::schedule_node Node) -> isl::boolean {
-       if (isl_schedule_node_get_type(Node.get()) != isl_schedule_node_mark)
-         return true;
-
-       auto MarkId = Node.mark_get_id();
-       auto MarkLoopId = LoopIdentification::createFromIslId(MarkId);
-       if (MarkLoopId == LoopId) {
-         auto NewResult = Node.get_child(0);
-         assert(!Result || (Result.get() == NewResult.get()));
-         Result = NewResult;
-         return isl::boolean(); // abort();
-       }
-
-       return true;
-     });
-   return Result;
- }
 
 
 
@@ -742,7 +618,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
      return ignoreMarkChild(FirstBand);
 
    assert(NumBands >= 2);
-   auto Ctx = FirstBand.get_ctx();
+   // auto Ctx = FirstBand.get_ctx();
    SmallVector<isl::multi_union_pw_aff, 4> PartialMultiSchedules;
    SmallVector<isl::union_pw_aff, 4> PartialSchedules;
    isl::multi_union_pw_aff CombinedSchedule;
@@ -823,73 +699,6 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    return Band;
  }
 
- static void applyLoopTiling(Scop &S, isl::schedule &Sched,
-   ArrayRef<LoopIdentification> TheLoops,
-   ArrayRef<int64_t> TileSizes, const Dependences &D,
-   ArrayRef<StringRef> FloorIds,
-   ArrayRef<StringRef> TileIds) {
-   auto IslCtx = S.getIslCtx();
-
-   SmallVector<isl::schedule_node, 4> Bands;
-   Bands.reserve(TheLoops.size());
-   for (auto TheLoop : TheLoops) {
-     auto TheBand = findBand(Sched, TheLoop);
-     Bands.push_back(TheBand);
-   }
-
-   if (Bands.empty() || !Bands[0]) {
-     LLVM_DEBUG(dbgs() << "Band to tile not found or not in this scop");
-     return;
-   }
-
-   auto TheBand = collapseBands(Bands[0], Bands.size());
-   TheBand = tileBand(TheBand, TileSizes);
-
-   auto OuterBand = TheBand;
-   auto InnerBand = TheBand.get_child(0);
-
-   InnerBand = separateBand(InnerBand);
-   for (auto TileId : TileIds) {
-     auto Mark = makeTransformLoopId(IslCtx, nullptr, "inner tile", TileId);
-     // isl::id::alloc(IslCtx, (Twine("Loop_") + TileId).str(), nullptr);
-     InnerBand = insertMark(InnerBand, Mark);
-
-     InnerBand = InnerBand.get_child(0);
-   }
-
-   // Jump back to first of the tile loops
-   for (int i = TileIds.size(); i >= 1; i -= 1) {
-     InnerBand = InnerBand.parent();
-     InnerBand = moveToBandMark(InnerBand);
-   }
-
-   OuterBand = InnerBand.parent();
-
-   OuterBand = separateBand(OuterBand);
-   for (auto PitId : FloorIds) {
-     auto Mark = makeTransformLoopId(IslCtx, nullptr, "outer floor", PitId);
-     // isl::id::alloc(IslCtx, (Twine("Loop_") + PitId).str(), nullptr);
-     OuterBand = insertMark(OuterBand, Mark);
-
-     OuterBand = OuterBand.get_child(0);
-   }
-
-   // Jump back to first of the pit loops
-   for (int i = FloorIds.size(); i >= 1; i -= 1) {
-     OuterBand = OuterBand.parent();
-     OuterBand = moveToBandMark(OuterBand);
-   }
-
-   auto Transformed = OuterBand.get_schedule();
-   if (!D.isValidSchedule(S, Transformed)) {
-     LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
-     return;
-   }
-
-   Sched = Transformed;
- }
-
-
  static void collectVerticalLoops(const isl::schedule_node &TopBand,
    int MaxDepth,
    SmallVectorImpl<isl::schedule_node> &Bands) {
@@ -915,7 +724,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
  static std::tuple<isl::pw_aff_list, isl::pw_aff_list, isl::pw_aff_list>
    extractExtends(isl::map Map) {
    auto Ctx = Map.get_ctx();
-   auto Dims = Map.dim(isl::dim::out);
+   isl_size Dims = Map.dim(isl::dim::out);
    auto IndexSpace = Map.get_space().range();
    auto LocalIndexSpace = isl::local_space(IndexSpace);
 
@@ -1264,90 +1073,9 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
 
 
- static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
-   LoopIdentification Identifier) {
-   for (auto OldBand : Bands) {
-     auto OldId = LoopIdentification::createFromBand(OldBand);
-     if (OldId == Identifier)
-       return OldBand;
-   }
-   return {};
- }
-
-
- static isl::schedule_node
-   interchangeBands(isl::schedule_node Band,
-     ArrayRef<LoopIdentification> NewOrder) {
-   auto NumBands = NewOrder.size();
-   Band = moveToBandMark(Band);
-
-   SmallVector<isl::schedule_node, 4> OldBands;
-
-   int NumRemoved = 0;
-   int NodesToRemove = 0;
-   auto BandIt = Band;
-   while (true) {
-     if (NumRemoved >= NumBands)
-       break;
-
-     if (isl_schedule_node_get_type(BandIt.get()) == isl_schedule_node_band) {
-       OldBands.push_back(BandIt);
-       NumRemoved += 1;
-     }
-     assert(BandIt.n_children() == 1);
-     BandIt = BandIt.get_child(0);
-     // Band = isl::manage(isl_schedule_node_delete(Band.release()));
-     NodesToRemove += 1;
-   }
-
-   // Remove old order
-   for (int i = 0; i < NodesToRemove; i += 1) {
-     Band = isl::manage(isl_schedule_node_delete(Band.release()));
-   }
-
-   // Rebuild loop nest bottom-up according to new order.
-   for (auto &NewBandId : reverse(NewOrder)) {
-     auto OldBand = findBand(OldBands, NewBandId);
-     assert(OldBand);
-     // TODO: Check that no band is used twice
-     auto OldMarker = LoopIdentification::createFromBand(OldBand);
-     auto TheOldBand = ignoreMarkChild(OldBand);
-     auto TheOldSchedule = isl::manage(
-       isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
-
-     Band = Band.insert_partial_schedule(TheOldSchedule);
-     Band = Band.insert_mark(OldMarker.getIslId());
-   }
-
-   return Band; // returns innermsot body?
- }
 
 
 
-
- static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
-   ArrayRef<LoopIdentification> TheLoops,
-   ArrayRef<LoopIdentification> Permutation,
-   const Dependences &D) {
-   SmallVector<isl::schedule_node, 4> Bands;
-   for (auto TheLoop : TheLoops) {
-     auto TheBand = findBand(Sched, TheLoop);
-     assert(TheBand);
-     Bands.push_back(TheBand);
-   }
-
-   auto OutermostBand = Bands[0];
-
-   auto Result = interchangeBands(OutermostBand, Permutation);
-   auto Transformed = Result.get_schedule();
-
-   if (!D.isValidSchedule(S, Transformed)) {
-     LLVM_DEBUG(dbgs() << "LoopInterchange not semantically legal\n");
-     return;
-   }
-
-   Sched = Transformed;
- }
 
 
  static isl::schedule_node removeBandAndMarks(isl::schedule_node MarkOrBand) {
@@ -1455,7 +1183,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
    RetTy visitBand(const isl::schedule_node &Band,
      isl::multi_union_pw_aff PostfixSched) {
-     auto NumLoops = isl_schedule_node_band_n_member(Band.get());
+    // auto NumLoops = isl_schedule_node_band_n_member(Band.get());
      auto PartialSched =
        isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
      auto Sched = PostfixSched.flat_range_product(PartialSched);
@@ -1974,7 +1702,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
        }
 
        for (auto C : Constraints) {
-         for (auto i = 0; i < PackedDims; i += 1) {
+         for (unsigned i = 0; i < PackedDims; i += 1) {
            auto Coeff = C.get_coefficient_val(isl::dim::in, i);
            if (Coeff.is_zero())
              continue;
@@ -2077,7 +1805,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    auto PrefixSet = WorkingSet.domain();
 
    // Get the rectangular shape
-   auto Dims = WorkingSet.dim(isl::dim::out);
+  // auto Dims = WorkingSet.dim(isl::dim::out);
 
 #if 1
    isl::pw_aff_list DimMins;
@@ -2158,7 +1886,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    }
 
    // Data[] = Data[] - DataMin[]
-   for (auto i = 0; i < IndexSpace.dim(isl::dim::set); i += 1) {
+   for (unsigned i = 0; i < IndexSpace.dim(isl::dim::set); i += 1) {
      auto C = isl::constraint::alloc_equality(TranslatorLS);
      // Min
      C = C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set) + i,
@@ -2223,15 +1951,15 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    auto Ctx = InnerSchedules.get_ctx();
 
    // { PostfixSched[] -> Domain[] }
-   InnerSchedules;
+   // InnerSchedules;
    // auto PostfixSchedSpace = InnerSchedules.get_space().domain();
 
    // { PrefixSched[] -> Domain[] }
-   InnerInstances;
+   // InnerInstances;
    // auto PrefixSchedSpace = InnerInstances.get_space().domain();
 
    // { Domain[] -> Data[] }
-   Accs;
+   // Accs;
 
    // { [PrefixSched[] -> PostfixSched[]] -> Domain[] }
    auto CombinedInstances = InnerInstances.domain_product(InnerSchedules);
@@ -2302,7 +2030,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
    auto PackedSizes = sizeBox(DimSizes);
 
-   for (int i = 0; i < PackedSizes.size();) {
+   for (size_t i = 0; i < PackedSizes.size();) {
      auto PackedSize = PackedSizes[i];
      assert(PackedSizes[i] > 0);
 
@@ -2436,7 +2164,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    }
 
    isl::schedule visit(const isl::schedule &Schedule, Args... args) {
-     auto Ctx = Schedule.get_ctx();
+
      auto Domain = Schedule.get_domain();
      // auto Extensions = isl::union_map::empty(isl::space::params_alloc(Ctx,
      // 0));
@@ -2548,7 +2276,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
      // We have to add the extensions to the schedule
      auto BandDims = isl_schedule_node_band_n_member(Band.get());
      for (auto Ext : NewChildExtensions.get_map_list()) {
-       auto ExtDims = Ext.dim(isl::dim::in);
+       auto ExtDims = (isl_size)Ext.dim(isl::dim::in);
        assert(ExtDims >= BandDims);
        auto OuterDims = ExtDims - BandDims;
 
@@ -2654,7 +2382,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    bool OnHeap, StringRef &ErrorDesc, isl::set IslSize,
    isl::map IslRedirect) {
    ErrorDesc = StringRef();
-   auto Ctx = S.getIslCtx();
+  // auto Ctx = S.getIslCtx();
 
    if (IslSize)
      LLVM_DEBUG(dbgs() << "IslSize: " << IslSize << "\n");
@@ -2697,10 +2425,10 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    }
 
    bool WrittenTo = false;
-   bool ReadFrom = false;
+   //bool ReadFrom = false;
    for (auto *Acc : MemAccs) {
-     if (Acc->isRead())
-       ReadFrom = true;
+     //if (Acc->isRead())
+     //  ReadFrom = true;
      if (Acc->isMayWrite() || Acc->isMustWrite())
        WrittenTo = true;
 
@@ -2741,12 +2469,12 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
    LLVM_DEBUG(dbgs() << "OrigToPackedIndexMap: " << OrigToPackedIndexMap
      << "\n");
-   LLVM_DEBUG(dbgs() << "PackedSizes: ("; for (int i = 0; i < PackedSizes.size();
+   LLVM_DEBUG({ dbgs() << "PackedSizes: ("; for (size_t i = 0; i < PackedSizes.size();
      i += 1) {
      if (i > 0)
        dbgs() << ", ";
      dbgs() << PackedSizes[i];
-   } dbgs() << ")\n";);
+   } dbgs() << ")\n"; });
 
    // Create packed array
    // FIXME: Unique name necessary?
@@ -2837,7 +2565,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
  static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
    isl::schedule_node BandToUnroll) {
    assert(BandToUnroll);
-   auto Ctx = BandToUnroll.get_ctx();
+   //auto Ctx = BandToUnroll.get_ctx();
 
    auto Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll_and_jam.count")
      .getValueOr(0);
@@ -2891,7 +2619,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
  static void
    collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
      ArrayRef<Instruction *> Insts, Scop &S) {
-   auto &R = S.getRegion();
+   //auto &R = S.getRegion();
 
    DenseSet<Instruction *> InstSet;
    InstSet.insert(Insts.begin(), Insts.end());
@@ -3006,37 +2734,9 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
 
 
- static isl::schedule applyThreadParallism(isl::schedule_node BandToParallelize,
-   isl::id NewBandId) {
-   assert(BandToParallelize);
-   auto Ctx = BandToParallelize.get_ctx();
-
-   BandToParallelize = moveToBandMark(BandToParallelize);
-   BandToParallelize = removeMark(BandToParallelize);
-
-   assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
-   auto ParallelizedBand = BandToParallelize.band_member_set_coincident(0, true);
-   assert(NewBandId);
-   auto Attr = static_cast<BandAttr *>(NewBandId.get_user());
-   Attr->ForceThreadParallel = true;
-   ParallelizedBand = insertMark(ParallelizedBand, NewBandId);
-
-   return ParallelizedBand.get_schedule();
- }
 
 
-
- static void applyParallelizeThread(Scop &S, isl::schedule &Sched,
-   LoopIdentification ApplyOn,
-   isl::id NewBandId, const Dependences &D) {
-   auto Band = findBand(Sched, ApplyOn);
-
-   auto Transformed = applyThreadParallism(Band, NewBandId);
-   assert(D.isValidSchedule(S, Transformed));
-   Sched = Transformed;
- }
-
-
+ 
 
 
  static isl::schedule
@@ -3045,7 +2745,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
    auto Ctx = BandToParallelize.get_ctx();
 
    BandToParallelize = moveToBandMark(BandToParallelize);
-   auto OldAttr = getBandAttr(BandToParallelize);
+  // auto OldAttr = getBandAttr(BandToParallelize);
    BandToParallelize = removeMark(BandToParallelize);
 
    assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
@@ -3258,7 +2958,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
 
   isl::schedule polly:: applyManualTransformations(Scop &S, isl::schedule Sched,isl::schedule_constraints &SC, const Dependences &D, OptimizationRemarkEmitter *ORE) {
    auto &F = S.getFunction();
-   bool Changed = false;
+  // bool Changed = false;
 
    // Search the loop nest for transformations; apply until no more are found.
    while (true) {
@@ -3266,7 +2966,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
      Transformer.visit(Sched);
      if (!Transformer.Result)
        return Sched;
-     Changed = true;
+    // Changed = true;
      Sched = Transformer.Result;
    }
 

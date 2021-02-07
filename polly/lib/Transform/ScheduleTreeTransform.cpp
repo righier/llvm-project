@@ -734,7 +734,7 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
       auto Space = P.get_space().unwrap().range();
       auto D = Space.dim(isl::dim::set);
       auto Univ = isl::basic_set::universe(Space);
-      for (auto i = 0; i < D; i += 1) {
+      for (decltype(D) i = 0; i < D; i += 1) {
         auto Val = P.get_coordinate_val(isl::dim::set, i + 1);
         Univ = Univ.fix_val(isl::dim::set, i, Val);
       }
