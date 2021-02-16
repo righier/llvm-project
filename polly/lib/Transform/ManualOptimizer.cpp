@@ -1102,8 +1102,8 @@ struct CollectInnerSchedules
   RetTy visit(const isl::schedule_node &Band) {
     auto Ctx = Band.get_ctx();
     auto List = isl::union_pw_aff_list::alloc(Ctx, 0);
-    auto Empty = isl::multi_union_pw_aff::from_union_pw_aff_list(
-        Band.get_universe_domain().get_space(), List);
+    auto Empty =
+        isl::multi_union_pw_aff(Band.get_universe_domain().get_space(), List);
     return visit(Band, Empty);
   }
 
@@ -1533,7 +1533,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
   // TODO: We could apply this more generally on ever Polly-created array
   // (except pattern-based optmization which define their custom data layout)
 
-  unsigned MaxSchedDims = 0;
+  isl_size MaxSchedDims = 0;
   //   unsigned PackedDims = 0;
   for (auto Map : ScheduleToAccess.get_map_list()) {
     MaxSchedDims = std::max(MaxSchedDims, Map.dim(isl::dim::in));
@@ -1746,7 +1746,7 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   auto SourceSpace = PrefixSpace.map_from_domain_and_range(IndexSpace);
 
   // { PrefixSched[] -> DataMin[] }
-  auto AllMins = isl::multi_pw_aff::from_pw_aff_list(SourceSpace, DimMins);
+  auto AllMins = isl::multi_pw_aff(SourceSpace, DimMins);
 
 #if 1
   auto PackedSizes = sizeBox(DimSizes);
@@ -1916,9 +1916,8 @@ findPackingLayout2(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   std::tie(DimMins, DimSizes, DimEnds) = extractExtends(PackedWorkingSet);
 
   // { PrefixSched[] -> Packed[] }
-  auto AllMins =
-      isl::map::from_multi_pw_aff(isl::multi_pw_aff::from_pw_aff_list(
-          PrefixSchedSpace.map_from_domain_and_range(PackedSpace), DimMins));
+  auto AllMins = isl::map::from_multi_pw_aff(isl::multi_pw_aff(
+      PrefixSchedSpace.map_from_domain_and_range(PackedSpace), DimMins));
   TupleNest AllMinsNest(AllMins, "{ PrefixSched[] -> MinPacked[] }");
 
   // { [PrefixSched[] -> Data[]] -> Packed[] }

@@ -43,8 +43,16 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Scalar/EarlyCSE.h"
+#include "llvm/Transforms/Scalar/LoopPassManager.h"
+#include "llvm/Transforms/Scalar/LoopRotation.h"
+#include "llvm/Transforms/Scalar/Reassociate.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
+#include "llvm/Transforms/Scalar/TailRecursionElimination.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
 using namespace polly;
@@ -465,13 +473,9 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
     PM.add(createCodegenCleanupPass());
 }
 
-static void buildDefaultPollyPipeline(FunctionPassManager &PM,
-                                      PassBuilder::OptimizationLevel Level) {
-  bool EnableForOpt =
-      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
-  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
-    return;
-
+static void buildCommonPollyPipeline(FunctionPassManager &PM,
+                                     PassBuilder::OptimizationLevel Level,
+                                     bool EnableForOpt) {
   PassBuilder PB;
   ScopPassManager SPM;
 
@@ -580,6 +584,28 @@ static void buildDefaultPollyPipeline(FunctionPassManager &PM,
 
   if (CFGPrinter)
     PM.addPass(llvm::CFGPrinterPass());
+}
+
+static void buildEarlyPollyPipeline(ModulePassManager &MPM,
+                                    PassBuilder::OptimizationLevel Level) {
+  bool EnableForOpt =
+      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
+  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
+    return;
+
+  FunctionPassManager FPM = buildCanonicalicationPassesForNPM(MPM, Level);
+  buildCommonPollyPipeline(FPM, Level, EnableForOpt);
+  MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+static void buildLatePollyPipeline(FunctionPassManager &PM,
+                                   PassBuilder::OptimizationLevel Level) {
+  bool EnableForOpt =
+      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
+  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
+    return;
+
+  buildCommonPollyPipeline(PM, Level, EnableForOpt);
 }
 
 /// Register Polly to be available as an optimizer
@@ -777,9 +803,21 @@ void registerPollyPasses(PassBuilder &PB) {
         return parseTopLevelPipeline(MPM, PIC, Pipeline, DebugLogging);
       });
 
-  if (PassPosition != POSITION_BEFORE_VECTORIZER)
-    report_fatal_error("Option -polly-position not supported with NPM", false);
-  PB.registerVectorizerStartEPCallback(buildDefaultPollyPipeline);
+  switch (PassPosition) {
+  case POSITION_EARLY:
+    PB.registerPipelineStartEPCallback(buildEarlyPollyPipeline);
+    break;
+  case POSITION_AFTER_LOOPOPT:
+    report_fatal_error(
+        "Option -polly-position=after-loopopt not supported with NPM", false);
+    break;
+  case POSITION_BEFORE_VECTORIZER:
+    PB.registerVectorizerStartEPCallback(buildLatePollyPipeline);
+    break;
+    break;
+  default:
+    llvm_unreachable("Unknown -polly-position option");
+  }
 }
 } // namespace polly
 

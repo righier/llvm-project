@@ -2769,7 +2769,7 @@ raw_ostream &operator<<(raw_ostream &OS, const Scop &scop);
 class ScopInfoRegionPass : public RegionPass {
   /// The Scop pointer which is used to construct a Scop.
   std::unique_ptr<Scop> S;
-  json::Array *LoopNests = nullptr;
+  llvm::json::Array *LoopNests = nullptr;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2817,7 +2817,7 @@ private:
   DominatorTree &DT;
   AssumptionCache &AC;
   OptimizationRemarkEmitter &ORE;
-  json::Array *LoopNests = nullptr;
+  llvm::json::Array *LoopNests = nullptr;
 
 public:
   ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
@@ -2885,7 +2885,7 @@ struct ScopInfoPrinterPass : public PassInfoMixin<ScopInfoPrinterPass> {
 /// region pass manager.
 class ScopInfoWrapperPass : public FunctionPass {
   std::unique_ptr<ScopInfo> Result;
-  json::Array *LoopNests = nullptr;
+  llvm::json::Array *LoopNests = nullptr;
 
 public:
   ScopInfoWrapperPass() : FunctionPass(ID) {}

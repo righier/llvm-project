@@ -354,10 +354,10 @@ struct OptimizerAdditionalInfoTy {
 /// Parameters, which describe access relations that represent operands of the
 /// matrix multiplication.
 struct MatMulInfoTy {
-  MemoryAccess *A = nullptr;
-  MemoryAccess *B = nullptr;
-  MemoryAccess *ReadFromC = nullptr;
-  MemoryAccess *WriteToC = nullptr;
+  polly::MemoryAccess *A = nullptr;
+  polly::MemoryAccess *B = nullptr;
+  polly::MemoryAccess *ReadFromC = nullptr;
+  polly::MemoryAccess *WriteToC = nullptr;
   int i = -1;
   int j = -1;
   int k = -1;
@@ -493,6 +493,7 @@ private:
                         const llvm::TargetTransformInfo *TTI,
                         MatMulInfoTy &MMI);
 
+public:
   /// Check if this node is a band node we want to tile.
   ///
   /// We look for innermost band nodes where individual dimensions are marked as
@@ -501,6 +502,7 @@ private:
   /// @param Node The node to check.
   static bool isTileableBandNode(isl::schedule_node Node);
 
+public:
   /// Pre-vectorizes one scheduling dimension of a schedule band.
   ///
   /// prevectSchedBand splits out the dimension DimToVectorize, tiles it and
@@ -536,6 +538,7 @@ private:
                                              unsigned DimToVectorize,
                                              int VectorWidth);
 
+private:
   /// Apply additional optimizations on the bands in the schedule tree.
   ///
   /// We are looking for an innermost band node and apply the following
@@ -4703,8 +4706,8 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
 static bool runIslScheduleOptimizer(
     Scop &S,
     function_ref<const Dependences &(Dependences::AnalysisLevel)> GetDeps,
-    TargetTransformInfo *TTI, isl::schedule &LastSchedule) {
-
+    TargetTransformInfo *TTI, OptimizationRemarkEmitter &ORE,
+    isl::schedule &LastSchedule) {
 
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
   if (S.isToBeSkipped())
@@ -4834,9 +4837,8 @@ static bool runIslScheduleOptimizer(
 
   isl::schedule ManuallyTransformed;
   if (PragmaBasedOpts) {
-    ManuallyTransformed = applyManualTransformations(
-        S, AnnotatedSchedule, SC, D,
-        &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE());
+    ManuallyTransformed =
+        applyManualTransformations(S, AnnotatedSchedule, SC, D, &ORE);
     if (AnnotatedSchedule.plain_is_equal(ManuallyTransformed))
       ManuallyTransformed = nullptr;
   }
@@ -4862,7 +4864,7 @@ static bool runIslScheduleOptimizer(
   isl::schedule NewSchedule;
 
   Function &F = S.getFunction();
-  auto *TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  // auto *TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D)};
   if (Postopts && !ManuallyTransformed) {
     NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
@@ -4911,15 +4913,15 @@ bool IslScheduleOptimizerWrapperPass::runOnScop(Scop &S) {
   Function &F = S.getFunction();
   IslCtx = S.getSharedIslCtx();
 
-  auto getDependences =
-      [this](Dependences::AnalysisLevel) -> const Dependences & {
+  auto GetDeps = [this](Dependences::AnalysisLevel) -> const Dependences & {
     return getAnalysis<DependenceInfo>().getDependences(
         Dependences::AL_Statement);
   };
+  auto &ORE = getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
   // auto &Deps  = getAnalysis<DependenceInfo>();
   TargetTransformInfo *TTI =
       &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  return runIslScheduleOptimizer(S, getDependences, TTI, LastSchedule);
+  return runIslScheduleOptimizer(S, GetDeps, TTI, ORE, LastSchedule);
 }
 
 static void runScheduleOptimizerPrinter(raw_ostream &OS,
@@ -4983,9 +4985,10 @@ runIslScheduleOptimizerUsingNPM(Scop &S, ScopAnalysisManager &SAM,
   auto GetDeps = [&Deps](Dependences::AnalysisLevel) -> const Dependences & {
     return Deps.getDependences(Dependences::AL_Statement);
   };
+  OptimizationRemarkEmitter ORE(&S.getFunction());
   TargetTransformInfo *TTI = &SAR.TTI;
   isl::schedule LastSchedule;
-  bool Modified = runIslScheduleOptimizer(S, GetDeps, TTI, LastSchedule);
+  bool Modified = runIslScheduleOptimizer(S, GetDeps, TTI, ORE, LastSchedule);
   if (OS) {
     *OS << "Printing analysis 'Polly - Optimize schedule of SCoP' for region: '"
         << S.getName() << "' in function '" << S.getFunction().getName()

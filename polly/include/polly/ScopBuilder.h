@@ -61,7 +61,7 @@ class ScopBuilder {
 
   // The Scop
   std::unique_ptr<Scop> scop;
-  json::Array *LoopNest = nullptr;
+  llvm::json::Array *LoopNest = nullptr;
 
   /// Collection to hold taken assumptions.
   ///
@@ -780,7 +780,7 @@ class ScopBuilder {
     // The (possibly incomplete) schedule for this loop.
     isl::schedule Schedule;
 
-    json::Array *Nest = nullptr;
+    llvm::json::Array *Nest = nullptr;
 
     // The number of basic blocks in the current loop, for which a schedule has
     // already been constructed.
