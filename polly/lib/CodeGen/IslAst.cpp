@@ -16,7 +16,7 @@
 //   bb2(c2);
 // }
 //
-// An in-depth discussion of our AST generation approach can be found in:
+// An in-depth discussion of our AST generation approach can be found in:f
 //
 // Polyhedral AST generation is more than scanning polyhedra
 // Tobias Grosser, Sven Verdoolaege, Albert Cohen
@@ -116,6 +116,10 @@ struct AstBuildUserInfo {
 
   /// The last iterator id created for the current SCoP.
   isl_id *LastForNodeId = nullptr;
+
+  int CurLoopDepth = 0;
+
+  int ForceParallelizeDepth = -1;
 };
 } // namespace polly
 
@@ -260,13 +264,22 @@ static bool astScheduleDimIsParallel(__isl_keep isl_ast_build *Build,
 static __isl_give isl_id *astBuildBeforeFor(__isl_keep isl_ast_build *Build,
                                             void *User) {
   AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
+  BuildInfo->CurLoopDepth += 1;
+
   IslAstUserPayload *Payload = new IslAstUserPayload();
   isl_id *Id = isl_id_alloc(isl_ast_build_get_ctx(Build), "", Payload);
   Id = isl_id_set_free_user(Id, freeIslAstUserPayload);
   BuildInfo->LastForNodeId = Id;
 
+  bool PerformParallelTest = PollyParallel || DetectParallel ||
+                             PollyVectorizerChoice != VECTORIZER_NONE;
+  Payload->IsForcedThreadParallel =
+      BuildInfo->ForceParallelizeDepth > 0 &&
+      (BuildInfo->CurLoopDepth == BuildInfo->ForceParallelizeDepth);
   Payload->IsParallel =
-      astScheduleDimIsParallel(Build, BuildInfo->Deps, Payload);
+      Payload->IsForcedThreadParallel ||
+      (PerformParallelTest &&
+       astScheduleDimIsParallel(Build, BuildInfo->Deps, Payload));
 
   // Test for parallelism only if we are not already inside a parallel loop
   if (!BuildInfo->InParallelFor && !BuildInfo->InSIMD)
@@ -286,12 +299,12 @@ static __isl_give isl_id *astBuildBeforeFor(__isl_keep isl_ast_build *Build,
 static __isl_give isl_ast_node *
 astBuildAfterFor(__isl_take isl_ast_node *Node, __isl_keep isl_ast_build *Build,
                  void *User) {
+  AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
+
   isl_id *Id = isl_ast_node_get_annotation(Node);
   assert(Id && "Post order visit assumes annotated for nodes");
   IslAstUserPayload *Payload = (IslAstUserPayload *)isl_id_get_user(Id);
   assert(Payload && "Post order visit assumes annotated for nodes");
-
-  AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
   assert(!Payload->Build && "Build environment already set");
   Payload->Build = isl_ast_build_copy(Build);
   Payload->IsInnermost = (Id == BuildInfo->LastForNodeId);
@@ -302,6 +315,10 @@ astBuildAfterFor(__isl_take isl_ast_node *Node, __isl_keep isl_ast_build *Build,
     BuildInfo->InParallelFor = false;
 
   isl_id_free(Id);
+
+  BuildInfo->CurLoopDepth -= 1;
+  assert(BuildInfo->CurLoopDepth >= 0);
+
   return Node;
 }
 
@@ -315,6 +332,12 @@ static isl_stat astBuildBeforeMark(__isl_keep isl_id *MarkId,
   if (strcmp(isl_id_get_name(MarkId), "SIMD") == 0)
     BuildInfo->InSIMD = true;
 
+  if (isBandMark(isl::manage_copy(MarkId))) {
+    auto Attr = static_cast<BandAttr *>(isl_id_get_user(MarkId));
+    if (Attr && Attr->ForceThreadParallel)
+      BuildInfo->ForceParallelizeDepth = BuildInfo->CurLoopDepth + 1;
+  }
+
   return isl_stat_ok;
 }
 
@@ -326,6 +349,16 @@ astBuildAfterMark(__isl_take isl_ast_node *Node,
   auto *Id = isl_ast_node_mark_get_id(Node);
   if (strcmp(isl_id_get_name(Id), "SIMD") == 0)
     BuildInfo->InSIMD = false;
+
+  if (isBandMark(isl::manage_copy(Id))) {
+    auto Attr = static_cast<BandAttr *>(isl_id_get_user(Id));
+    if (Attr && Attr->ForceThreadParallel) {
+      assert(BuildInfo->ForceParallelizeDepth == BuildInfo->CurLoopDepth + 1 &&
+             "Irregular nesting of forced parallelism");
+      BuildInfo->ForceParallelizeDepth = -1;
+    }
+  }
+
   isl_id_free(Id);
   return Node;
 }
@@ -546,7 +579,7 @@ void IslAst::init(const Dependences &D) {
 
   Build = isl_ast_build_set_at_each_domain(Build, AtEachDomain, nullptr);
 
-  if (PerformParallelTest) {
+  if (true) {
     BuildInfo.Deps = &D;
     BuildInfo.InParallelFor = false;
     BuildInfo.InSIMD = false;
@@ -558,7 +591,6 @@ void IslAst::init(const Dependences &D) {
 
     Build = isl_ast_build_set_before_each_mark(Build, &astBuildBeforeMark,
                                                &BuildInfo);
-
     Build = isl_ast_build_set_after_each_mark(Build, &astBuildAfterMark,
                                               &BuildInfo);
   }
@@ -566,6 +598,9 @@ void IslAst::init(const Dependences &D) {
   RunCondition = buildRunCondition(S, Build);
 
   Root = isl_ast_build_node_from_schedule(Build, S.getScheduleTree().release());
+  assert(!BuildInfo.InParallelFor);
+  assert(!BuildInfo.InSIMD);
+  assert(BuildInfo.CurLoopDepth == 0);
   walkAstForStatistics(Root);
 
   isl_ast_build_free(Build);
@@ -622,6 +657,10 @@ bool IslAstInfo::isReductionParallel(__isl_keep isl_ast_node *Node) {
 }
 
 bool IslAstInfo::isExecutedInParallel(__isl_keep isl_ast_node *Node) {
+  IslAstUserPayload *Payload = getNodePayload(Node);
+  if (Payload && Payload->IsForcedThreadParallel)
+    return true;
+
   if (!PollyParallel)
     return false;
 
