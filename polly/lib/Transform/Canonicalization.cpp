@@ -44,7 +44,6 @@ static cl::opt<bool>
 void polly::registerCanonicalicationPasses(llvm::legacy::PassManagerBase &PM) {
   bool UseMemSSA = true;
   PM.add(polly::createRewriteByrefParamsPass());
-
   PM.add(llvm::createPromoteMemoryToRegisterPass());
   PM.add(llvm::createEarlyCSEPass(UseMemSSA));
   PM.add(llvm::createInstructionCombiningPass());
@@ -62,7 +61,6 @@ void polly::registerCanonicalicationPasses(llvm::legacy::PassManagerBase &PM) {
   }
   PM.add(llvm::createInstructionCombiningPass());
   PM.add(llvm::createIndVarSimplifyPass());
-  PM.add(polly::createCodePreparationPass());
 }
 
 /// Adapted from llvm::PassBuilder::buildInlinerPipeline

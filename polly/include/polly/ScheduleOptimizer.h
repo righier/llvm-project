@@ -36,8 +36,6 @@ struct IslScheduleOptimizerPrinterPass
 
 private:
   llvm::raw_ostream &OS;
-public:
-private:
 };
 
 /// Build the desired set of partial tile prefixes.

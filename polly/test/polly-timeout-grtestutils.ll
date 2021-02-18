@@ -11,7 +11,7 @@ target triple = "aarch64--linux-android"
 declare i32 @__gxx_personality_v0(...)
 
 ; Function Attrs: sspstrong uwtable
-define void @_ZN6GrTest14TestStrokeInfoEP8SkRandom(%class.GrStrokeInfo* noalias sret %agg.result, %class.SkRandom* nocapture %random) local_unnamed_addr #0 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+define void @_ZN6GrTest14TestStrokeInfoEP8SkRandom(%class.GrStrokeInfo* noalias %agg.result, %class.SkRandom* nocapture %random) local_unnamed_addr #0 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 call1.i.noexc:
   br label %call1.i.noexc.split
 
