@@ -16,7 +16,7 @@
 //   bb2(c2);
 // }
 //
-// An in-depth discussion of our AST generation approach can be found in:f
+// An in-depth discussion of our AST generation approach can be found in:
 //
 // Polyhedral AST generation is more than scanning polyhedra
 // Tobias Grosser, Sven Verdoolaege, Albert Cohen
@@ -591,6 +591,7 @@ void IslAst::init(const Dependences &D) {
 
     Build = isl_ast_build_set_before_each_mark(Build, &astBuildBeforeMark,
                                                &BuildInfo);
+
     Build = isl_ast_build_set_after_each_mark(Build, &astBuildAfterMark,
                                               &BuildInfo);
   }
@@ -656,7 +657,7 @@ bool IslAstInfo::isReductionParallel(__isl_keep isl_ast_node *Node) {
 }
 
 bool IslAstInfo::isExecutedInParallel(__isl_keep isl_ast_node *Node) {
-  IslAstUserPayload *Payload = getNodePayload(Node);
+  IslAstUserPayload *Payload = getNodePayload(isl::manage_copy(Node));
   if (Payload && Payload->IsForcedThreadParallel)
     return true;
 
