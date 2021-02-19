@@ -56,9 +56,9 @@
 #include "polly/ScopPass.h"
 #include "polly/Simplify.h"
 #include "polly/Support/ISLOStream.h"
-#include "llvm/ADT/Sequence.h"
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -1993,7 +1993,7 @@ static bool runIslScheduleOptimizer(
   }
 
   walkScheduleTreeForStatistics(Schedule, 1);
- 
+
   // In cases the scheduler is not able to optimize the code, we just do not
   // touch the schedule.
   if (!Schedule)

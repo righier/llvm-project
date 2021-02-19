@@ -60,25 +60,10 @@ static cl::opt<bool> IgnoreDepcheck(
     cl::desc("Skip the dependency check for pragma-based transformations"),
     cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-namespace {}
 
-static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
-  if (!LoopMD)
-    return nullptr;
-  for (auto &X : drop_begin(LoopMD->operands(), 1)) {
-    auto OpNode = cast<MDNode>(X.get());
-    auto OpName = dyn_cast<MDString>(OpNode->getOperand(0));
-    if (!OpName)
-      continue;
-    if (OpName->getString() == Name)
-      return OpNode;
-  }
-  return nullptr;
-}
 
-static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
-                                                StringRef Name) {
-  auto MD = findNamedMetadataNode(LoopMD, Name);
+static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,  StringRef Name) {
+  auto MD = findOptionMDForLoopID(LoopMD, Name);
   if (!MD)
     return None;
   switch (MD->getNumOperands()) {
@@ -91,8 +76,9 @@ static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
   }
 }
 
-static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
-                                                  StringRef Name) {
+
+
+static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,  StringRef Name) {
   Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
   if (!AttrMD)
     return None;
@@ -104,9 +90,8 @@ static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
   return IntMD->getSExtValue();
 }
 
-static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
-                                                    StringRef Name) {
-  auto MD = findNamedMetadataNode(LoopMD, Name);
+static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,                                                    StringRef Name) {
+  auto MD = findOptionMDForLoopID(LoopMD, Name);
   if (!MD)
     return None;
 
@@ -123,7 +108,7 @@ static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
 }
 
 static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
-  auto MD = findNamedMetadataNode(LoopMD, Name);
+  auto MD = findOptionMDForLoopID(LoopMD, Name);
   if (!MD)
     return DebugLoc();
 
@@ -137,12 +122,9 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
   return StrMD;
 }
 
-static isl::schedule applyLoopUnroll(MDNode *LoopMD,
-                                     isl::schedule_node BandToUnroll) {
-  auto Factor =
-      findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
-  auto Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full")
-                  .getValueOr(false);
+static isl::schedule applyLoopUnroll(MDNode *LoopMD,                                     isl::schedule_node BandToUnroll) {
+  auto Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
+  auto Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full").getValueOr(false);
 
   return applyLoopUnroll(BandToUnroll, Factor, Full);
 }
@@ -1039,8 +1021,7 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD,
 
   SmallVector<isl::schedule_node, 4> NewOrder;
   NewOrder.resize(Depth);
-  auto PermMD =
-      findNamedMetadataNode(LoopMD, "llvm.loop.interchange.permutation");
+  auto PermMD =      findOptionMDForLoopID(LoopMD, "llvm.loop.interchange.permutation");
   int i = 0;
   for (auto &X : drop_begin(PermMD->operands(), 1)) {
     ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(X.get());
@@ -2533,7 +2514,7 @@ applyArrayPacking(MDNode *LoopMD, isl::schedule_node LoopToPack, Function *F,
   auto Ctx = LoopToPack.get_ctx();
 
   // TODO: Allow multiple "llvm.data.pack.array"
-  auto ArraysMD = findNamedMetadataNode(LoopMD, "llvm.data.pack.array");
+  auto ArraysMD = findOptionMDForLoopID(LoopMD, "llvm.data.pack.array");
   DenseSet<Metadata *> AccMDs;
   if (ArraysMD) {
     for (const auto &A : drop_begin(ArraysMD->operands(), 1))
