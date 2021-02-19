@@ -588,15 +588,19 @@ static void buildEarlyPollyPipeline(ModulePassManager &MPM,
   if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
     return;
 
-  if (DumpBefore)
-    MPM.addPass(DumpModulePass("-before", true));
-  for (auto &Filename : DumpBeforeFile)
-    MPM.addPass(DumpModulePass(Filename, false));
-
-
-
-
   FunctionPassManager FPM = buildCanonicalicationPassesForNPM(MPM, Level);
+
+  if (DumpBefore || !DumpBeforeFile.empty()) {
+    MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+
+    if (DumpBefore)
+      MPM.addPass(DumpModulePass("-before", true));
+    for (auto &Filename : DumpBeforeFile)
+      MPM.addPass(DumpModulePass(Filename, false));
+
+    FPM = FunctionPassManager();
+  }
+
   buildCommonPollyPipeline(FPM, Level, EnableForOpt);
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
 }
