@@ -188,6 +188,7 @@ struct ScheduleTreeRewriter
     return *static_cast<const Derived *>(this);
   }
 
+
   isl::schedule visitDomain(const isl::schedule_node &Node, Args... args) {
     // Every schedule_tree already has a domain node, no need to add one.
     return getDerived().visit(Node.first_child(), std::forward<Args>(args)...);
@@ -543,36 +544,8 @@ static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
   }
 }
 
-static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
-                                                  StringRef Name) {
-  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
-  if (!AttrMD)
-    return None;
 
-  ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
-  if (!IntMD)
-    return None;
 
-  return IntMD->getSExtValue();
-}
-
-static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
-                                                    StringRef Name) {
-  auto MD = findNamedMetadataNode(LoopMD, Name);
-  if (!MD)
-    return None;
-
-  switch (MD->getNumOperands()) {
-  case 1:
-    // When the value is absent it is interpreted as 'attribute set'.
-    return true;
-  case 2:
-    ConstantInt *IntMD =
-        mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get());
-    return IntMD->getZExtValue() != 0;
-  }
-  llvm_unreachable("unexpected number of options");
-}
 
 static bool isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;

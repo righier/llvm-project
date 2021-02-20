@@ -24,6 +24,7 @@
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Constants.h"
@@ -578,9 +579,9 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
       CombinedSchedule = X;
     }
 
-    auto NumDims = X.dim(isl::dim::out);
-    for (unsigned i = 0; i < NumDims; i += 1) {
-      auto Y = X.get_union_pw_aff(0);
+ 
+    for (auto i : seq<isl_size>(0, X.dim(isl::dim::out)))  {
+      auto Y = X.get_union_pw_aff(i);
       PartialSchedules.push_back(Y);
       CollapsedLoops += 1;
     }
@@ -2812,23 +2813,24 @@ public:
       return;
     return getBase().visitOther(Other);
   }
-};
+}; 
 
-isl::schedule polly::applyManualTransformations(
-    Scop &S, isl::schedule Sched, isl::schedule_constraints &SC,
+isl::schedule polly::applyManualTransformations(Scop &S, isl::schedule Sched,
     const Dependences &D, OptimizationRemarkEmitter *ORE) {
-  auto &F = S.getFunction();
-  // bool Changed = false;
+  Function &F = S.getFunction();
 
   // Search the loop nest for transformations; apply until no more are found.
+  bool Applied = false;
   while (true) {
     SearchTransformVisitor Transformer(&F, &S, &D, ORE);
     Transformer.visit(Sched);
     if (!Transformer.Result)
-      return Sched;
-    // Changed = true;
+      break;
     Sched = Transformer.Result;
+    Applied = true;
   }
 
-  return Sched;
+  if (Applied)   
+    return Sched;
+  return {};
 }

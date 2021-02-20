@@ -22,8 +22,7 @@ namespace polly {
 class Scop;
 struct Dependences;
 
-isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
-                                         isl::schedule_constraints &SC,
+isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,                                        
                                          const Dependences &D,
                                          llvm ::OptimizationRemarkEmitter *ORE);
 
