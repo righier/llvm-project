@@ -23,8 +23,8 @@
 #include "polly/Support/ISLOStream.h"
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Sequence.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Constants.h"
@@ -61,9 +61,8 @@ static cl::opt<bool> IgnoreDepcheck(
     cl::desc("Skip the dependency check for pragma-based transformations"),
     cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-
-
-static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,  StringRef Name) {
+static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
+                                                StringRef Name) {
   auto MD = findOptionMDForLoopID(LoopMD, Name);
   if (!MD)
     return None;
@@ -77,9 +76,8 @@ static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,  StringRef Name)
   }
 }
 
-
-
-static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,  StringRef Name) {
+static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
+                                                  StringRef Name) {
   Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
   if (!AttrMD)
     return None;
@@ -91,7 +89,8 @@ static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,  StringRef Nam
   return IntMD->getSExtValue();
 }
 
-static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,                                                    StringRef Name) {
+static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
+                                                    StringRef Name) {
   auto MD = findOptionMDForLoopID(LoopMD, Name);
   if (!MD)
     return None;
@@ -123,9 +122,12 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
   return StrMD;
 }
 
-static isl::schedule applyLoopUnroll(MDNode *LoopMD,                                     isl::schedule_node BandToUnroll) {
-  auto Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
-  auto Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full").getValueOr(false);
+static isl::schedule applyLoopUnroll(MDNode *LoopMD,
+                                     isl::schedule_node BandToUnroll) {
+  auto Factor =
+      findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
+  auto Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full")
+                  .getValueOr(false);
 
   return applyLoopUnroll(BandToUnroll, Factor, Full);
 }
@@ -579,8 +581,7 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
       CombinedSchedule = X;
     }
 
- 
-    for (auto i : seq<isl_size>(0, X.dim(isl::dim::out)))  {
+    for (auto i : seq<isl_size>(0, X.dim(isl::dim::out))) {
       auto Y = X.get_union_pw_aff(i);
       PartialSchedules.push_back(Y);
       CollapsedLoops += 1;
@@ -1022,7 +1023,8 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD,
 
   SmallVector<isl::schedule_node, 4> NewOrder;
   NewOrder.resize(Depth);
-  auto PermMD =      findOptionMDForLoopID(LoopMD, "llvm.loop.interchange.permutation");
+  auto PermMD =
+      findOptionMDForLoopID(LoopMD, "llvm.loop.interchange.permutation");
   int i = 0;
   for (auto &X : drop_begin(PermMD->operands(), 1)) {
     ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(X.get());
@@ -2813,10 +2815,12 @@ public:
       return;
     return getBase().visitOther(Other);
   }
-}; 
+};
 
-isl::schedule polly::applyManualTransformations(Scop &S, isl::schedule Sched,
-    const Dependences &D, OptimizationRemarkEmitter *ORE) {
+isl::schedule
+polly::applyManualTransformations(Scop &S, isl::schedule Sched,
+                                  const Dependences &D,
+                                  OptimizationRemarkEmitter *ORE) {
   Function &F = S.getFunction();
 
   // Search the loop nest for transformations; apply until no more are found.
@@ -2830,7 +2834,7 @@ isl::schedule polly::applyManualTransformations(Scop &S, isl::schedule Sched,
     Applied = true;
   }
 
-  if (Applied)   
+  if (Applied)
     return Sched;
   return {};
 }

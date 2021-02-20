@@ -14,8 +14,8 @@
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Sequence.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
 
@@ -187,7 +187,6 @@ struct ScheduleTreeRewriter
   const Derived &getDerived() const {
     return *static_cast<const Derived *>(this);
   }
-
 
   isl::schedule visitDomain(const isl::schedule_node &Node, Args... args) {
     // Every schedule_tree already has a domain node, no need to add one.
@@ -544,9 +543,6 @@ static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
   }
 }
 
-
-
-
 static bool isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
 }
@@ -616,15 +612,16 @@ static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
   return StrMD->getString();
 }
 
-
-
-static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,                                   StringRef TransName,  StringRef Name = {}) {
+static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
+                                   StringRef TransName, StringRef Name = {}) {
   // TODO: Deprecate Name
   // TODO: Only return one when needed.
   // TODO: If no FollowupLoopMD provided, derive attributes heuristically
   BandAttr *Attr = new BandAttr();
 
-  StringRef GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")                       .getValueOr(StringRef());
+  StringRef GivenName =
+      findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
+          .getValueOr(StringRef());
   if (GivenName.empty())
     GivenName = Name;
   if (GivenName.empty())
@@ -637,9 +634,6 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,        
   return getIslLoopAttr(Ctx, Attr);
 }
 
-
-
-
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
   assert(moveToBandMark(Band).is_equal(Band) &&
@@ -649,20 +643,20 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   return Band.get_child(0);
 }
 
-
-
-isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor, bool Full) {
+isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
+                                     int Factor, bool Full) {
   assert(BandToUnroll);
-  assert(!Full || !( Factor > 0));
+  assert(!Full || !(Factor > 0));
 
   isl::ctx Ctx = BandToUnroll.get_ctx();
 
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
 
- 
-  isl::multi_union_pw_aff PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
-  assert(PartialSched.dim(isl::dim::out) == 1 && "Can only unroll a single dimension");
+  isl::multi_union_pw_aff PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  assert(PartialSched.dim(isl::dim::out) == 1 &&
+         "Can only unroll a single dimension");
 
   isl::schedule_node Result;
   if (Full) {
@@ -690,20 +684,20 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor
 
     size_t NumIts = Elts.size();
     isl::union_set_list List = isl::union_set_list::alloc(Ctx, NumIts);
-    
 
-    for (isl::point  P : Elts) {
+    for (isl::point P : Elts) {
       // { Stmt[] }
       isl::space Space = P.get_space().unwrap().range();
       isl::basic_set Univ = isl::basic_set::universe(Space);
-      for (auto i: seq<isl_size>(0, Space.dim(isl::dim::set))) {
+      for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set))) {
         isl::val Val = P.get_coordinate_val(isl::dim::set, i + 1);
         Univ = Univ.fix_val(isl::dim::set, i, Val);
       }
       List = List.add(Univ);
     }
 
-    isl::schedule_node Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
     Body = Body.insert_sequence(List);
 
     // assert(no followup);
@@ -714,22 +708,24 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor
 
     // Here we assume the schedule stride is one and starts with 0, which is not
     // necessarily the case.
-    isl::union_pw_aff StridedPartialSchedUAff = isl::union_pw_aff::empty(PartialSchedUAff.get_space());
-    isl::val ValFactor{ Ctx, Factor };
-    PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,                                     &ValFactor](
+    isl::union_pw_aff StridedPartialSchedUAff =
+        isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+    isl::val ValFactor{Ctx, Factor};
+    PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,
+                                     &ValFactor](
                                         isl::pw_aff PwAff) -> isl::stat {
       isl::space Space = PwAff.get_space();
       isl::set Universe = isl::set::universe(Space.domain());
-      isl::pw_aff AffFactor{ Universe, ValFactor};
+      isl::pw_aff AffFactor{Universe, ValFactor};
       isl::pw_aff DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
       StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
       return isl::stat::ok();
     });
 
-    isl::union_set_list List =  isl::union_set_list::alloc(Ctx, Factor);
+    isl::union_set_list List = isl::union_set_list::alloc(Ctx, Factor);
     for (auto i : seq<int>(0, Factor)) {
       // { Stmt[] -> [x] }
-      isl::union_map UMap{PartialSchedUAff };
+      isl::union_map UMap{PartialSchedUAff};
 
       // { [x] }
       isl::basic_set Divisible = isDivisibleBySet(Ctx, Factor, i);
@@ -740,10 +736,11 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor
       List = List.add(UnrolledDomain);
     }
 
- 
-    isl::schedule_node Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
     Body = Body.insert_sequence(List);
-    isl::schedule_node NewLoop = Body.insert_partial_schedule(StridedPartialSchedUAff);
+    isl::schedule_node NewLoop =
+        Body.insert_partial_schedule(StridedPartialSchedUAff);
 
     isl::id NewBandId = makeTransformLoopId(Ctx, nullptr, "unrolled");
     if (NewBandId)

@@ -50,8 +50,9 @@ void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
 
 
 // AST: if (1)
-// AST:   for (int c2 = 0; c2 <= 15; c2 += 1)
-// AST:     for (int c3 = 0; c3 <= 31; c3 += 1)
-// AST:       Stmt_for_body4(c2, c3);
+// AST:   for (int c0 = 0; c0 <= 15; c0 += 1) {
+// AST:     for (int c1 = 0; c1 <= 31; c1 += 1)
+// AST:       Stmt_for_body4(c0, c1);
+// AST:   }
 // AST: else
 // AST:   {  /* original code */ }
