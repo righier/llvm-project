@@ -1736,12 +1736,12 @@ private:
 
 char IslScheduleOptimizerWrapperPass::ID = 0;
 
-static void printSchedule(llvm::raw_ostream &OS, isl::schedule Schedule,
+static void printSchedule(llvm::raw_ostream &OS,const  isl::schedule &Schedule,
                           StringRef Desc) {
   isl::ctx Ctx = Schedule.get_ctx();
   isl_printer *P = isl_printer_to_str(Ctx.get());
   P = isl_printer_set_yaml_style(P, ISL_YAML_STYLE_BLOCK);
-  P = isl_printer_print_schedule(P, Schedule.release());
+  P = isl_printer_print_schedule(P, Schedule.get());
   char *Str = isl_printer_get_str(P);
   OS << Desc << ": \n" << Str << "\n";
   free(Str);
