@@ -1156,8 +1156,6 @@ static isl::schedule_node permuteBandNodeDimensions(isl::schedule_node Node,
 
 isl::schedule_node ScheduleTreeOptimizer::createMicroKernel(
     isl::schedule_node Node, MicroKernelParamsTy MicroKernelParams) {
-  LLVM_DEBUG(llvm::dbgs() << "Mr : " << MicroKernelParams.Mr << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "Nr : " << MicroKernelParams.Nr << "\n");
   Node = applyRegisterTiling(Node, {MicroKernelParams.Mr, MicroKernelParams.Nr},
                              1);
   Node = Node.parent().parent();
@@ -1410,8 +1408,8 @@ isl::schedule_node createExtensionNode(isl::schedule_node Node,
 /// Scop::createScopArrayInfo, change the access relation
 /// S[i, j, k] -> A[i, k] to
 /// S[i, j, k] -> Packed_A[floor((i mod Mc) / Mr), k mod Kc, i mod Mr], using
-/// MemoryAccess::setNewAccessRelation, and copy the data to the array,
-/// using the copy statement created by Scop::addScopStmt.
+/// MemoryAccess::setNewAccessRelation, and copy the data to the array, using
+/// the copy statement created by Scop::addScopStmt.
 ///
 /// @param Node The schedule node to be optimized.
 /// @param MapOldIndVar The relation, which maps original induction variables
@@ -1441,8 +1439,6 @@ optimizeDataLayoutMatrMulPattern(isl::schedule_node Node, isl::map MapOldIndVar,
       MMI.B->getElementType(), "Packed_B",
       {FirstDimSize, SecondDimSize, ThirdDimSize});
   AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
-  LLVM_DEBUG(dbgs() << "AccRel for B: "; printSorted(AccRel, dbgs());
-             dbgs() << "\n");
   auto OldAcc = MMI.B->getLatestAccessRelation();
   MMI.B->setNewAccessRelation(AccRel);
   auto ExtMap = MapOldIndVar.project_out(isl::dim::out, 2,
@@ -1472,8 +1468,6 @@ optimizeDataLayoutMatrMulPattern(isl::schedule_node Node, isl::map MapOldIndVar,
       {FirstDimSize, SecondDimSize, ThirdDimSize});
   AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
   OldAcc = MMI.A->getLatestAccessRelation();
-  LLVM_DEBUG(dbgs() << "AccRel for A: "; printSorted(AccRel, dbgs());
-             dbgs() << "\n");
   MMI.A->setNewAccessRelation(AccRel);
   ExtMap = MapOldIndVar.project_out(isl::dim::out, 3,
                                     MapOldIndVar.dim(isl::dim::out) - 3);
