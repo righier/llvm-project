@@ -2033,6 +2033,13 @@ public:
   Scop &operator=(const Scop &) = delete;
   ~Scop();
 
+private:
+  bool HasDisableHeuristicsHint = false;
+
+public:
+  bool hasDisableHeuristicsHint() const { return HasDisableHeuristicsHint; }
+  void markDisableHeuristics() { HasDisableHeuristicsHint = true; }
+
   /// Increment actual number of aliasing assumptions taken
   ///
   /// @param Step    Number of new aliasing assumptions which should be added to

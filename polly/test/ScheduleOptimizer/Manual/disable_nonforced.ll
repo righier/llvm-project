@@ -1,6 +1,8 @@
 ; RUN: opt %loadPolly -polly-opt-isl -analyze < %s | FileCheck %s -match-full-lines
 ;
-;
+; Check that the disable_nonforced metadata is honored; optimization
+; heuristics/rescheduling must not be applied.
+; 
 define void @func(i32 %n, double* noalias nonnull %A) {
 entry:
   br label %for
@@ -47,3 +49,10 @@ return:
 
 !2 = distinct !{!2, !3}
 !3 = !{!"llvm.loop.disable_nonforced"}
+
+
+; n/a indicates no new schedule was computed
+;
+; CHECK-LABEL: Printing analysis 'Polly - Optimize schedule of SCoP' for region: 'for => return' in function 'func':
+; CHECK-NEXT:  Calculated schedule:
+; CHECK-NEXT:    n/a

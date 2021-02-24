@@ -1857,7 +1857,8 @@ static bool runIslScheduleOptimizer(
     }
   }
 
-  if (!HasUserTransformation && EnableReschedule) {
+  if (!HasUserTransformation && !S.hasDisableHeuristicsHint() &&
+      EnableReschedule) {
     // Build input data.
     int ValidityKinds =
         Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
