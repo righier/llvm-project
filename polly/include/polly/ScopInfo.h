@@ -1929,6 +1929,9 @@ private:
   /// A number that uniquely represents a Scop within its function
   const int ID;
 
+  /// Is this Scop marked as not to be transformed by an optimization heuristic?
+  bool HasDisableHeuristicsHint = false;
+
   /// Map of values to the MemoryAccess that writes its definition.
   ///
   /// There must be at most one definition per llvm::Instruction in a SCoP.
@@ -2032,13 +2035,6 @@ public:
   Scop(const Scop &) = delete;
   Scop &operator=(const Scop &) = delete;
   ~Scop();
-
-private:
-  bool HasDisableHeuristicsHint = false;
-
-public:
-  bool hasDisableHeuristicsHint() const { return HasDisableHeuristicsHint; }
-  void markDisableHeuristics() { HasDisableHeuristicsHint = true; }
 
   /// Increment actual number of aliasing assumptions taken
   ///
@@ -2766,6 +2762,13 @@ public:
   /// various places. If statistics are disabled, only zeros are returned to
   /// avoid the overhead.
   ScopStatistics getStatistics() const;
+
+  /// Is this Scop marked as not to be transformed by an optimization heuristic?
+  /// In this case, only user-directed transformations are allowed.
+  bool hasDisableHeuristicsHint() const { return HasDisableHeuristicsHint; }
+
+  /// Mark this Scop to not apply an optimization heuristic.
+  void markDisableHeuristics() { HasDisableHeuristicsHint = true; }
 };
 
 /// Print Scop scop to raw_ostream OS.
