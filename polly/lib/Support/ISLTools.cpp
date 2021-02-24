@@ -13,6 +13,7 @@
 
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
@@ -772,7 +773,7 @@ isl::set polly::rebuildNesting(
   SmallVector<int, 4> SourceOffsets;
   DenseMap<const TupleNest *, int> NestOffsets;
   auto SourceSet = isl::set::universe(isl::space(Ctx, 0, 0));
-  for (int i = 0; i < Refs.size(); i += 1) {
+  for (auto i : seq<size_t>(0, Refs.size())) {
     SourceOffsets.push_back(SourceSet.dim(isl::dim::set));
     NestOffsets.insert({Refs[i], SourceSet.dim(isl::dim::set)});
     SourceSet = SourceSet.flat_product(Refs[i]->Ref);

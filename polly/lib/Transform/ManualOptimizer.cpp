@@ -609,9 +609,8 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
   BandToTile = removeMark(BandToTile);
 
   auto Space = isl::manage(isl_schedule_node_band_get_space(BandToTile.get()));
-  auto Dims = Space.dim(isl::dim::set);
   auto Sizes = isl::multi_val::zero(Space);
-  for (unsigned i = 0; i < Dims; i += 1) {
+  for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set))) {
     auto tileSize = TileSizes[i];
     Sizes = Sizes.set_val(i, isl::val(Ctx, tileSize));
   }
@@ -843,7 +842,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
 
   SmallVector<isl::schedule_node, 4> Bands;
   collectVerticalLoops(TopBand, Depth, Bands);
-  assert(Depth == Bands.size());
+  assert((size_t)Depth == Bands.size());
 
   SmallVector<BandAttr *, 4> Attrs;
   SmallVector<int64_t, 4> TileSizes;
@@ -1019,7 +1018,7 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD,
 
   SmallVector<isl::schedule_node, 4> Bands;
   collectVerticalLoops(TopBand, Depth, Bands);
-  assert(Depth == Bands.size());
+  assert((size_t)Depth == Bands.size());
 
   SmallVector<isl::schedule_node, 4> NewOrder;
   NewOrder.resize(Depth);
@@ -1416,15 +1415,13 @@ readPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   auto Ctx = InnerSchedules.get_ctx();
 
   // { PostfixSched[] -> Domain[] }
-  InnerSchedules;
-  // auto PostfixSchedSpace = InnerSchedules.get_space().domain();
+  // InnerSchedules;
 
   // { PrefixSched[] -> Domain[] }
-  InnerInstances;
-  // auto PrefixSchedSpace = InnerInstances.get_space().domain();
+  // InnerInstances;
 
   // { Domain[] -> Data[] }
-  Accs;
+  // Accs;
 
   // { [PrefixSched[] -> PostfixSched[]] -> Domain[] }
   auto CombinedInstances = InnerInstances.domain_product(InnerSchedules);
@@ -1447,10 +1444,10 @@ readPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   auto PrefixDomain = singleton(InnerInstances.domain(), PrefixSchedSpace);
 
   // { Sizes[] }
-  IslSize;
+  // IslSize;
 
   // { PrefixSched[] -> [Data[] -> Packed[]] }
-  IslRedirect;
+  // IslRedirect;
   TupleNest IslRedirectNest(IslRedirect,
                             "{ PrefixSched[] -> [Data[] -> Packed[]] }");
   auto PackedSpace = IslRedirectNest["Packed"].Space;
@@ -1593,7 +1590,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
       }
 
       for (auto C : Constraints) {
-        for (unsigned i = 0; i < PackedDims; i += 1) {
+        for (auto i : seq<isl_size>(0, PackedDims)) {
           auto Coeff = C.get_coefficient_val(isl::dim::in, i);
           if (Coeff.is_zero())
             continue;
@@ -1650,7 +1647,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
 
   assert(Permutation.dim(isl::dim::in) == PackedDims);
   assert(Permutation.dim(isl::dim::in) == PackedDims);
-  assert(NewPackedSizes.size() == PackedDims);
+  assert(NewPackedSizes.size() == (size_t)PackedDims);
 
   Permutation = castSpace(Permutation,
                           PackedSpace.map_from_domain_and_range(PackedSpace));
@@ -1776,7 +1773,7 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   }
 
   // Data[] = Data[] - DataMin[]
-  for (unsigned i = 0; i < IndexSpace.dim(isl::dim::set); i += 1) {
+  for (auto i : seq<isl_size>(0, IndexSpace.dim(isl::dim::set))) {
     auto C = isl::constraint::alloc_equality(TranslatorLS);
     // Min
     C = C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set) + i,

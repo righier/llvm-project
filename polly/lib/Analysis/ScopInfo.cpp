@@ -2469,40 +2469,6 @@ bool Scop::restrictDomains(isl::union_set Domain) {
 
 ScalarEvolution *Scop::getSE() const { return SE; }
 
-// Create an isl_multi_union_aff that defines an identity mapping from the
-// elements of USet to their N-th dimension.
-//
-// # Example:
-//
-//            Domain: { A[i,j]; B[i,j,k] }
-//                 N: 1
-//
-// Resulting Mapping: { {A[i,j] -> [(j)]; B[i,j,k] -> [(j)] }
-//
-// @param USet   A union set describing the elements for which to generate a
-//               mapping.
-// @param N      The dimension to map to.
-// @returns      A mapping from USet to its N-th dimension.
-static isl::multi_union_pw_aff mapToDimension(isl::union_set USet, int N) {
-  assert(N >= 0);
-  assert(USet);
-  assert(!USet.is_empty());
-
-  auto Result = isl::union_pw_multi_aff::empty(USet.get_space());
-
-  for (isl::set S : USet.get_set_list()) {
-    int Dim = S.dim(isl::dim::set);
-    auto PMA = isl::pw_multi_aff::project_out_map(S.get_space(), isl::dim::set,
-                                                  N, Dim - N);
-    if (N > 1)
-      PMA = PMA.drop_dims(isl::dim::out, 0, N - 1);
-
-    Result = Result.add_pw_multi_aff(PMA);
-  }
-
-  return isl::multi_union_pw_aff(isl::union_pw_multi_aff(Result));
-}
-
 void Scop::addScopStmt(BasicBlock *BB, StringRef Name, Loop *SurroundingLoop,
                        std::vector<Instruction *> Instructions) {
   assert(BB && "Unexpected nullptr!");

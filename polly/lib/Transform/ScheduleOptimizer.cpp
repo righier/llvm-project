@@ -1839,7 +1839,7 @@ static bool runIslScheduleOptimizer(
   }
   if (!D.hasValidDependences())
     return false;
-      
+
   isl_ctx *Ctx = S.getIslCtx().get();
   isl_options_set_tile_scale_tile_loops(Ctx, 0);
 

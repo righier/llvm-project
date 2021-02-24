@@ -126,7 +126,7 @@ FunctionPassManager polly::buildCanonicalicationPassesForNPM(
         std::move(LPM), false, true, false));
   }
 
-  return std::move(FPM);
+  return FPM;
 }
 
 namespace {
