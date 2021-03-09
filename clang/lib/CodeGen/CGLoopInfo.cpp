@@ -18,7 +18,6 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
-
 using namespace clang::CodeGen;
 using namespace llvm;
 
@@ -217,8 +216,7 @@ LoopInfo::createLoopVectorizeMetadata(const LoopAttributes &Attrs,
   Optional<bool> Enabled;
   if (Attrs.VectorizeEnable == LoopAttributes::Disable)
     Enabled = false;
-  else if (Attrs.VectorizeScalable != LoopAttributes::Unspecified ||
-           Attrs.VectorizeEnable != LoopAttributes::Unspecified ||
+  else if (Attrs.VectorizeEnable != LoopAttributes::Unspecified ||
            Attrs.VectorizePredicateEnable != LoopAttributes::Unspecified ||
            Attrs.InterleaveCount != 0 || Attrs.VectorizeWidth != 0 ||
            Attrs.VectorizeScalable != LoopAttributes::Unspecified)
@@ -489,7 +487,6 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
     AccGroup = MDNode::getDistinct(Ctx, {});
   }
 
-  //  LLVMContext &Ctx = Header->getContext();
   bool Dummy;
   MDNode *LegacyLoopID = createMetadata(Attrs, {}, Dummy);
   bool HasLegacyTransformation =
@@ -1007,11 +1004,9 @@ void LoopInfo::finish(LoopInfoStack &LIS) {
   if (!TempLoopID)
     return;
 
-  // LLVMContext &Ctx = Header->getContext();
-  // LLVMContext &Ctx = CGF->getContext();
-  LLVMContext &Ctx = LIS.Ctx;
   MDNode *LoopID;
   LoopAttributes CurLoopAttr = Attrs;
+ LLVMContext &Ctx = LIS.Ctx;
 
   if (Parent && (Parent->Attrs.UnrollAndJamEnable ||
                  Parent->Attrs.UnrollAndJamCount != 0)) {

@@ -627,6 +627,7 @@ bool polly::isIgnoredIntrinsic(const Value *V) {
     // Lifetime markers are supported/ignored.
     case llvm::Intrinsic::lifetime_start:
     case llvm::Intrinsic::lifetime_end:
+    case llvm::Intrinsic::experimental_noalias_scope_decl:
     // Invariant markers are supported/ignored.
     case llvm::Intrinsic::invariant_start:
     case llvm::Intrinsic::invariant_end:

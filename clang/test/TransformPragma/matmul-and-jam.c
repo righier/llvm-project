@@ -165,7 +165,7 @@ int main() {
 
 
 // TRANS: %malloccall = tail call dereferenceable_or_null(131072) i8* @malloc(i64 131072)
-// TRANS: %malloccall60 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304) #2
+// TRANS: %malloccall60 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304) #3
 // TRANS: tail call void @free(i8* %malloccall)
 // TRANS: tail call void @free(i8* %malloccall60)
 // TRANS-DAG: Packed_MemRef_A
