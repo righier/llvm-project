@@ -12,10 +12,15 @@
 
 #include "polly/ScheduleTreeTransform.h"
 #include "polly/Support/ISLTools.h"
+#include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Metadata.h"
 
 using namespace polly;
+using namespace llvm;
 
 namespace {
 
@@ -507,4 +512,242 @@ isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
   NewSched = Applicator.visitSchedule(NewSched);
 
   return NewSched;
+}
+
+static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
+  if (!LoopMD)
+    return nullptr;
+  for (auto &X : drop_begin(LoopMD->operands(), 1)) {
+    auto OpNode = cast<MDNode>(X.get());
+    auto OpName = dyn_cast<MDString>(OpNode->getOperand(0));
+    if (!OpName)
+      continue;
+    if (OpName->getString() == Name)
+      return OpNode;
+  }
+  return nullptr;
+}
+
+static Optional<Metadata *> findMetadataOperand(MDNode *LoopMD,
+                                                StringRef Name) {
+  auto MD = findNamedMetadataNode(LoopMD, Name);
+  if (!MD)
+    return None;
+  switch (MD->getNumOperands()) {
+  case 1:
+    return nullptr;
+  case 2:
+    return MD->getOperand(1).get();
+  default:
+    llvm_unreachable("loop metadata must have 0 or 1 operands");
+  }
+}
+
+static bool isBand(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
+}
+
+static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
+  auto Cur = Band;
+  if (isBand(Band))
+    Cur = Band.parent();
+
+  // Go up until we find a band mark.
+  while (true) {
+    if (isl_schedule_node_get_type(Cur.get()) != isl_schedule_node_mark)
+      break;
+    if (isBandMark(Cur))
+      return Cur;
+
+    auto Parent = Cur.parent();
+    assert(Parent);
+    Cur = Parent;
+  }
+  if (isBand(Band))
+    return Band; // Has no mark.
+  return nullptr;
+}
+
+static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
+  MarkOrBand = moveToBandMark(MarkOrBand);
+  while (isl_schedule_node_get_type(MarkOrBand.get()) ==
+         isl_schedule_node_mark) {
+    if (isBandMark(MarkOrBand))
+      MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
+    else
+      MarkOrBand = MarkOrBand.parent();
+  }
+  return MarkOrBand;
+}
+
+/// Return the (one-dimensional) set of numbers that are divisible by @p Factor
+/// with remainder @p Offset. isDivisibleBySet(Ctx, 4, 0) = { [i] : floord(i,4)
+/// = 0 } isDivisibleBySet(Ctx, 4, 1) = { [i] : floord(i,4) = 1 }
+static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
+                                       int64_t Offset) {
+  auto ValFactor = isl::val(Ctx, Factor);
+  auto Unispace = isl::space(Ctx, 0, 1);
+  auto LUnispace = isl::local_space(Unispace);
+  auto Id = isl::aff::var_on_domain(LUnispace, isl::dim::out, 0);
+  auto AffFactor = isl::aff(LUnispace, ValFactor);
+  auto ValOffset = isl::val(Ctx, Offset);
+  auto AffOffset = isl::aff(LUnispace, ValOffset);
+  auto DivMul = Id.mod(ValFactor);
+  auto Divisible = isl::basic_map::from_aff(
+      DivMul); //.equate(isl::dim::in, 0, isl::dim::out, 0);
+  auto Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
+  return Modulo.domain();
+}
+
+static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
+                                                           StringRef Name) {
+  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
+  if (!AttrMD)
+    return None;
+
+  auto StrMD = dyn_cast<MDString>(AttrMD);
+  if (!StrMD)
+    return None;
+
+  return StrMD->getString();
+}
+
+static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
+                                   StringRef TransName, StringRef Name = {}) {
+  // TODO: Deprecate Name
+  // TODO: Only return one when needed.
+  // TODO: If no FollowupLoopMD provided, derive attributes heuristically
+  BandAttr *Attr = new BandAttr();
+
+  StringRef GivenName =
+      findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
+          .getValueOr(StringRef());
+  if (GivenName.empty())
+    GivenName = Name;
+  if (GivenName.empty())
+    GivenName =
+        TransName; // TODO: Don't use trans name as LoopName, but as label
+  Attr->LoopName = GivenName.str();
+  Attr->Metadata = FollowupLoopMD;
+  // TODO: Inherit properties if 'FollowupLoopMD' (followup) is not used
+  // TODO: Set followup MDNode
+  return getIslLoopAttr(Ctx, Attr);
+}
+
+static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
+  assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
+  assert(moveToBandMark(Band).is_equal(Band) &&
+         "Don't add a two marks for a band");
+  Band = isl::manage(
+      isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+  return Band.get_child(0);
+}
+
+isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
+                                     int Factor, bool Full) {
+  assert(BandToUnroll);
+  assert(!Full || !(Factor > 0));
+
+  isl::ctx Ctx = BandToUnroll.get_ctx();
+
+  BandToUnroll = moveToBandMark(BandToUnroll);
+  BandToUnroll = removeMark(BandToUnroll);
+
+  isl::multi_union_pw_aff PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  assert(PartialSched.dim(isl::dim::out) == 1 &&
+         "Can only unroll a single dimension");
+
+  isl::schedule_node Result;
+  if (Full) {
+    isl::union_set Domain = BandToUnroll.get_domain();
+    isl::union_pw_aff PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+    PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
+    isl::union_map PartialSchedUMap = isl::union_map(PartialSchedUAff);
+
+    // Make consumable for the following code.
+    // Schedule at the beginning so it is at coordinate 0.
+    isl::union_set PartialSchedUSet = PartialSchedUMap.reverse().wrap();
+
+    SmallVector<isl::point, 16> Elts;
+    // FIXME: Will error if not enumerable
+    PartialSchedUSet.foreach_point([&Elts](isl::point P) -> isl::stat {
+      Elts.push_back(P);
+      return isl::stat::ok();
+    });
+
+    llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
+      isl::val C1 = P1.get_coordinate_val(isl::dim::set, 0);
+      isl::val C2 = P2.get_coordinate_val(isl::dim::set, 0);
+      return C1.lt(C2);
+    });
+
+    size_t NumIts = Elts.size();
+    isl::union_set_list List = isl::union_set_list::alloc(Ctx, NumIts);
+
+    for (isl::point P : Elts) {
+      // { Stmt[] }
+      isl::space Space = P.get_space().unwrap().range();
+      isl::basic_set Univ = isl::basic_set::universe(Space);
+      for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set))) {
+        isl::val Val = P.get_coordinate_val(isl::dim::set, i + 1);
+        Univ = Univ.fix_val(isl::dim::set, i, Val);
+      }
+      List = List.add(Univ);
+    }
+
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
+
+    // assert(no followup);
+    return Body.get_schedule();
+  } else if (Factor > 0) {
+    // { Stmt[] -> [x] }
+    isl::union_pw_aff PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+
+    // Here we assume the schedule stride is one and starts with 0, which is not
+    // necessarily the case.
+    isl::union_pw_aff StridedPartialSchedUAff =
+        isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+    isl::val ValFactor{Ctx, Factor};
+    PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,
+                                     &ValFactor](
+                                        isl::pw_aff PwAff) -> isl::stat {
+      isl::space Space = PwAff.get_space();
+      isl::set Universe = isl::set::universe(Space.domain());
+      isl::pw_aff AffFactor{Universe, ValFactor};
+      isl::pw_aff DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
+      StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
+      return isl::stat::ok();
+    });
+
+    isl::union_set_list List = isl::union_set_list::alloc(Ctx, Factor);
+    for (auto i : seq<int>(0, Factor)) {
+      // { Stmt[] -> [x] }
+      isl::union_map UMap{PartialSchedUAff};
+
+      // { [x] }
+      isl::basic_set Divisible = isDivisibleBySet(Ctx, Factor, i);
+
+      // { Stmt[] }
+      isl::union_set UnrolledDomain = UMap.intersect_range(Divisible).domain();
+
+      List = List.add(UnrolledDomain);
+    }
+
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
+    isl::schedule_node NewLoop =
+        Body.insert_partial_schedule(StridedPartialSchedUAff);
+
+    isl::id NewBandId = makeTransformLoopId(Ctx, nullptr, "unrolled");
+    if (NewBandId)
+      NewLoop = insertMark(NewLoop, NewBandId);
+
+    return NewLoop.get_schedule();
+  }
+
+  llvm_unreachable("Negative unroll factor");
 }

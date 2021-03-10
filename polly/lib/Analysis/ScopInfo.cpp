@@ -60,6 +60,8 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "isl/aff.h"
 #include "isl/local_space.h"
@@ -166,6 +168,10 @@ static cl::list<std::string> IslArgs("polly-isl-arg",
                                      cl::value_desc("argument"),
                                      cl::desc("Option passed to ISL"),
                                      cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<std::string> PollyLoopNestOutputFile("polly-output-loopnest",
+                                                    cl::Optional,
+                                                    cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
@@ -920,6 +926,38 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, AccessType AccType, isl::map AccRel)
   Id = isl::id::alloc(Stmt->getParent()->getIslCtx(), IdName, this);
 }
 
+MemoryAccess::MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
+  this->Statement = Parent;
+  auto IdName = AccToClone->getId().get_name() + "_clone";
+
+  this->Id = isl::id::alloc(Parent->getParent()->getIslCtx(), IdName, this);
+  this->Kind = AccToClone->Kind;
+  this->AccType = AccToClone->getType();
+  this->RedType = AccToClone->RedType;
+
+  this->InvalidDomain = AccToClone->getInvalidDomain();
+  this->BaseAddr = AccToClone->BaseAddr;
+  this->ElementType = AccToClone->getElementType();
+  this->Sizes = AccToClone->Sizes;
+  this->AccessInstruction = AccToClone->getAccessInstruction();
+  this->Incoming = AccToClone->Incoming;
+  this->AccessValue = AccToClone->AccessValue;
+  this->IsAffine = AccToClone->IsAffine;
+  this->Subscripts = AccToClone->Subscripts;
+  this->FAD = AccToClone->FAD;
+
+  // TODO: As a clone, the AccessRelation has never been updated. Might set only
+  // (Original)AccessRelation, or both to the same relation.
+  this->AccessRelation = AccToClone->AccessRelation;
+  this->AccessRelation =
+      this->AccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
+
+  this->NewAccessRelation = AccToClone->NewAccessRelation;
+  if (this->NewAccessRelation)
+    this->NewAccessRelation = this->NewAccessRelation.set_tuple_id(
+        isl::dim::in, Parent->getDomainId());
+}
+
 MemoryAccess::~MemoryAccess() = default;
 
 void MemoryAccess::realignParams() {
@@ -1203,21 +1241,18 @@ void ScopStmt::realignParams() {
 ScopStmt::ScopStmt(Scop &parent, Region &R, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> EntryBlockInstructions)
-    : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), R(&R),
-      Build(nullptr), BaseName(Name), SurroundingLoop(SurroundingLoop),
+    : Parent(parent), R(&R), BaseName(Name), SurroundingLoop(SurroundingLoop),
       Instructions(EntryBlockInstructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, StringRef Name,
                    Loop *SurroundingLoop,
                    std::vector<Instruction *> Instructions)
-    : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(&bb),
-      Build(nullptr), BaseName(Name), SurroundingLoop(SurroundingLoop),
+    : Parent(parent), BB(&bb), BaseName(Name), SurroundingLoop(SurroundingLoop),
       Instructions(Instructions) {}
 
 ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
                    isl::set NewDomain)
-    : Parent(parent), InvalidDomain(nullptr), Domain(NewDomain),
-      Build(nullptr) {
+    : Parent(parent), Domain(NewDomain) {
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   isl::id Id = isl::id::alloc(getIslCtx(), getBaseName(), this);
@@ -1231,6 +1266,33 @@ ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
   Access = new MemoryAccess(this, MemoryAccess::AccessType::READ, SourceRel);
   parent.addAccessFunction(Access);
   addAccess(Access);
+}
+
+ScopStmt::ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain)
+    : Parent(parent) {
+  auto Ctx = parent.getIslCtx();
+
+  this->BB = StmtToClone->getBasicBlock();
+  this->R = StmtToClone->getRegion();
+  this->SurroundingLoop = StmtToClone->getSurroundingLoop();
+  this->Instructions = StmtToClone->getInstructions();
+  this->BaseName = (Twine(StmtToClone->getBaseName()) + Twine("_clone")).str();
+  this->Build = StmtToClone->getAstBuild();
+  this->NestLoops = StmtToClone->NestLoops;
+
+  auto NewId = isl::id::alloc(Ctx, BaseName, this);
+  Domain = Domain.project_out(isl::dim::set, 0, 0).set_tuple_id(NewId);
+  this->Domain = Domain;
+  this->InvalidDomain = StmtToClone->getInvalidDomain()
+                            .project_out(isl::dim::set, 0, 0)
+                            .set_tuple_id(NewId);
+
+  for (auto MA : *StmtToClone) {
+    auto NewMA = new MemoryAccess(this, MA);
+    Parent.addAccessFunction(NewMA, /*IsPrimary=*/false);
+    addAccess(NewMA);
+  }
+  // this->InstructionToAccess
 }
 
 ScopStmt::~ScopStmt() = default;
@@ -1878,6 +1940,7 @@ ScopArrayInfo *Scop::createScopArrayInfo(Type *ElementType,
     else
       SCEVSizes.push_back(nullptr);
 
+  // FIXME: This could potentially just lookup a matching array
   auto *SAI = getOrCreateScopArrayInfo(nullptr, ElementType, SCEVSizes,
                                        MemoryKind::Array, BaseName.c_str());
   return SAI;
@@ -2443,6 +2506,25 @@ void Scop::addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
   }
 }
 
+ScopStmt *Scop::addClonedStmt(ScopStmt *StmtToClone, isl::set Domain) {
+  assert(StmtToClone);
+  assert(Domain);
+  assert(StmtToClone->isBlockStmt() &&
+         "cloning other statements not supported yet");
+
+  Stmts.emplace_back(*this, StmtToClone, Domain);
+  return &Stmts.back();
+
+#if 0
+	auto *Stmt = &Stmts.back();
+	StmtMap[BB].push_back(Stmt);
+	for (Instruction *Inst : Instructions) {
+		assert(!InstStmtMap.count(Inst) &&
+			"Unexpected statement corresponding to the instruction.");
+		InstStmtMap[Inst] = Stmt;
+#endif
+}
+
 ScopStmt *Scop::addScopStmt(isl::map SourceRel, isl::map TargetRel,
                             isl::set Domain) {
 #ifndef NDEBUG
@@ -2719,6 +2801,19 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   ScopBuilder SB(R, AC, AA, DL, DT, LI, SD, SE, ORE);
   S = SB.getScop(); // take ownership of scop object
 
+  auto ThisNest = SB.getLoopNest();
+  if (ThisNest) {
+    auto TNest = *ThisNest;
+
+    if (!this->LoopNests) {
+      // First occurrence to fill out the array.
+      this->LoopNests = new json::Array();
+    }
+    json::Object Root;
+    Root["topmost"] = json::Value(std::move(TNest));
+    this->LoopNests->emplace_back(std::move(Root));
+  }
+
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
   if (S) {
     ScopDetection::LoopStats Stats =
@@ -2726,6 +2821,41 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
     updateLoopCountStatistic(Stats, S->getStatistics());
   }
 #endif
+
+  return false;
+}
+
+bool ScopInfoRegionPass::doFinalization(Module &) {
+  if (!LoopNests)
+    return false;
+
+  if (PollyLoopNestOutputFile.empty())
+    return false;
+
+  json::Array A = *LoopNests;
+  json::Object Output;
+  Output["loopnests"] = std::move(A);
+
+  json::Value V = json::Value(std::move(Output));
+
+  // Write to file.
+  std::error_code EC;
+  ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_Text);
+
+  errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
+
+  if (!EC) {
+    F.os() << formatv("{0:3}", V);
+    F.os().close();
+    if (!F.os().has_error()) {
+      errs() << "\n";
+      F.keep();
+      return false;
+    }
+  }
+
+  errs() << "  error opening file for writing!\n";
+  F.os().clear_error();
 
   return false;
 }
@@ -2776,6 +2906,16 @@ void ScopInfo::recompute() {
     std::unique_ptr<Scop> S = SB.getScop();
     if (!S)
       continue;
+
+    auto ThisNest = SB.getLoopNest();
+    auto TNest = *ThisNest;
+    if (!this->LoopNests) {
+      this->LoopNests = new json::Array();
+    }
+    json::Object Root;
+    Root["topmost"] = json::Value(std::move(TNest));
+    this->LoopNests->emplace_back(std::move(Root));
+
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
     ScopDetection::LoopStats Stats =
         ScopDetection::countBeneficialLoops(&S->getRegion(), SE, LI, 0);
@@ -2853,6 +2993,52 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
   auto &ORE = getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
 
   Result.reset(new ScopInfo{DL, SD, SE, LI, AA, DT, AC, ORE});
+
+  if (Result->getLoopNests()) {
+    if (!LoopNests)
+      LoopNests = new json::Array();
+    for (auto X : *Result->getLoopNests())
+      LoopNests->push_back(X);
+  }
+
+  return false;
+}
+
+bool ScopInfoWrapperPass::doFinalization(Module &) {
+  if (!Result)
+    return false;
+
+  if (!LoopNests)
+    return false;
+
+  if (PollyLoopNestOutputFile.empty())
+    return false;
+
+  json::Array A = *LoopNests;
+  json::Object Output;
+  Output["loopnests"] = std::move(A);
+
+  json::Value V = json::Value(std::move(Output));
+
+  // Write to file.
+  std::error_code EC;
+  ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_Text);
+
+  errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
+
+  if (!EC) {
+    F.os() << formatv("{0:3}", V);
+    F.os().close();
+    if (!F.os().has_error()) {
+      errs() << "\n";
+      F.keep();
+      return false;
+    }
+  }
+
+  errs() << "  error opening file for writing!\n";
+  F.os().clear_error();
+
   return false;
 }
 
