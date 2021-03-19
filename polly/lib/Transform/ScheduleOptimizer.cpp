@@ -1712,6 +1712,9 @@ bool ScheduleTreeOptimizer::isProfitableSchedule(Scop &S,
   // optimizations, by comparing (yet to be defined) performance metrics
   // before/after the scheduling optimizer
   // (e.g., #stride-one accesses)
+  // FIXME: A schedule tree whose union_map-conversion is identical to the
+  // original schedule map may still allow for parallelization, i.e. can still
+  // be profitable.
   auto NewScheduleMap = NewSchedule.get_map();
   auto OldSchedule = S.getSchedule();
   assert(OldSchedule && "Only IslScheduleOptimizer can insert extension nodes "
@@ -1985,7 +1988,10 @@ static bool runIslScheduleOptimizer(
   LLVM_DEBUG(printSchedule(dbgs(), Schedule, "After post-optimizations"));
   walkScheduleTreeForStatistics(Schedule, 2);
 
-  if (!ScheduleTreeOptimizer::isProfitableSchedule(S, Schedule))
+  // A user transformation may include parallelization, which is not reflected
+  // in the schedule.
+  if (!HasUserTransformation &&
+      !ScheduleTreeOptimizer::isProfitableSchedule(S, Schedule))
     return false;
 
   auto ScopStats = S.getStatistics();

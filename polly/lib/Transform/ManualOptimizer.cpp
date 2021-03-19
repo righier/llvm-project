@@ -2771,29 +2771,34 @@ public:
           auto IsParallel = D->isParallel(MySchedMap.get(), DepsAll.release());
           if (!IsParallel) {
             LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
-            LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
+            if (IgnoreDepcheck) {
+              LLVM_DEBUG(dbgs()
+                         << "Ignoring due to -polly-pragma-ignore-depcheck\n");
+            } else {
+              LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
 
-            if (ORE) {
-              auto Loc = findOptionalDebugLoc(
-                  LoopMD, "llvm.loop.parallelize_thread.loc");
-              // Each '<<' on ORE is visible in the YAML output; to avoid
-              // breaking changes, use Twine.
-              ORE->emit(DiagnosticInfoOptimizationFailure(
-                            DEBUG_TYPE, "FailedRequestedThreadParallelism", Loc,
-                            CodeRegion)
-                        << "loop not thread-parallelized: transformation would "
-                           "violate dependencies");
+              if (ORE) {
+                auto Loc = findOptionalDebugLoc(
+                    LoopMD, "llvm.loop.parallelize_thread.loc");
+                // Each '<<' on ORE is visible in the YAML output; to avoid
+                // breaking changes, use Twine.
+                ORE->emit(DiagnosticInfoOptimizationFailure(
+                              DEBUG_TYPE, "FailedRequestedThreadParallelism",
+                              Loc, CodeRegion)
+                          << "loop not thread-parallelized: transformation "
+                             "would violate dependencies");
+              }
+
+              // If illegal, revert and remove the transformation.
+              auto NewLoopMD = makePostTransformationMetadata(
+                  Ctx, LoopMD, {"llvm.loop.parallelize_thread."}, {});
+              auto Attr = getBandAttr(Band);
+              Attr->Metadata = NewLoopMD;
+
+              // Roll back old schedule.
+              Result = Band.get_schedule();
+              return;
             }
-
-            // If illegal, revert and remove the transformation.
-            auto NewLoopMD = makePostTransformationMetadata(
-                Ctx, LoopMD, {"llvm.loop.parallelize_thread."}, {});
-            auto Attr = getBandAttr(Band);
-            Attr->Metadata = NewLoopMD;
-
-            // Roll back old schedule.
-            Result = Band.get_schedule();
-            return;
           }
         }
 
