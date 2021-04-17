@@ -1,4 +1,4 @@
-//===- Schedule.cpp - Calculate an optimized schedule ---------------------===//
+//===- ScheduleOptimizer.cpp - Calculate an optimized schedule ------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -49,20 +49,25 @@
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/ManualOptimizer.h"
 #include "polly/Options.h"
 #include "polly/ScheduleTreeTransform.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Simplify.h"
 #include "polly/Support/ISLOStream.h"
+#include "polly/Support/ISLTools.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include "isl/ctx.h"
 #include "isl/options.h"
 #include "isl/printer.h"
@@ -76,6 +81,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace llvm;
@@ -257,6 +263,23 @@ static cl::list<int>
                       cl::Hidden, cl::ZeroOrMore, cl::CommaSeparated,
                       cl::cat(PollyCategory));
 
+static cl::opt<bool> EnablePragmaBasedOpts(
+    "polly-pragma-based-opts",
+    cl::desc("Apply pragma transformations instead heuristics "
+             "(if any pragma is present)"),
+    cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<bool> EnableReschedule("polly-reschedule",
+                                      cl::desc("Optimize SCoPs using ISL"),
+                                      cl::init(true), cl::ZeroOrMore,
+                                      cl::cat(PollyCategory));
+
+static cl::opt<bool>
+    EnablePostopts("polly-postopts",
+                   cl::desc("Perform post-rescheduling optimizations "
+                            "(pattern-matching and tiling)"),
+                   cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
 static cl::opt<bool>
     PMBasedOpts("polly-pattern-matching-based-opts",
                 cl::desc("Perform optimizations based on pattern matching"),
@@ -323,6 +346,7 @@ struct MacroKernelParamsTy {
 struct OptimizerAdditionalInfoTy {
   const llvm::TargetTransformInfo *TTI;
   const Dependences *D;
+  bool Postopts;
 };
 
 /// Parameters of the matrix multiplication operands.
@@ -330,10 +354,10 @@ struct OptimizerAdditionalInfoTy {
 /// Parameters, which describe access relations that represent operands of the
 /// matrix multiplication.
 struct MatMulInfoTy {
-  MemoryAccess *A = nullptr;
-  MemoryAccess *B = nullptr;
-  MemoryAccess *ReadFromC = nullptr;
-  MemoryAccess *WriteToC = nullptr;
+  polly::MemoryAccess *A = nullptr;
+  polly::MemoryAccess *B = nullptr;
+  polly::MemoryAccess *ReadFromC = nullptr;
+  polly::MemoryAccess *WriteToC = nullptr;
   int i = -1;
   int j = -1;
   int k = -1;
@@ -347,6 +371,7 @@ public:
   /// applies a set of additional optimizations on the schedule tree. The
   /// transformations applied include:
   ///
+  ///   - Pattern-based optimizations
   ///   - Tiling
   ///   - Prevectorization
   ///
@@ -364,6 +389,7 @@ public:
   /// tree and applies a set of additional optimizations on this schedule tree
   /// node and its descendants. The transformations applied include:
   ///
+  ///   - Pattern-based optimizations
   ///   - Tiling
   ///   - Prevectorization
   ///
@@ -530,21 +556,15 @@ private:
   ///        (currently unused).
   static isl_schedule_node *optimizeBand(isl_schedule_node *Node, void *User);
 
-  /// Apply additional optimizations on the bands in the schedule tree.
-  ///
-  /// We apply the following
-  /// transformations:
-  ///
-  ///  - Tile the band
-  ///  - Prevectorize the schedule of the band (or the point loop in case of
-  ///    tiling).
-  ///      - if vectorization is enabled
+  /// Apply tiling optimizations on the bands in the schedule tree.
   ///
   /// @param Node The schedule node to (possibly) optimize.
-  /// @param User A pointer to forward some use information
-  ///        (currently unused).
-  static isl::schedule_node standardBandOpts(isl::schedule_node Node,
-                                             void *User);
+  static isl::schedule_node applyTileBandOpt(isl::schedule_node Node);
+
+  /// Apply prevectorization on the bands in the schedule tree.
+  ///
+  /// @param Node The schedule node to (possibly) prevectorize.
+  static isl::schedule_node applyPrevectBandOpt(isl::schedule_node Node);
 
   /// Check if this node contains a partial schedule that could
   ///        probably be optimized with analytical modeling.
@@ -817,7 +837,7 @@ bool ScheduleTreeOptimizer::isTileableBandNode(isl::schedule_node Node) {
 }
 
 __isl_give isl::schedule_node
-ScheduleTreeOptimizer::standardBandOpts(isl::schedule_node Node, void *User) {
+ScheduleTreeOptimizer::applyTileBandOpt(isl::schedule_node Node) {
   if (FirstLevelTiling) {
     Node = tileNode(Node, "1st level tiling", FirstLevelTileSizes,
                     FirstLevelDefaultTileSize);
@@ -836,9 +856,11 @@ ScheduleTreeOptimizer::standardBandOpts(isl::schedule_node Node, void *User) {
     RegisterTileOpts++;
   }
 
-  if (PollyVectorizerChoice == VECTORIZER_NONE)
-    return Node;
+  return Node;
+}
 
+isl::schedule_node
+ScheduleTreeOptimizer::applyPrevectBandOpt(isl::schedule_node Node) {
   auto Space = isl::manage(isl_schedule_node_band_get_space(Node.get()));
   auto Dims = Space.dim(isl::dim::set);
 
@@ -954,7 +976,7 @@ static bool isMatMulOperandAcc(isl::set Domain, isl::map AccMap, int &FirstPos,
 /// @return          True in case the memory access represents the read access
 ///                  to a non-scalar operand of the matrix multiplication and
 ///                  false, otherwise.
-static bool isMatMulNonScalarReadAccess(MemoryAccess *MemAccess,
+static bool isMatMulNonScalarReadAccess(polly::MemoryAccess *MemAccess,
                                         MatMulInfoTy &MMI) {
   if (!MemAccess->isLatestArrayKind() || !MemAccess->isRead())
     return false;
@@ -1632,23 +1654,35 @@ bool ScheduleTreeOptimizer::isMatrMultPattern(isl::schedule_node Node,
 }
 
 __isl_give isl_schedule_node *
-ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *Node,
+ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *NodeArg,
                                     void *User) {
-  if (!isTileableBandNode(isl::manage_copy(Node)))
-    return Node;
-
+  isl::schedule_node Node = isl::manage(NodeArg);
   const OptimizerAdditionalInfoTy *OAI =
       static_cast<const OptimizerAdditionalInfoTy *>(User);
 
-  MatMulInfoTy MMI;
-  if (PMBasedOpts && User &&
-      isMatrMultPattern(isl::manage_copy(Node), OAI->D, MMI)) {
-    LLVM_DEBUG(dbgs() << "The matrix multiplication pattern was detected\n");
-    MatMulOpts++;
-    return optimizeMatMulPattern(isl::manage(Node), OAI->TTI, MMI).release();
+  if (!isTileableBandNode(Node))
+    return Node.release();
+
+  if (OAI->Postopts) {
+    if (PMBasedOpts) {
+      MatMulInfoTy MMI;
+      if (isMatrMultPattern(Node, OAI->D, MMI)) {
+        LLVM_DEBUG(
+            dbgs() << "The matrix multiplication pattern was detected\n");
+        MatMulOpts++;
+        return optimizeMatMulPattern(Node, OAI->TTI, MMI).release();
+      }
+    }
+
+    Node = applyTileBandOpt(Node);
   }
 
-  return standardBandOpts(isl::manage(Node), User).release();
+  // FIXME: Prevectorization is conditional to isTileableBandNode; however, it
+  // only requires the innermost loop to be coincident.
+  if (PollyVectorizerChoice != VECTORIZER_NONE)
+    Node = applyPrevectBandOpt(Node);
+
+  return Node.release();
 }
 
 isl::schedule
@@ -1678,6 +1712,9 @@ bool ScheduleTreeOptimizer::isProfitableSchedule(Scop &S,
   // optimizations, by comparing (yet to be defined) performance metrics
   // before/after the scheduling optimizer
   // (e.g., #stride-one accesses)
+  // FIXME: A schedule tree whose union_map-conversion is identical to the
+  // original schedule map may still allow for parallelization, i.e. can still
+  // be profitable.
   auto NewScheduleMap = NewSchedule.get_map();
   auto OldSchedule = S.getSchedule();
   assert(OldSchedule && "Only IslScheduleOptimizer can insert extension nodes "
@@ -1715,6 +1752,18 @@ private:
 };
 
 char IslScheduleOptimizerWrapperPass::ID = 0;
+
+static void printSchedule(llvm::raw_ostream &OS, const isl::schedule &Schedule,
+                          StringRef Desc) {
+  isl::ctx Ctx = Schedule.get_ctx();
+  isl_printer *P = isl_printer_to_str(Ctx.get());
+  P = isl_printer_set_yaml_style(P, ISL_YAML_STYLE_BLOCK);
+  P = isl_printer_print_schedule(P, Schedule.get());
+  char *Str = isl_printer_get_str(P);
+  OS << Desc << ": \n" << Str << "\n";
+  free(Str);
+  isl_printer_free(P);
+}
 
 /// Collect statistics for the schedule tree.
 ///
@@ -1772,7 +1821,9 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
 static bool runIslScheduleOptimizer(
     Scop &S,
     function_ref<const Dependences &(Dependences::AnalysisLevel)> GetDeps,
-    TargetTransformInfo *TTI, isl::schedule &LastSchedule) {
+    TargetTransformInfo *TTI, OptimizationRemarkEmitter &ORE,
+    isl::schedule &LastSchedule) {
+
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
   if (S.isToBeSkipped())
     return false;
@@ -1785,119 +1836,139 @@ static bool runIslScheduleOptimizer(
   }
 
   const Dependences &D = GetDeps(Dependences::AL_Statement);
-
   if (D.getSharedIslCtx() != S.getSharedIslCtx()) {
     LLVM_DEBUG(dbgs() << "DependenceInfo for another SCoP/isl_ctx\n");
     return false;
   }
-
   if (!D.hasValidDependences())
     return false;
 
-  // Build input data.
-  int ValidityKinds =
-      Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
-  int ProximityKinds;
-
-  if (OptimizeDeps == "all")
-    ProximityKinds =
-        Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
-  else if (OptimizeDeps == "raw")
-    ProximityKinds = Dependences::TYPE_RAW;
-  else {
-    errs() << "Do not know how to optimize for '" << OptimizeDeps << "'"
-           << " Falling back to optimizing all dependences.\n";
-    ProximityKinds =
-        Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
-  }
-
-  isl::union_set Domain = S.getDomains();
-
-  if (!Domain)
-    return false;
-
-  ScopsProcessed++;
-  walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
-
-  isl::union_map Validity = D.getDependences(ValidityKinds);
-  isl::union_map Proximity = D.getDependences(ProximityKinds);
-
-  // Simplify the dependences by removing the constraints introduced by the
-  // domains. This can speed up the scheduling time significantly, as large
-  // constant coefficients will be removed from the dependences. The
-  // introduction of some additional dependences reduces the possible
-  // transformations, but in most cases, such transformation do not seem to be
-  // interesting anyway. In some cases this option may stop the scheduler to
-  // find any schedule.
-  if (SimplifyDeps == "yes") {
-    Validity = Validity.gist_domain(Domain);
-    Validity = Validity.gist_range(Domain);
-    Proximity = Proximity.gist_domain(Domain);
-    Proximity = Proximity.gist_range(Domain);
-  } else if (SimplifyDeps != "no") {
-    errs() << "warning: Option -polly-opt-simplify-deps should either be 'yes' "
-              "or 'no'. Falling back to default: 'yes'\n";
-  }
-
-  LLVM_DEBUG(dbgs() << "\n\nCompute schedule from: ");
-  LLVM_DEBUG(dbgs() << "Domain := " << Domain << ";\n");
-  LLVM_DEBUG(dbgs() << "Proximity := " << Proximity << ";\n");
-  LLVM_DEBUG(dbgs() << "Validity := " << Validity << ";\n");
-
-  unsigned IslSerializeSCCs;
-
-  if (FusionStrategy == "max") {
-    IslSerializeSCCs = 0;
-  } else if (FusionStrategy == "min") {
-    IslSerializeSCCs = 1;
-  } else {
-    errs() << "warning: Unknown fusion strategy. Falling back to maximal "
-              "fusion.\n";
-    IslSerializeSCCs = 0;
-  }
-
-  int IslMaximizeBands;
-
-  if (MaximizeBandDepth == "yes") {
-    IslMaximizeBands = 1;
-  } else if (MaximizeBandDepth == "no") {
-    IslMaximizeBands = 0;
-  } else {
-    errs() << "warning: Option -polly-opt-maximize-bands should either be 'yes'"
-              " or 'no'. Falling back to default: 'yes'\n";
-    IslMaximizeBands = 1;
-  }
-
-  int IslOuterCoincidence;
-
-  if (OuterCoincidence == "yes") {
-    IslOuterCoincidence = 1;
-  } else if (OuterCoincidence == "no") {
-    IslOuterCoincidence = 0;
-  } else {
-    errs() << "warning: Option -polly-opt-outer-coincidence should either be "
-              "'yes' or 'no'. Falling back to default: 'no'\n";
-    IslOuterCoincidence = 0;
-  }
-
   isl_ctx *Ctx = S.getIslCtx().get();
-
-  isl_options_set_schedule_outer_coincidence(Ctx, IslOuterCoincidence);
-  isl_options_set_schedule_serialize_sccs(Ctx, IslSerializeSCCs);
-  isl_options_set_schedule_maximize_band_depth(Ctx, IslMaximizeBands);
-  isl_options_set_schedule_max_constant_term(Ctx, MaxConstantTerm);
-  isl_options_set_schedule_max_coefficient(Ctx, MaxCoefficient);
   isl_options_set_tile_scale_tile_loops(Ctx, 0);
 
-  auto OnErrorStatus = isl_options_get_on_error(Ctx);
-  isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
+  // Schedule without optimizations.
+  isl::schedule Schedule = S.getScheduleTree();
 
-  auto SC = isl::schedule_constraints::on_domain(Domain);
-  SC = SC.set_proximity(Proximity);
-  SC = SC.set_validity(Validity);
-  SC = SC.set_coincidence(Validity);
-  auto Schedule = SC.compute_schedule();
-  isl_options_set_on_error(Ctx, OnErrorStatus);
+  bool HasUserTransformation = false;
+  if (EnablePragmaBasedOpts) {
+    isl::schedule ManuallyTransformed =
+        applyManualTransformations(S, Schedule, D, &ORE);
+    if (ManuallyTransformed) {
+      // User transformations have precedence over other transformations.
+      HasUserTransformation = true;
+      Schedule = ManuallyTransformed;
+    }
+  }
+
+  if (!HasUserTransformation && !S.hasDisableHeuristicsHint() &&
+      EnableReschedule) {
+    // Build input data.
+    int ValidityKinds =
+        Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
+    int ProximityKinds;
+
+    if (OptimizeDeps == "all")
+      ProximityKinds =
+          Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
+    else if (OptimizeDeps == "raw")
+      ProximityKinds = Dependences::TYPE_RAW;
+    else {
+      errs() << "Do not know how to optimize for '" << OptimizeDeps << "'"
+             << " Falling back to optimizing all dependences.\n";
+      ProximityKinds =
+          Dependences::TYPE_RAW | Dependences::TYPE_WAR | Dependences::TYPE_WAW;
+    }
+
+    isl::union_set Domain = S.getDomains();
+
+    if (!Domain)
+      return false;
+
+    ScopsProcessed++;
+    walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
+
+    isl::union_map Validity = D.getDependences(ValidityKinds);
+    isl::union_map Proximity = D.getDependences(ProximityKinds);
+
+    // Simplify the dependences by removing the constraints introduced by the
+    // domains. This can speed up the scheduling time significantly, as large
+    // constant coefficients will be removed from the dependences. The
+    // introduction of some additional dependences reduces the possible
+    // transformations, but in most cases, such transformation do not seem to be
+    // interesting anyway. In some cases this option may stop the scheduler to
+    // find any schedule.
+    if (SimplifyDeps == "yes") {
+      Validity = Validity.gist_domain(Domain);
+      Validity = Validity.gist_range(Domain);
+      Proximity = Proximity.gist_domain(Domain);
+      Proximity = Proximity.gist_range(Domain);
+    } else if (SimplifyDeps != "no") {
+      errs()
+          << "warning: Option -polly-opt-simplify-deps should either be 'yes' "
+             "or 'no'. Falling back to default: 'yes'\n";
+    }
+
+    LLVM_DEBUG(dbgs() << "\n\nCompute schedule from: ");
+    LLVM_DEBUG(dbgs() << "Domain := " << Domain << ";\n");
+    LLVM_DEBUG(dbgs() << "Proximity := " << Proximity << ";\n");
+    LLVM_DEBUG(dbgs() << "Validity := " << Validity << ";\n");
+
+    unsigned IslSerializeSCCs;
+
+    if (FusionStrategy == "max") {
+      IslSerializeSCCs = 0;
+    } else if (FusionStrategy == "min") {
+      IslSerializeSCCs = 1;
+    } else {
+      errs() << "warning: Unknown fusion strategy. Falling back to maximal "
+                "fusion.\n";
+      IslSerializeSCCs = 0;
+    }
+
+    int IslMaximizeBands;
+
+    if (MaximizeBandDepth == "yes") {
+      IslMaximizeBands = 1;
+    } else if (MaximizeBandDepth == "no") {
+      IslMaximizeBands = 0;
+    } else {
+      errs()
+          << "warning: Option -polly-opt-maximize-bands should either be 'yes'"
+             " or 'no'. Falling back to default: 'yes'\n";
+      IslMaximizeBands = 1;
+    }
+
+    int IslOuterCoincidence;
+
+    if (OuterCoincidence == "yes") {
+      IslOuterCoincidence = 1;
+    } else if (OuterCoincidence == "no") {
+      IslOuterCoincidence = 0;
+    } else {
+      errs() << "warning: Option -polly-opt-outer-coincidence should either be "
+                "'yes' or 'no'. Falling back to default: 'no'\n";
+      IslOuterCoincidence = 0;
+    }
+
+    isl_options_set_schedule_outer_coincidence(Ctx, IslOuterCoincidence);
+    isl_options_set_schedule_serialize_sccs(Ctx, IslSerializeSCCs);
+    isl_options_set_schedule_maximize_band_depth(Ctx, IslMaximizeBands);
+    isl_options_set_schedule_max_constant_term(Ctx, MaxConstantTerm);
+    isl_options_set_schedule_max_coefficient(Ctx, MaxCoefficient);
+
+    int OnErrorStatus = isl_options_get_on_error(Ctx);
+    isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
+
+    isl::schedule_constraints SC = isl::schedule_constraints::on_domain(Domain);
+    SC = SC.set_proximity(Proximity);
+    SC = SC.set_validity(Validity);
+    SC = SC.set_coincidence(Validity);
+    Schedule = SC.compute_schedule();
+    isl_options_set_on_error(Ctx, OnErrorStatus);
+
+    ScopsRescheduled++;
+    LLVM_DEBUG(printSchedule(dbgs(), Schedule, "After rescheduling"));
+  }
 
   walkScheduleTreeForStatistics(Schedule, 1);
 
@@ -1906,33 +1977,30 @@ static bool runIslScheduleOptimizer(
   if (!Schedule)
     return false;
 
-  ScopsRescheduled++;
+  /// Apply post-rescheduling optimizations (if enabled) and/or
+  /// prevectorization.
+  const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D),
+                                         /*Postopts=*/!HasUserTransformation &&
+                                             EnablePostopts};
+  Schedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
+  Schedule = hoistExtensionNodes(Schedule);
 
-  LLVM_DEBUG({
-    auto *P = isl_printer_to_str(Ctx);
-    P = isl_printer_set_yaml_style(P, ISL_YAML_STYLE_BLOCK);
-    P = isl_printer_print_schedule(P, Schedule.get());
-    auto *str = isl_printer_get_str(P);
-    dbgs() << "NewScheduleTree: \n" << str << "\n";
-    free(str);
-    isl_printer_free(P);
-  });
+  LLVM_DEBUG(printSchedule(dbgs(), Schedule, "After post-optimizations"));
+  walkScheduleTreeForStatistics(Schedule, 2);
 
-  const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D)};
-  auto NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
-  NewSchedule = hoistExtensionNodes(NewSchedule);
-  walkScheduleTreeForStatistics(NewSchedule, 2);
-
-  if (!ScheduleTreeOptimizer::isProfitableSchedule(S, NewSchedule))
+  // A user transformation may include parallelization, which is not reflected
+  // in the schedule.
+  if (!HasUserTransformation &&
+      !ScheduleTreeOptimizer::isProfitableSchedule(S, Schedule))
     return false;
 
   auto ScopStats = S.getStatistics();
   ScopsOptimized++;
   NumAffineLoopsOptimized += ScopStats.NumAffineLoops;
   NumBoxedLoopsOptimized += ScopStats.NumBoxedLoops;
-  LastSchedule = NewSchedule;
+  LastSchedule = Schedule;
 
-  S.setScheduleTree(NewSchedule);
+  S.setScheduleTree(Schedule);
   S.markAsOptimized();
 
   if (OptimizedScops)
@@ -1952,10 +2020,10 @@ bool IslScheduleOptimizerWrapperPass::runOnScop(Scop &S) {
     return getAnalysis<DependenceInfo>().getDependences(
         Dependences::AL_Statement);
   };
-  // auto &Deps  = getAnalysis<DependenceInfo>();
+  auto &ORE = getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
   TargetTransformInfo *TTI =
       &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-  return runIslScheduleOptimizer(S, getDependences, TTI, LastSchedule);
+  return runIslScheduleOptimizer(S, getDependences, TTI, ORE, LastSchedule);
 }
 
 static void runScheduleOptimizerPrinter(raw_ostream &OS,
@@ -1990,8 +2058,10 @@ void IslScheduleOptimizerWrapperPass::getAnalysisUsage(
   ScopPass::getAnalysisUsage(AU);
   AU.addRequired<DependenceInfo>();
   AU.addRequired<TargetTransformInfoWrapperPass>();
+  AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
 
   AU.addPreserved<DependenceInfo>();
+  AU.addPreserved<OptimizationRemarkEmitterWrapperPass>();
 }
 
 } // namespace
@@ -2005,6 +2075,7 @@ INITIALIZE_PASS_BEGIN(IslScheduleOptimizerWrapperPass, "polly-opt-isl",
 INITIALIZE_PASS_DEPENDENCY(DependenceInfo);
 INITIALIZE_PASS_DEPENDENCY(ScopInfoRegionPass);
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass);
 INITIALIZE_PASS_END(IslScheduleOptimizerWrapperPass, "polly-opt-isl",
                     "Polly - Optimize schedule of SCoP", false, false)
 
@@ -2016,9 +2087,10 @@ runIslScheduleOptimizerUsingNPM(Scop &S, ScopAnalysisManager &SAM,
   auto GetDeps = [&Deps](Dependences::AnalysisLevel) -> const Dependences & {
     return Deps.getDependences(Dependences::AL_Statement);
   };
+  OptimizationRemarkEmitter ORE(&S.getFunction());
   TargetTransformInfo *TTI = &SAR.TTI;
   isl::schedule LastSchedule;
-  bool Modified = runIslScheduleOptimizer(S, GetDeps, TTI, LastSchedule);
+  bool Modified = runIslScheduleOptimizer(S, GetDeps, TTI, ORE, LastSchedule);
   if (OS) {
     *OS << "Printing analysis 'Polly - Optimize schedule of SCoP' for region: '"
         << S.getName() << "' in function '" << S.getFunction().getName()

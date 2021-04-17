@@ -21,6 +21,10 @@ namespace polly {
 /// operations). This assumes that domains added by to extension nodes do not
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
+
+isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
+                              bool Full);
+
 } // namespace polly
 
 #endif // POLLY_SCHEDULETREETRANSFORM_H

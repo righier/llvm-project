@@ -55,11 +55,11 @@ public:
   Pass *createPrinterPass(raw_ostream &O,
                           const std::string &Banner) const override;
 
-  using llvm::Pass::doInitialization;
-  using llvm::Pass::doFinalization;
+  // using llvm::Pass::doInitialization;
+  // using llvm::Pass::doFinalization;
 
-  virtual bool doInitialization(Region *R, RGPassManager &RGM) { return false; }
-  virtual bool doFinalization() { return false; }
+  // virtual bool doInitialization(Region *R, RGPassManager &RGM) { return
+  // false; } virtual bool doFinalization() { return false; }
   //@}
 
   //===--------------------------------------------------------------------===//
@@ -96,6 +96,9 @@ public:
   ///
   /// @return True if any of the passes modifies the function.
   bool runOnFunction(Function &F) override;
+
+  bool doInitialization(Module &) override;
+  bool doFinalization(Module &) override;
 
   /// Pass Manager itself does not invalidate any analysis info.
   /// RGPassManager needs RegionInfo.

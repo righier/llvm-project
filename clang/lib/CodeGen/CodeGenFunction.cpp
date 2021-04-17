@@ -72,7 +72,8 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
       SanOpts(CGM.getLangOpts().Sanitize), CurFPFeatures(CGM.getLangOpts()),
       DebugInfo(CGM.getModuleDebugInfo()), PGO(cgm),
       ShouldEmitLifetimeMarkers(
-          shouldEmitLifetimeMarkers(CGM.getCodeGenOpts(), CGM.getLangOpts())) {
+          shouldEmitLifetimeMarkers(CGM.getCodeGenOpts(), CGM.getLangOpts())),
+      LoopStack(cgm.getLLVMContext(), *this) {
   if (!suppressNewContext)
     CGM.getCXXABI().getMangleContext().startNewFunction();
 
@@ -85,6 +86,11 @@ CodeGenFunction::~CodeGenFunction() {
 
   if (getLangOpts().OpenMP && CurFn)
     CGM.getOpenMPRuntime().functionFinished(*this);
+
+  // Loop stack has to be finished before OpenMPBuilder's finalize because:
+  // * CGLoopInfo create temporary LoopIDs to be completed in the finish mthod()
+  // * OpenMPBuilder looks into debug locations inside the LoopID.
+  LoopStack.finish();
 
   // If we have an OpenMPIRBuilder we want to finalize functions (incl.
   // outlining etc) at some point. Doing it once the function codegen is done

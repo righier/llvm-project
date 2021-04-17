@@ -4652,6 +4652,7 @@ def disable_llvm_passes : Flag<["-"], "disable-llvm-passes">,
   MarshallingInfoFlag<CodeGenOpts<"DisableLLVMPasses">>;
 def disable_llvm_optzns : Flag<["-"], "disable-llvm-optzns">,
   Alias<disable_llvm_passes>;
+def disable_legacy_loop_transformations : Flag<["-"], "disable-legacy-loop-transformations">;
 def disable_lifetimemarkers : Flag<["-"], "disable-lifetime-markers">,
   HelpText<"Disable lifetime-markers emission even when optimizations are "
            "enabled">,

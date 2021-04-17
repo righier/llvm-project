@@ -552,6 +552,8 @@ class Attr {
   // attribute may be documented under multiple categories, more than one
   // Documentation entry may be listed.
   list<Documentation> Documentation;
+
+  bit PrettyPrintSpelling = 1;
 }
 
 /// A type attribute is not processed on a declaration or a statement.
@@ -3396,6 +3398,330 @@ def InitSeg : Attr {
   }];
 }
 
+def LoopId : Attr {
+  // #pragma clang loop id(loopname)
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "id">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"LoopName">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop id(" << getLoopName() << ")";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopReversal : Attr {
+  // #pragma clang loop           reverse [reversed_id(loopname)]
+  // #pragma clang loop(loopname) reverse [reversed_id(loopname)]
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "reverse">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, StringArgument<"ReversedId">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " reverse";
+
+			if (!getReversedId().empty())
+						OS << " reversed_id(" << getReversedId() << ")";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopTiling : Attr {
+  // #pragma clang loop tile
+  // #pragma clang loop(depth) tile
+  // #pragma clang loop(loopname1, loopname2, ...) tile
+
+  let Spellings = [Pragma<"", "tile">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">, StringArgument<"Peel">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First) {
+							OS << ", ";
+						}
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			} else if (getApplyOnDepth()) {
+				OS << "(" ;
+				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			OS << " tile";
+
+			if (tileSizes_size()) {
+				OS << " sizes(";
+				bool First=true;
+				for (auto Size : tileSizes()) {
+				  if (!First) {
+					  OS << ", ";
+				  }
+                  Size->printPretty(OS, nullptr, Policy);
+				  First = false;
+				}
+				OS << ")";
+			}
+
+			if (floorIds_size()) {
+				OS << " floor_ids(";
+				bool First=true;
+				for (auto Id : floorIds()) {
+				  if (!First) {
+					  OS << ", ";
+				  }
+					  OS<<Id;
+				  First = false;
+				}
+				OS << ")";
+			}
+
+			if (tileIds_size()) {
+				OS << " tile_ids(";
+				bool First=true;
+				for (auto Id : tileIds()) {
+				  if (!First) {
+					  OS << ", ";
+					}
+					  OS<<Id;
+				  First = false;
+				}
+				OS << ")";
+			}
+
+			if (getPeelLength()) {
+					OS << " peel(" << getPeel() << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopInterchange : Attr {
+  // #pragma clang loop interchange
+  // #pragma clang loop(loopname1, loopname2, ...) interchange
+  // #pragma clang loop(depth) interchange
+
+  let Spellings = [Pragma<"", "interchange">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicStringArgument<"Permutation">, VariadicStringArgument<"PermutedIds">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First) {
+							OS << ", ";}
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			} else if (getApplyOnDepth() ) {
+				OS << "(" ;
+				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			OS << " interchange";
+
+			if (permutation_size()) {
+				OS << " permutation(";
+				bool First=true;
+				for (auto PermId : permutation()) {
+				  if (!First) { OS << ", "; }
+				  OS << PermId;
+				  First = false;
+				}
+				OS << ")";
+			}
+
+      if (permutedIds_size()) {
+				OS << " permutedIds(";
+				bool First=true;
+				for (auto PermId : permutedIds()) {
+				  if (!First) { OS << ", "; }
+				  OS << PermId;
+				  First = false;
+				}
+				OS << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+def Pack : Attr {
+  // #pragma clang loop           pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
+  // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
+
+  let Spellings = [Pragma<"", "pack">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">, StringArgument<"IslSize">, StringArgument<"IslRedirect">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+
+			if (!getApplyOn().empty()) {
+				OS << "(" << getApplyOn() << ")";
+            }
+
+			OS << " pack";
+
+				if (getArray()) {
+						OS << " array(";
+						getArray()->printPretty(OS, nullptr, Policy);
+						OS << ")";
+				}
+
+				if (getOnHeap()) {
+					OS << " allocate(malloc)";
+				}
+
+				if (!getIslSize().empty()) {
+					OS << " isl_size(\"" << getIslSize() << "\")";
+				}
+
+				if (!getIslRedirect().empty()) {
+					OS << " isl_redirect(\"" << getIslRedirect() << "\")";
+				}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+def LoopUnrolling : Attr {
+  // FIXME: Replace by #pragma clang loop unroll, which current emits different metadata
+  // #pragma clang loop unrolling [factor(n)] [full]
+  // #pragma clang loop(loopname) unrolling [factor(n)] [full]
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "unrolling">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " unrolling";
+
+			if (getFactor()) {
+				OS << " factor(";
+				getFactor()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			if (getFull()) {
+				OS << " full";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+// TODO: 'interleave' would also be defined with arbitrary loop nests.
+def LoopUnrollingAndJam : Attr {
+  // #pragma clang loop unrollingandjam [factor(n)] [full]
+  // #pragma clang loop(loopname) unrollingandjam [factor(n)] [full]
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "unrollingandjam">];
+  let PrettyPrintSpelling = 0;
+
+    let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
+
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " unrollingandjam";
+
+			if (getFactor()) {
+				OS << " factor(";
+				getFactor()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			if (getFull()) {
+				OS << " full";
+			}
+		}
+  }];
+
+   let Documentation = [];
+}
+
+
+def LoopParallelizeThread : Attr {
+  // #pragma clang loop thread_parallel
+  // #pragma clang loop(loopname) thread_parallel
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "parallelize_thread">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+			OS << " parallelize_thread";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
 def LoopHint : Attr {
   /// #pragma clang loop <option> directive
   /// vectorize: vectorizes loop operations if State == Enable.
@@ -3418,6 +3744,7 @@ def LoopHint : Attr {
   let Spellings = [Pragma<"clang", "loop">, Pragma<"", "unroll">,
                    Pragma<"", "nounroll">, Pragma<"", "unroll_and_jam">,
                    Pragma<"", "nounroll_and_jam">];
+  let PrettyPrintSpelling = 0;
 
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",

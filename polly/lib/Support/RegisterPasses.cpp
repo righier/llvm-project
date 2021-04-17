@@ -43,8 +43,16 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Scalar/EarlyCSE.h"
+#include "llvm/Transforms/Scalar/LoopPassManager.h"
+#include "llvm/Transforms/Scalar/LoopRotation.h"
+#include "llvm/Transforms/Scalar/Reassociate.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
+#include "llvm/Transforms/Scalar/TailRecursionElimination.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
 using namespace polly;
@@ -268,7 +276,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeForwardOpTreeWrapperPassPass(Registry);
   initializeDeLICMWrapperPassPass(Registry);
   initializeSimplifyWrapperPassPass(Registry);
-  initializeDumpModulePass(Registry);
+  initializeDumpModuleWrapperPassPass(Registry);
   initializePruneUnprofitableWrapperPassPass(Registry);
 }
 
@@ -301,9 +309,11 @@ void initializePollyPasses(PassRegistry &Registry) {
 static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
                                 bool EnableForOpt) {
   if (DumpBefore)
-    PM.add(polly::createDumpModulePass("-before", true));
+    PM.add(polly::createDumpModuleWrapperPass("-before", true));
   for (auto &Filename : DumpBeforeFile)
-    PM.add(polly::createDumpModulePass(Filename, false));
+    PM.add(polly::createDumpModuleWrapperPass(Filename, false));
+
+  PM.add(polly::createCodePreparationPass());
 
   PM.add(polly::createScopDetectionWrapperPassPass());
 
@@ -396,9 +406,9 @@ static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
   PM.add(createBarrierNoopPass());
 
   if (DumpAfter)
-    PM.add(polly::createDumpModulePass("-after", true));
+    PM.add(polly::createDumpModuleWrapperPass("-after", true));
   for (auto &Filename : DumpAfterFile)
-    PM.add(polly::createDumpModulePass(Filename, false));
+    PM.add(polly::createDumpModuleWrapperPass(Filename, false));
 
   if (CFGPrinter)
     PM.add(llvm::createCFGPrinterLegacyPassPass());
@@ -442,7 +452,6 @@ registerPollyLoopOptimizerEndPasses(const llvm::PassManagerBuilder &Builder,
   if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
     return;
 
-  PM.add(polly::createCodePreparationPass());
   registerPollyPasses(PM, EnableForOpt);
   if (EnableForOpt)
     PM.add(createCodegenCleanupPass());
@@ -459,19 +468,14 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
   if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
     return;
 
-  PM.add(polly::createCodePreparationPass());
   polly::registerPollyPasses(PM, EnableForOpt);
   if (EnableForOpt)
     PM.add(createCodegenCleanupPass());
 }
 
-static void buildDefaultPollyPipeline(FunctionPassManager &PM,
-                                      PassBuilder::OptimizationLevel Level) {
-  bool EnableForOpt =
-      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
-  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
-    return;
-
+static void buildCommonPollyPipeline(FunctionPassManager &PM,
+                                     PassBuilder::OptimizationLevel Level,
+                                     bool EnableForOpt) {
   PassBuilder PB;
   ScopPassManager SPM;
 
@@ -479,12 +483,6 @@ static void buildDefaultPollyPipeline(FunctionPassManager &PM,
 
   // TODO add utility passes for the various command line options, once they're
   // ported
-  if (DumpBefore)
-    report_fatal_error("Option -polly-dump-before not supported with NPM",
-                       false);
-  if (!DumpBeforeFile.empty())
-    report_fatal_error("Option -polly-dump-before-file not supported with NPM",
-                       false);
 
   if (PollyDetectOnly) {
     // Don't add more passes other than the ScopPassManager's detection passes.
@@ -580,6 +578,47 @@ static void buildDefaultPollyPipeline(FunctionPassManager &PM,
 
   if (CFGPrinter)
     PM.addPass(llvm::CFGPrinterPass());
+}
+
+static void buildEarlyPollyPipeline(ModulePassManager &MPM,
+                                    PassBuilder::OptimizationLevel Level) {
+  bool EnableForOpt =
+      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
+  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
+    return;
+
+  FunctionPassManager FPM = buildCanonicalicationPassesForNPM(MPM, Level);
+
+  if (DumpBefore || !DumpBeforeFile.empty()) {
+    MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+
+    if (DumpBefore)
+      MPM.addPass(DumpModulePass("-before", true));
+    for (auto &Filename : DumpBeforeFile)
+      MPM.addPass(DumpModulePass(Filename, false));
+
+    FPM = FunctionPassManager();
+  }
+
+  buildCommonPollyPipeline(FPM, Level, EnableForOpt);
+  MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+}
+
+static void buildLatePollyPipeline(FunctionPassManager &PM,
+                                   PassBuilder::OptimizationLevel Level) {
+  bool EnableForOpt =
+      shouldEnablePollyForOptimization() && Level.isOptimizingForSpeed();
+  if (!shouldEnablePollyForDiagnostic() && !EnableForOpt)
+    return;
+
+  if (DumpBefore)
+    report_fatal_error("Option -polly-dump-before not supported with NPM",
+                       false);
+  if (!DumpBeforeFile.empty())
+    report_fatal_error("Option -polly-dump-before-file not supported with NPM",
+                       false);
+
+  buildCommonPollyPipeline(PM, Level, EnableForOpt);
 }
 
 /// Register Polly to be available as an optimizer
@@ -777,9 +816,21 @@ void registerPollyPasses(PassBuilder &PB) {
         return parseTopLevelPipeline(MPM, PIC, Pipeline, DebugLogging);
       });
 
-  if (PassPosition != POSITION_BEFORE_VECTORIZER)
-    report_fatal_error("Option -polly-position not supported with NPM", false);
-  PB.registerVectorizerStartEPCallback(buildDefaultPollyPipeline);
+  switch (PassPosition) {
+  case POSITION_EARLY:
+    PB.registerPipelineStartEPCallback(buildEarlyPollyPipeline);
+    break;
+  case POSITION_AFTER_LOOPOPT:
+    report_fatal_error(
+        "Option -polly-position=after-loopopt not supported with NPM", false);
+    break;
+  case POSITION_BEFORE_VECTORIZER:
+    PB.registerVectorizerStartEPCallback(buildLatePollyPipeline);
+    break;
+    break;
+  default:
+    llvm_unreachable("Unknown -polly-position option");
+  }
 }
 } // namespace polly
 

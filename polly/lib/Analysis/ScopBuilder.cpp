@@ -39,6 +39,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
@@ -54,10 +55,17 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include <cassert>
 
 using namespace llvm;
+// namespace cl = llvm::cl;
+// using llvm::seq;
+// using llvm::ICmpInst;
+// using llvm::ConstantInt;
+
 using namespace polly;
+// using MemAccess = polly::MemoryAccess;
 
 #define DEBUG_TYPE "polly-scops"
 
@@ -1139,6 +1147,20 @@ static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
   return Prev.sequence(Succ);
 }
 
+static json::Array *combineInSequence(json::Array *Prev, json::Array *Succ) {
+  if (!Prev)
+    return Succ;
+  if (!Succ)
+    return Prev;
+
+  auto Result = new json::Array();
+  for (auto X : *Prev)
+    Result->emplace_back(X);
+  for (auto X : *Succ)
+    Result->emplace_back(X);
+  return Result;
+}
+
 // Create an isl_multi_union_aff that defines an identity mapping from the
 // elements of USet to their N-th dimension.
 //
@@ -1179,6 +1201,12 @@ void ScopBuilder::buildSchedule() {
   buildSchedule(scop->getRegion().getNode(), LoopStack);
   assert(LoopStack.size() == 1 && LoopStack.back().L == L);
   scop->setScheduleTree(LoopStack[0].Schedule);
+  assert(!this->LoopNest);
+  this->LoopNest = LoopStack[0].Nest;
+  if (!this->LoopNest) {
+    // Ensure member if there is not loop at all (-polly-process-unprofitable)
+    this->LoopNest = new json::Array();
+  }
 }
 
 /// To generate a schedule for the elements in a Region we traverse the Region
@@ -1249,6 +1277,25 @@ void ScopBuilder::buildSchedule(Region *R, LoopStackTy &LoopStack) {
   }
 }
 
+// from LoopUtils.cpp
+static Optional<bool> getOptionalBoolLoopAttribute(const Loop *TheLoop,
+                                                   StringRef Name) {
+  MDNode *MD = findOptionMDForLoop(TheLoop, Name);
+  if (!MD)
+    return None;
+  switch (MD->getNumOperands()) {
+  case 1:
+    // When the value is absent it is interpreted as 'attribute set'.
+    return true;
+  case 2:
+    if (ConstantInt *IntMD =
+            mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get()))
+      return IntMD->getZExtValue();
+    return true;
+  }
+  llvm_unreachable("unexpected number of options");
+}
+
 void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   if (RN->isSubRegion()) {
     auto *LocalRegion = RN->getNodeAs<Region>();
@@ -1266,6 +1313,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     isl::union_set UDomain{Stmt->getDomain()};
     auto StmtSchedule = isl::schedule::from_domain(UDomain);
     LoopData->Schedule = combineInSequence(LoopData->Schedule, StmtSchedule);
+    LoopData->Nest = combineInSequence(LoopData->Nest, nullptr);
   }
 
   // Check if we just processed the last node in this loop. If we did, finalize
@@ -1281,17 +1329,87 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   while (LoopData->L &&
          LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
     isl::schedule Schedule = LoopData->Schedule;
+    auto Subloopnest = LoopData->Nest;
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
+    auto L = LoopData->L;
     ++LoopData;
     --Dimension;
 
     if (Schedule) {
+      bool IsPerfectNest = Schedule.get_root().get_child(0).n_children() ==
+                           1; // Root is a domain node
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
+
+      if (hasDisableAllTransformsHint(L)) {
+        /// If any of the loops has a disable_nonforced heuristic, mark the
+        /// entire SCoP as such. The ISL rescheduler can only reschedule the
+        /// SCoP in its entirety.
+        /// TODO: ScopDetection could avoid including such loops or warp them as
+        /// boxed loop. It still needs to pass-through loop with user-defined
+        /// metadata.
+        scop->markDisableHeuristics();
+      }
+
+      // It is easier to insert the marks here that do it retroactively.
+      isl::id IslLoopId = getIslLoopAttr(scop->getIslCtx(), L);
+      if (IslLoopId)
+        Schedule = Schedule.get_root()
+                       .get_child(0)
+                       .insert_mark(IslLoopId)
+                       .get_schedule();
+
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
+
+      auto LoopId = L->getLoopID();
+      auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
+                          ? LoopId->getOperand(1).get()
+                          : nullptr;
+      auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
+
+      json::Object Loop;
+      if (Start) {
+        Loop["filename"] = Start->getFilename();
+        Loop["directory"] = Start->getDirectory();
+        Loop["path"] = (Twine(Start->getDirectory()) +
+                        llvm::sys::path::get_separator() + Start->getFilename())
+                           .str();
+        if (Start->getSource())
+          Loop["source"] = Start->getSource().getValue().str();
+        Loop["line"] = Start->getLine();
+        Loop["column"] = Start->getColumn();
+      }
+
+      Loop["function"] = RN->getEntry()->getParent()->getName().str();
+      {
+        SmallVector<char, 255> Buf;
+        raw_svector_ostream OS(Buf);
+        RN->getEntry()->printAsOperand(OS, /*PrintType=*/false);
+        Loop["entry"] = Buf;
+      }
+      {
+        BasicBlock *BBExit = RN->getEntry();
+        if (RN->isSubRegion()) {
+          auto *LocalRegion = RN->getNodeAs<Region>();
+          BBExit = LocalRegion->getExit();
+        }
+
+        SmallVector<char, 255> Buf;
+        raw_svector_ostream OS(Buf);
+        BBExit->printAsOperand(OS, /*PrintType=*/false);
+        Loop["exit"] = Buf;
+      }
+
+      if (Subloopnest) {
+        Loop["subloops"] = json::Value(std::move(*Subloopnest));
+        Loop["perfectnest"] = IsPerfectNest;
+      } else
+        Loop["subloops"] = json::Array();
+      auto Nest = new json::Array({std::move(Loop)});
+      LoopData->Nest = combineInSequence(LoopData->Nest, Nest);
     }
 
     LoopData->NumBlocksProcessed += NumBlocksProcessed;
@@ -2278,7 +2396,7 @@ void ScopBuilder::buildAccessFunctions(ScopStmt *Stmt, BasicBlock &BB,
   }
 }
 
-MemoryAccess *ScopBuilder::addMemoryAccess(
+polly::MemoryAccess *ScopBuilder::addMemoryAccess(
     ScopStmt *Stmt, Instruction *Inst, MemoryAccess::AccessType AccType,
     Value *BaseAddress, Type *ElementType, bool Affine, Value *AccessValue,
     ArrayRef<const SCEV *> Subscripts, ArrayRef<const SCEV *> Sizes,
@@ -2675,33 +2793,33 @@ void ScopBuilder::collectSurroundingLoops(ScopStmt &Stmt) {
 }
 
 /// Return the reduction type for a given binary operator.
-static MemoryAccess::ReductionType getReductionType(const BinaryOperator *BinOp,
-                                                    const Instruction *Load) {
+static polly::MemoryAccess::ReductionType
+getReductionType(const BinaryOperator *BinOp, const Instruction *Load) {
   if (!BinOp)
-    return MemoryAccess::RT_NONE;
+    return polly::MemoryAccess::RT_NONE;
   switch (BinOp->getOpcode()) {
-  case Instruction::FAdd:
+  case polly::Instruction::FAdd:
     if (!BinOp->isFast())
-      return MemoryAccess::RT_NONE;
+      return polly::MemoryAccess::RT_NONE;
     LLVM_FALLTHROUGH;
-  case Instruction::Add:
-    return MemoryAccess::RT_ADD;
-  case Instruction::Or:
-    return MemoryAccess::RT_BOR;
-  case Instruction::Xor:
-    return MemoryAccess::RT_BXOR;
-  case Instruction::And:
-    return MemoryAccess::RT_BAND;
-  case Instruction::FMul:
+  case polly::Instruction::Add:
+    return polly::MemoryAccess::RT_ADD;
+  case polly::Instruction::Or:
+    return polly::MemoryAccess::RT_BOR;
+  case polly::Instruction::Xor:
+    return polly::MemoryAccess::RT_BXOR;
+  case polly::Instruction::And:
+    return polly::MemoryAccess::RT_BAND;
+  case polly::Instruction::FMul:
     if (!BinOp->isFast())
-      return MemoryAccess::RT_NONE;
+      return polly::MemoryAccess::RT_NONE;
     LLVM_FALLTHROUGH;
-  case Instruction::Mul:
+  case polly::Instruction::Mul:
     if (DisableMultiplicativeReductions)
-      return MemoryAccess::RT_NONE;
-    return MemoryAccess::RT_MUL;
+      return polly::MemoryAccess::RT_NONE;
+    return polly::MemoryAccess::RT_MUL;
   default:
-    return MemoryAccess::RT_NONE;
+    return polly::MemoryAccess::RT_NONE;
   }
 }
 
@@ -3162,7 +3280,7 @@ void ScopBuilder::collectCandidateReductionLoads(
 /// scop array.
 static const ScopArrayInfo *findCanonicalArray(Scop &S,
                                                MemoryAccessList &Accesses) {
-  for (MemoryAccess *Access : Accesses) {
+  for (polly::MemoryAccess *Access : Accesses) {
     const ScopArrayInfo *CanonicalArray = S.getScopArrayInfoOrNull(
         Access->getAccessInstruction(), MemoryKind::Array);
     if (CanonicalArray)
@@ -3174,7 +3292,7 @@ static const ScopArrayInfo *findCanonicalArray(Scop &S,
 /// Check if @p Array severs as base array in an invariant load.
 static bool isUsedForIndirectHoistedLoad(Scop &S, const ScopArrayInfo *Array) {
   for (InvariantEquivClassTy &EqClass2 : S.getInvariantAccesses())
-    for (MemoryAccess *Access2 : EqClass2.InvariantAccesses)
+    for (polly::MemoryAccess *Access2 : EqClass2.InvariantAccesses)
       if (Access2->getScopArrayInfo() == Array)
         return true;
   return false;
@@ -3185,7 +3303,7 @@ static bool isUsedForIndirectHoistedLoad(Scop &S, const ScopArrayInfo *Array) {
 static void replaceBasePtrArrays(Scop &S, const ScopArrayInfo *Old,
                                  const ScopArrayInfo *New) {
   for (ScopStmt &Stmt : S)
-    for (MemoryAccess *Access : Stmt) {
+    for (polly::MemoryAccess *Access : Stmt) {
       if (Access->getLatestScopArrayInfo() != Old)
         continue;
 
@@ -3359,7 +3477,7 @@ bool ScopBuilder::calculateMinMaxAccess(AliasGroupTy AliasGroup,
   return !LimitReached;
 }
 
-static isl::set getAccessDomain(MemoryAccess *MA) {
+static isl::set getAccessDomain(polly::MemoryAccess *MA) {
   isl::set Domain = MA->getStatement()->getDomain();
   Domain = Domain.project_out(isl::dim::set, 0, Domain.n_dim());
   return Domain.reset_tuple_id();
