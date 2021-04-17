@@ -55,7 +55,7 @@ int main() {
 // TRANS:         %polly.indvar_next = add nsw i64 %polly.indvar, 1
 // TRANS:         %exitcond.not = icmp eq i64 %polly.indvar, %smax
 // TRANS:       polly.loop_preheader:
-// TRANS:         %smax = tail call i64 @llvm.smax.i64(i64 %1, i64 0)
+// TRANS:         %smax = call i64 @llvm.smax.i64(i64 %1, i64 0)
 
 
 // RESULT: (43)
