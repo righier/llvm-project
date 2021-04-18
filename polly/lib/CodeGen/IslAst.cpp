@@ -269,10 +269,10 @@ static __isl_give isl_id *astBuildBeforeFor(__isl_keep isl_ast_build *Build,
   Payload->IsForcedThreadParallel =
       BuildInfo->ForceParallelizeDepth > 0 &&
       (BuildInfo->CurLoopDepth == BuildInfo->ForceParallelizeDepth);
-  Payload->IsParallel =
-      Payload->IsForcedThreadParallel ||
-      (PerformParallelTest &&
-       astScheduleDimIsParallel(isl::manage_copy(Build), BuildInfo->Deps, Payload));
+  Payload->IsParallel = Payload->IsForcedThreadParallel ||
+                        (PerformParallelTest &&
+                         astScheduleDimIsParallel(isl::manage_copy(Build),
+                                                  BuildInfo->Deps, Payload));
 
   // Test for parallelism only if we are not already inside a parallel loop
   if (!BuildInfo->InParallelFor && !BuildInfo->InSIMD)
