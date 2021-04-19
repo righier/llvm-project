@@ -1333,7 +1333,9 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
-    auto L = LoopData->L;
+
+    Loop *L = LoopData->L;
+
     ++LoopData;
     --Dimension;
 
@@ -1343,6 +1345,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
+
 
       if (hasDisableAllTransformsHint(L)) {
         /// If any of the loops has a disable_nonforced heuristic, mark the
@@ -1361,6 +1364,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
                        .get_child(0)
                        .insert_mark(IslLoopId)
                        .get_schedule();
+
 
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
 

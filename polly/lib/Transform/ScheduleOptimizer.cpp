@@ -263,11 +263,13 @@ static cl::list<int>
                       cl::Hidden, cl::ZeroOrMore, cl::CommaSeparated,
                       cl::cat(PollyCategory));
 
+#if 0
 static cl::opt<bool> EnablePragmaBasedOpts(
     "polly-pragma-based-opts",
     cl::desc("Apply pragma transformations instead heuristics "
              "(if any pragma is present)"),
     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+#endif
 
 static cl::opt<bool> EnableReschedule("polly-reschedule",
                                       cl::desc("Optimize SCoPs using ISL"),
@@ -279,6 +281,13 @@ static cl::opt<bool>
                    cl::desc("Perform post-rescheduling optimizations "
                             "(pattern-matching and tiling)"),
                    cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+
+static cl::opt<bool> PragmaBasedOpts(
+    "polly-pragma-based-opts",
+    cl::desc("Apply user-directed transformation from metadata"),
+    cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
+
 
 static cl::opt<bool>
     PMBasedOpts("polly-pattern-matching-based-opts",
@@ -1821,8 +1830,7 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
 static bool runIslScheduleOptimizer(
     Scop &S,
     function_ref<const Dependences &(Dependences::AnalysisLevel)> GetDeps,
-    TargetTransformInfo *TTI, OptimizationRemarkEmitter &ORE,
-    isl::schedule &LastSchedule) {
+    TargetTransformInfo *TTI, OptimizationRemarkEmitter &ORE, isl::schedule &LastSchedule) {
 
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
   if (S.isToBeSkipped())
@@ -1835,31 +1843,66 @@ static bool runIslScheduleOptimizer(
     return false;
   }
 
+
   const Dependences &D = GetDeps(Dependences::AL_Statement);
   if (D.getSharedIslCtx() != S.getSharedIslCtx()) {
     LLVM_DEBUG(dbgs() << "DependenceInfo for another SCoP/isl_ctx\n");
     return false;
   }
-  if (!D.hasValidDependences())
-    return false;
 
-  isl_ctx *Ctx = S.getIslCtx().get();
-  isl_options_set_tile_scale_tile_loops(Ctx, 0);
+  ScopsProcessed++;
 
   // Schedule without optimizations.
   isl::schedule Schedule = S.getScheduleTree();
 
+  walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
+  LLVM_DEBUG(printSchedule(dbgs(), Schedule, "Original schedule tree"));
+
   bool HasUserTransformation = false;
-  if (EnablePragmaBasedOpts) {
+  if (PragmaBasedOpts) {
     isl::schedule ManuallyTransformed =
-        applyManualTransformations(S, Schedule, D, &ORE);
+      applyManualTransformations(S, Schedule, D, &ORE);
     if (ManuallyTransformed) {
       // User transformations have precedence over other transformations.
       HasUserTransformation = true;
       Schedule = ManuallyTransformed;
     }
+
+    if (ManuallyTransformed.get() != Schedule.get()) {
+      // User transformations have precedence over other transformations.
+      HasUserTransformation = true;
+      Schedule = std::move(ManuallyTransformed);
+      LLVM_DEBUG(
+          printSchedule(dbgs(), Schedule, "After manual transformations"));
+    }
   }
 
+
+  if (!D.hasValidDependences())
+    return false;
+
+  // Only continue if either manual transformations have been applied or we are
+  // allowed to apply heuristics.
+  // TODO: Detect disabled heuristics and no user-directed transformation
+  // metadata earlier in ScopDetection.
+  if (!HasUserTransformation && S.hasDisableHeuristicsHint()) {
+    LLVM_DEBUG(dbgs() << "Heuristic optimizations disabled by metadata\n");
+    return false;
+  }
+
+
+  isl_ctx *Ctx = S.getIslCtx().get();
+  isl_options_set_tile_scale_tile_loops(Ctx, 0);
+
+
+
+
+
+  // Apply ISL's algorithm only if not overriden by the user. Note that
+  // post-rescheduling optimizations (tiling, pattern-based, prevectorization)
+  // rely on the coincidence/permutable annotations on schedule tree bands that
+  // are added by the rescheduling analyzer. Therefore, disabling the
+  // rescheduler implicitly also disables these optimizations.
   if (!HasUserTransformation && !S.hasDisableHeuristicsHint() &&
       EnableReschedule) {
     // Build input data.
@@ -1881,11 +1924,23 @@ static bool runIslScheduleOptimizer(
 
     isl::union_set Domain = S.getDomains();
 
+
+
     if (!Domain)
       return false;
 
+
+
+
+
+
+
+
+
     ScopsProcessed++;
     walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
+
+
 
     isl::union_map Validity = D.getDependences(ValidityKinds);
     isl::union_map Proximity = D.getDependences(ProximityKinds);
@@ -1908,13 +1963,14 @@ static bool runIslScheduleOptimizer(
              "or 'no'. Falling back to default: 'yes'\n";
     }
 
+
+
     LLVM_DEBUG(dbgs() << "\n\nCompute schedule from: ");
     LLVM_DEBUG(dbgs() << "Domain := " << Domain << ";\n");
     LLVM_DEBUG(dbgs() << "Proximity := " << Proximity << ";\n");
     LLVM_DEBUG(dbgs() << "Validity := " << Validity << ";\n");
 
     unsigned IslSerializeSCCs;
-
     if (FusionStrategy == "max") {
       IslSerializeSCCs = 0;
     } else if (FusionStrategy == "min") {
@@ -1925,8 +1981,9 @@ static bool runIslScheduleOptimizer(
       IslSerializeSCCs = 0;
     }
 
-    int IslMaximizeBands;
 
+
+    int IslMaximizeBands;
     if (MaximizeBandDepth == "yes") {
       IslMaximizeBands = 1;
     } else if (MaximizeBandDepth == "no") {
@@ -1938,8 +1995,9 @@ static bool runIslScheduleOptimizer(
       IslMaximizeBands = 1;
     }
 
-    int IslOuterCoincidence;
 
+
+    int IslOuterCoincidence;
     if (OuterCoincidence == "yes") {
       IslOuterCoincidence = 1;
     } else if (OuterCoincidence == "no") {
@@ -1950,14 +2008,22 @@ static bool runIslScheduleOptimizer(
       IslOuterCoincidence = 0;
     }
 
+    isl_ctx *Ctx = S.getIslCtx().get();
+
+
+
     isl_options_set_schedule_outer_coincidence(Ctx, IslOuterCoincidence);
     isl_options_set_schedule_serialize_sccs(Ctx, IslSerializeSCCs);
     isl_options_set_schedule_maximize_band_depth(Ctx, IslMaximizeBands);
     isl_options_set_schedule_max_constant_term(Ctx, MaxConstantTerm);
     isl_options_set_schedule_max_coefficient(Ctx, MaxCoefficient);
+// isl_options_set_tile_scale_tile_loops(Ctx, 0);
+
 
     int OnErrorStatus = isl_options_get_on_error(Ctx);
     isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
+
+
 
     isl::schedule_constraints SC = isl::schedule_constraints::on_domain(Domain);
     SC = SC.set_proximity(Proximity);
@@ -1977,21 +2043,17 @@ static bool runIslScheduleOptimizer(
   if (!Schedule)
     return false;
 
-  /// Apply post-rescheduling optimizations (if enabled) and/or
-  /// prevectorization.
+  // Apply post-rescheduling optimizations (if enabled) and/or prevectorization.
   const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D),
-                                         /*Postopts=*/!HasUserTransformation &&
-                                             EnablePostopts};
+                                         /*Postopts=*/!HasUserTransformation &&  EnablePostopts};
   Schedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
   Schedule = hoistExtensionNodes(Schedule);
-
   LLVM_DEBUG(printSchedule(dbgs(), Schedule, "After post-optimizations"));
   walkScheduleTreeForStatistics(Schedule, 2);
 
   // A user transformation may include parallelization, which is not reflected
   // in the schedule.
-  if (!HasUserTransformation &&
-      !ScheduleTreeOptimizer::isProfitableSchedule(S, Schedule))
+  if (!HasUserTransformation && !ScheduleTreeOptimizer::isProfitableSchedule(S, Schedule))
     return false;
 
   auto ScopStats = S.getStatistics();

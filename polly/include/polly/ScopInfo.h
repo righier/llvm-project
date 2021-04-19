@@ -1894,6 +1894,9 @@ private:
   /// in a schedule tree is given in the isl manual.
   isl::schedule Schedule = nullptr;
 
+  /// Is this Scop marked as not to be transformed by an optimization heuristic?
+  bool HasDisableHeuristicsHint = false;
+
   /// Whether the schedule has been modified after derived from the CFG by
   /// ScopBuilder.
   bool ScheduleModified = false;
@@ -1929,8 +1932,7 @@ private:
   /// A number that uniquely represents a Scop within its function
   const int ID;
 
-  /// Is this Scop marked as not to be transformed by an optimization heuristic?
-  bool HasDisableHeuristicsHint = false;
+
 
   /// Map of values to the MemoryAccess that writes its definition.
   ///
