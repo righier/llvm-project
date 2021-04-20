@@ -188,11 +188,7 @@ private:
                           SDValue &Offset1, unsigned Size) const;
   bool SelectMUBUF(SDValue Addr, SDValue &SRsrc, SDValue &VAddr,
                    SDValue &SOffset, SDValue &Offset, SDValue &Offen,
-                   SDValue &Idxen, SDValue &Addr64, SDValue &CPol, SDValue &TFE,
-                   SDValue &SWZ) const;
-  bool SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc, SDValue &VAddr,
-                         SDValue &SOffset, SDValue &Offset, SDValue &CPol,
-                         SDValue &TFE, SDValue &SWZ) const;
+                   SDValue &Idxen, SDValue &Addr64) const;
   bool SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc, SDValue &VAddr,
                          SDValue &SOffset, SDValue &Offset) const;
   bool SelectMUBUFScratchOffen(SDNode *Parent,
@@ -202,15 +198,17 @@ private:
                                 SDValue Addr, SDValue &SRsrc, SDValue &Soffset,
                                 SDValue &Offset) const;
 
-  bool SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc, SDValue &SOffset,
-                         SDValue &Offset, SDValue &CPol, SDValue &TFE,
-                         SDValue &SWZ) const;
   bool SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc, SDValue &Soffset,
                          SDValue &Offset) const;
 
-  template <bool IsSigned>
+  bool SelectFlatOffsetImpl(SDNode *N, SDValue Addr, SDValue &VAddr,
+                            SDValue &Offset, uint64_t FlatVariant) const;
   bool SelectFlatOffset(SDNode *N, SDValue Addr, SDValue &VAddr,
                         SDValue &Offset) const;
+  bool SelectGlobalOffset(SDNode *N, SDValue Addr, SDValue &VAddr,
+                          SDValue &Offset) const;
+  bool SelectScratchOffset(SDNode *N, SDValue Addr, SDValue &VAddr,
+                           SDValue &Offset) const;
   bool SelectGlobalSAddr(SDNode *N, SDValue Addr, SDValue &SAddr,
                          SDValue &VOffset, SDValue &Offset) const;
   bool SelectScratchSAddr(SDNode *N, SDValue Addr, SDValue &SAddr,
@@ -1390,19 +1388,13 @@ bool AMDGPUDAGToDAGISel::SelectDSReadWrite2(SDValue Addr, SDValue &Base,
 bool AMDGPUDAGToDAGISel::SelectMUBUF(SDValue Addr, SDValue &Ptr, SDValue &VAddr,
                                      SDValue &SOffset, SDValue &Offset,
                                      SDValue &Offen, SDValue &Idxen,
-                                     SDValue &Addr64, SDValue &CPol,
-                                     SDValue &TFE, SDValue &SWZ) const {
+                                     SDValue &Addr64) const {
   // Subtarget prefers to use flat instruction
   // FIXME: This should be a pattern predicate and not reach here
   if (Subtarget->useFlatForGlobal())
     return false;
 
   SDLoc DL(Addr);
-
-  if (!CPol)
-    CPol = CurDAG->getTargetConstant(0, DL, MVT::i32);
-  TFE = CurDAG->getTargetConstant(0, DL, MVT::i1);
-  SWZ = CurDAG->getTargetConstant(0, DL, MVT::i1);
 
   Idxen = CurDAG->getTargetConstant(0, DL, MVT::i1);
   Offen = CurDAG->getTargetConstant(0, DL, MVT::i1);
@@ -1480,8 +1472,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUF(SDValue Addr, SDValue &Ptr, SDValue &VAddr,
 
 bool AMDGPUDAGToDAGISel::SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc,
                                            SDValue &VAddr, SDValue &SOffset,
-                                           SDValue &Offset, SDValue &CPol,
-                                           SDValue &TFE, SDValue &SWZ) const {
+                                           SDValue &Offset) const {
   SDValue Ptr, Offen, Idxen, Addr64;
 
   // addr64 bit was removed for volcanic islands.
@@ -1489,8 +1480,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc,
   if (!Subtarget->hasAddr64())
     return false;
 
-  if (!SelectMUBUF(Addr, Ptr, VAddr, SOffset, Offset, Offen, Idxen, Addr64,
-                   CPol, TFE, SWZ))
+  if (!SelectMUBUF(Addr, Ptr, VAddr, SOffset, Offset, Offen, Idxen, Addr64))
     return false;
 
   ConstantSDNode *C = cast<ConstantSDNode>(Addr64);
@@ -1505,14 +1495,6 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc,
   }
 
   return false;
-}
-
-bool AMDGPUDAGToDAGISel::SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc,
-                                           SDValue &VAddr, SDValue &SOffset,
-                                           SDValue &Offset) const {
-  SDValue CPol, TFE, SWZ;
-
-  return SelectMUBUFAddr64(Addr, SRsrc, VAddr, SOffset, Offset, CPol, TFE, SWZ);
 }
 
 static bool isStackPtrRelative(const MachinePointerInfo &PtrInfo) {
@@ -1633,15 +1615,13 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFScratchOffset(SDNode *Parent,
 }
 
 bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
-                                           SDValue &SOffset, SDValue &Offset,
-                                           SDValue &CPol, SDValue &TFE,
-                                           SDValue &SWZ) const {
+                                           SDValue &SOffset, SDValue &Offset
+                                           ) const {
   SDValue Ptr, VAddr, Offen, Idxen, Addr64;
   const SIInstrInfo *TII =
     static_cast<const SIInstrInfo *>(Subtarget->getInstrInfo());
 
-  if (!SelectMUBUF(Addr, Ptr, VAddr, SOffset, Offset, Offen, Idxen, Addr64,
-                   CPol, TFE, SWZ))
+  if (!SelectMUBUF(Addr, Ptr, VAddr, SOffset, Offset, Offen, Idxen, Addr64))
     return false;
 
   if (!cast<ConstantSDNode>(Offen)->getSExtValue() &&
@@ -1660,14 +1640,6 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
   return false;
 }
 
-bool AMDGPUDAGToDAGISel::SelectMUBUFOffset(SDValue Addr, SDValue &SRsrc,
-                                           SDValue &Soffset, SDValue &Offset
-                                           ) const {
-  SDValue CPol, TFE, SWZ;
-
-  return SelectMUBUFOffset(Addr, SRsrc, Soffset, Offset, CPol, TFE, SWZ);
-}
-
 // Find a load or store from corresponding pattern root.
 // Roots may be build_vector, bitconvert or their combinations.
 static MemSDNode* findMemSDNode(SDNode *N) {
@@ -1682,24 +1654,25 @@ static MemSDNode* findMemSDNode(SDNode *N) {
   llvm_unreachable("cannot find MemSDNode in the pattern!");
 }
 
-template <bool IsSigned>
-bool AMDGPUDAGToDAGISel::SelectFlatOffset(SDNode *N,
-                                          SDValue Addr,
-                                          SDValue &VAddr,
-                                          SDValue &Offset) const {
+bool AMDGPUDAGToDAGISel::SelectFlatOffsetImpl(SDNode *N, SDValue Addr,
+                                              SDValue &VAddr, SDValue &Offset,
+                                              uint64_t FlatVariant) const {
   int64_t OffsetVal = 0;
 
   unsigned AS = findMemSDNode(N)->getAddressSpace();
 
-  if (Subtarget->hasFlatInstOffsets() &&
-      (!Subtarget->hasFlatSegmentOffsetBug() ||
-       AS != AMDGPUAS::FLAT_ADDRESS)) {
+  bool CanHaveFlatSegmentOffsetBug =
+      Subtarget->hasFlatSegmentOffsetBug() &&
+      FlatVariant == SIInstrFlags::FLAT &&
+      (AS == AMDGPUAS::FLAT_ADDRESS || AS == AMDGPUAS::GLOBAL_ADDRESS);
+
+  if (Subtarget->hasFlatInstOffsets() && !CanHaveFlatSegmentOffsetBug) {
     SDValue N0, N1;
     if (isBaseWithConstantOffset64(Addr, N0, N1)) {
       uint64_t COffsetVal = cast<ConstantSDNode>(N1)->getSExtValue();
 
       const SIInstrInfo *TII = Subtarget->getInstrInfo();
-      if (TII->isLegalFLATOffset(COffsetVal, AS, IsSigned)) {
+      if (TII->isLegalFLATOffset(COffsetVal, AS, FlatVariant)) {
         Addr = N0;
         OffsetVal = COffsetVal;
       } else {
@@ -1716,8 +1689,8 @@ bool AMDGPUDAGToDAGISel::SelectFlatOffset(SDNode *N,
         SDLoc DL(N);
         uint64_t RemainderOffset;
 
-        std::tie(OffsetVal, RemainderOffset)
-          = TII->splitFlatOffset(COffsetVal, AS, IsSigned);
+        std::tie(OffsetVal, RemainderOffset) =
+            TII->splitFlatOffset(COffsetVal, AS, FlatVariant);
 
         SDValue AddOffsetLo =
             getMaterializedScalarImm32(Lo_32(RemainderOffset), DL);
@@ -1774,6 +1747,25 @@ bool AMDGPUDAGToDAGISel::SelectFlatOffset(SDNode *N,
   return true;
 }
 
+bool AMDGPUDAGToDAGISel::SelectFlatOffset(SDNode *N, SDValue Addr,
+                                          SDValue &VAddr,
+                                          SDValue &Offset) const {
+  return SelectFlatOffsetImpl(N, Addr, VAddr, Offset, SIInstrFlags::FLAT);
+}
+
+bool AMDGPUDAGToDAGISel::SelectGlobalOffset(SDNode *N, SDValue Addr,
+                                            SDValue &VAddr,
+                                            SDValue &Offset) const {
+  return SelectFlatOffsetImpl(N, Addr, VAddr, Offset, SIInstrFlags::FlatGlobal);
+}
+
+bool AMDGPUDAGToDAGISel::SelectScratchOffset(SDNode *N, SDValue Addr,
+                                             SDValue &VAddr,
+                                             SDValue &Offset) const {
+  return SelectFlatOffsetImpl(N, Addr, VAddr, Offset,
+                              SIInstrFlags::FlatScratch);
+}
+
 // If this matches zero_extend i32:x, return x
 static SDValue matchZExtFromI32(SDValue Op) {
   if (Op.getOpcode() != ISD::ZERO_EXTEND)
@@ -1799,7 +1791,8 @@ bool AMDGPUDAGToDAGISel::SelectGlobalSAddr(SDNode *N,
     int64_t COffsetVal = cast<ConstantSDNode>(RHS)->getSExtValue();
     const SIInstrInfo *TII = Subtarget->getInstrInfo();
 
-    if (TII->isLegalFLATOffset(COffsetVal, AMDGPUAS::GLOBAL_ADDRESS, true)) {
+    if (TII->isLegalFLATOffset(COffsetVal, AMDGPUAS::GLOBAL_ADDRESS,
+                               SIInstrFlags::FlatGlobal)) {
       Addr = LHS;
       ImmOffset = COffsetVal;
     } else if (!LHS->isDivergent() && COffsetVal > 0) {
@@ -1807,8 +1800,8 @@ bool AMDGPUDAGToDAGISel::SelectGlobalSAddr(SDNode *N,
       // saddr + large_offset -> saddr + (voffset = large_offset & ~MaxOffset) +
       //                         (large_offset & MaxOffset);
       int64_t SplitImmOffset, RemainderOffset;
-      std::tie(SplitImmOffset, RemainderOffset)
-        = TII->splitFlatOffset(COffsetVal, AMDGPUAS::GLOBAL_ADDRESS, true);
+      std::tie(SplitImmOffset, RemainderOffset) = TII->splitFlatOffset(
+          COffsetVal, AMDGPUAS::GLOBAL_ADDRESS, SIInstrFlags::FlatGlobal);
 
       if (isUInt<32>(RemainderOffset)) {
         SDNode *VMov = CurDAG->getMachineNode(
@@ -1865,6 +1858,24 @@ bool AMDGPUDAGToDAGISel::SelectGlobalSAddr(SDNode *N,
   return true;
 }
 
+static SDValue SelectSAddrFI(SelectionDAG *CurDAG, SDValue SAddr) {
+  if (auto FI = dyn_cast<FrameIndexSDNode>(SAddr)) {
+    SAddr = CurDAG->getTargetFrameIndex(FI->getIndex(), FI->getValueType(0));
+  } else if (SAddr.getOpcode() == ISD::ADD &&
+             isa<FrameIndexSDNode>(SAddr.getOperand(0))) {
+    // Materialize this into a scalar move for scalar address to avoid
+    // readfirstlane.
+    auto FI = cast<FrameIndexSDNode>(SAddr.getOperand(0));
+    SDValue TFI = CurDAG->getTargetFrameIndex(FI->getIndex(),
+                                              FI->getValueType(0));
+    SAddr = SDValue(CurDAG->getMachineNode(AMDGPU::S_ADD_U32, SDLoc(SAddr),
+                                           MVT::i32, TFI, SAddr.getOperand(1)),
+                    0);
+  }
+
+  return SAddr;
+}
+
 // Match (32-bit SGPR base) + sext(imm offset)
 bool AMDGPUDAGToDAGISel::SelectScratchSAddr(SDNode *N,
                                             SDValue Addr,
@@ -1881,30 +1892,20 @@ bool AMDGPUDAGToDAGISel::SelectScratchSAddr(SDNode *N,
     SAddr = Addr.getOperand(0);
   }
 
-  if (auto FI = dyn_cast<FrameIndexSDNode>(SAddr)) {
-    SAddr = CurDAG->getTargetFrameIndex(FI->getIndex(), FI->getValueType(0));
-  } else if (SAddr.getOpcode() == ISD::ADD &&
-             isa<FrameIndexSDNode>(SAddr.getOperand(0))) {
-    // Materialize this into a scalar move for scalar address to avoid
-    // readfirstlane.
-    auto FI = cast<FrameIndexSDNode>(SAddr.getOperand(0));
-    SDValue TFI = CurDAG->getTargetFrameIndex(FI->getIndex(),
-                                              FI->getValueType(0));
-    SAddr = SDValue(CurDAG->getMachineNode(AMDGPU::S_ADD_U32, SDLoc(SAddr),
-                                           MVT::i32, TFI, SAddr.getOperand(1)),
-                    0);
-  }
+  SAddr = SelectSAddrFI(CurDAG, SAddr);
 
   const SIInstrInfo *TII = Subtarget->getInstrInfo();
 
-  if (!TII->isLegalFLATOffset(COffsetVal, AMDGPUAS::PRIVATE_ADDRESS, true)) {
+  if (!TII->isLegalFLATOffset(COffsetVal, AMDGPUAS::PRIVATE_ADDRESS,
+                              SIInstrFlags::FlatScratch)) {
     const unsigned NumBits = AMDGPU::getNumFlatOffsetBits(*Subtarget, true);
     // Use signed division by a power of two to truncate towards 0.
     int64_t D = 1LL << (NumBits - 1);
     int64_t RemainderOffset = (COffsetVal / D) * D;
     int64_t ImmField = COffsetVal - RemainderOffset;
 
-    assert(TII->isLegalFLATOffset(ImmField, AMDGPUAS::PRIVATE_ADDRESS, true));
+    assert(TII->isLegalFLATOffset(ImmField, AMDGPUAS::PRIVATE_ADDRESS,
+                                  SIInstrFlags::FlatScratch));
     assert(RemainderOffset + ImmField == COffsetVal);
 
     COffsetVal = ImmField;

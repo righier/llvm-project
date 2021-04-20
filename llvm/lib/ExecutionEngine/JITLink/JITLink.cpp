@@ -51,7 +51,7 @@ namespace jitlink {
 
 char JITLinkError::ID = 0;
 
-void JITLinkError::log(raw_ostream &OS) const { OS << ErrMsg << "\n"; }
+void JITLinkError::log(raw_ostream &OS) const { OS << ErrMsg; }
 
 std::error_code JITLinkError::convertToErrorCode() const {
   return std::error_code(GenericJITLinkError, *JITLinkerErrorCategory);
@@ -193,12 +193,12 @@ Block &LinkGraph::splitBlock(Block &B, size_t SplitIndex,
           ? createZeroFillBlock(B.getSection(), SplitIndex, B.getAddress(),
                                 B.getAlignment(), B.getAlignmentOffset())
           : createContentBlock(
-                B.getSection(), B.getContent().substr(0, SplitIndex),
+                B.getSection(), B.getContent().slice(0, SplitIndex),
                 B.getAddress(), B.getAlignment(), B.getAlignmentOffset());
 
   // Modify B to cover [ SplitIndex, B.size() ).
   B.setAddress(B.getAddress() + SplitIndex);
-  B.setContent(B.getContent().substr(SplitIndex));
+  B.setContent(B.getContent().slice(SplitIndex));
   B.setAlignmentOffset((B.getAlignmentOffset() + SplitIndex) %
                        B.getAlignment());
 
@@ -309,14 +309,35 @@ Error markAllSymbolsLive(LinkGraph &G) {
   return Error::success();
 }
 
-Error makeTargetOutOfRangeError(const Block &B, const Edge &E,
-                                const char *(*getEdgeKindName)(Edge::Kind)) {
+Error makeTargetOutOfRangeError(const LinkGraph &G, const Block &B,
+                                const Edge &E) {
   std::string ErrMsg;
   {
     raw_string_ostream ErrStream(ErrMsg);
-    ErrStream << "Relocation target out of range: ";
-    printEdge(ErrStream, B, E, getEdgeKindName(E.getKind()));
-    ErrStream << "\n";
+    Section &Sec = B.getSection();
+    ErrStream << "In graph " << G.getName() << ", section " << Sec.getName()
+              << ": relocation target ";
+    if (E.getTarget().hasName())
+      ErrStream << "\"" << E.getTarget().getName() << "\" ";
+    ErrStream << "at address " << formatv("{0:x}", E.getTarget().getAddress());
+    ErrStream << " is out of range of " << G.getEdgeKindName(E.getKind())
+              << " fixup at " << formatv("{0:x}", B.getFixupAddress(E)) << " (";
+
+    Symbol *BestSymbolForBlock = nullptr;
+    for (auto *Sym : Sec.symbols())
+      if (&Sym->getBlock() == &B && Sym->hasName() && Sym->getOffset() == 0 &&
+          (!BestSymbolForBlock ||
+           Sym->getScope() < BestSymbolForBlock->getScope() ||
+           Sym->getLinkage() < BestSymbolForBlock->getLinkage()))
+        BestSymbolForBlock = Sym;
+
+    if (BestSymbolForBlock)
+      ErrStream << BestSymbolForBlock->getName() << ", ";
+    else
+      ErrStream << "<anonymous block> @ ";
+
+    ErrStream << formatv("{0:x}", B.getAddress()) << " + "
+              << formatv("{0:x}", E.getOffset()) << ")";
   }
   return make_error<JITLinkError>(std::move(ErrMsg));
 }

@@ -387,6 +387,11 @@ Constant *llvm::ConstantFoldLoadThroughBitcast(Constant *C, Type *DestTy,
         return ConstantExpr::getCast(Cast, C, DestTy);
     }
 
+    // If this isn't an aggregate type, there is nothing we can do to drill down
+    // and find a bitcastable constant.
+    if (!SrcTy->isAggregateType() && !SrcTy->isVectorTy())
+      return nullptr;
+
     // We're simulating a load through a pointer that was bitcast to point to
     // a different type, so we can try to walk down through the initial
     // elements of an aggregate to see if some part of the aggregate is
@@ -1488,8 +1493,6 @@ bool llvm::canConstantFoldCallTo(const CallBase *Call, const Function *F) {
   // WebAssembly float semantics are always known
   case Intrinsic::wasm_trunc_signed:
   case Intrinsic::wasm_trunc_unsigned:
-  case Intrinsic::wasm_trunc_saturate_signed:
-  case Intrinsic::wasm_trunc_saturate_unsigned:
     return true;
 
   // Floating point operations cannot be folded in strictfp functions in
@@ -1891,17 +1894,11 @@ static Constant *ConstantFoldScalarCall1(StringRef Name,
     APFloat U = Op->getValueAPF();
 
     if (IntrinsicID == Intrinsic::wasm_trunc_signed ||
-        IntrinsicID == Intrinsic::wasm_trunc_unsigned ||
-        IntrinsicID == Intrinsic::wasm_trunc_saturate_signed ||
-        IntrinsicID == Intrinsic::wasm_trunc_saturate_unsigned) {
-
-      bool Saturating = IntrinsicID == Intrinsic::wasm_trunc_saturate_signed ||
-                        IntrinsicID == Intrinsic::wasm_trunc_saturate_unsigned;
-      bool Signed = IntrinsicID == Intrinsic::wasm_trunc_signed ||
-                    IntrinsicID == Intrinsic::wasm_trunc_saturate_signed;
+        IntrinsicID == Intrinsic::wasm_trunc_unsigned) {
+      bool Signed = IntrinsicID == Intrinsic::wasm_trunc_signed;
 
       if (U.isNaN())
-        return Saturating ? ConstantInt::get(Ty, 0) : nullptr;
+        return nullptr;
 
       unsigned Width = Ty->getIntegerBitWidth();
       APSInt Int(Width, !Signed);
@@ -1912,15 +1909,7 @@ static Constant *ConstantFoldScalarCall1(StringRef Name,
       if (Status == APFloat::opOK || Status == APFloat::opInexact)
         return ConstantInt::get(Ty, Int);
 
-      if (!Saturating)
-        return nullptr;
-
-      if (U.isNegative())
-        return Signed ? ConstantInt::get(Ty, APInt::getSignedMinValue(Width))
-                      : ConstantInt::get(Ty, APInt::getMinValue(Width));
-      else
-        return Signed ? ConstantInt::get(Ty, APInt::getSignedMaxValue(Width))
-                      : ConstantInt::get(Ty, APInt::getMaxValue(Width));
+      return nullptr;
     }
 
     if (IntrinsicID == Intrinsic::fptoui_sat ||
@@ -2514,16 +2503,19 @@ static Constant *ConstantFoldScalarCall2(StringRef Name,
 
     case Intrinsic::usub_with_overflow:
     case Intrinsic::ssub_with_overflow:
+      // X - undef -> { 0, false }
+      // undef - X -> { 0, false }
+      if (!C0 || !C1)
+        return Constant::getNullValue(Ty);
+      LLVM_FALLTHROUGH;
     case Intrinsic::uadd_with_overflow:
     case Intrinsic::sadd_with_overflow:
-      // X - undef -> { undef, false }
-      // undef - X -> { undef, false }
-      // X + undef -> { undef, false }
-      // undef + x -> { undef, false }
+      // X + undef -> { -1, false }
+      // undef + x -> { -1, false }
       if (!C0 || !C1) {
         return ConstantStruct::get(
             cast<StructType>(Ty),
-            {UndefValue::get(Ty->getStructElementType(0)),
+            {Constant::getAllOnesValue(Ty->getStructElementType(0)),
              Constant::getNullValue(Ty->getStructElementType(1))});
       }
       LLVM_FALLTHROUGH;

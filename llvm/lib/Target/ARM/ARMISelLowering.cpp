@@ -21,6 +21,7 @@
 #include "ARMRegisterInfo.h"
 #include "ARMSelectionDAGInfo.h"
 #include "ARMSubtarget.h"
+#include "ARMTargetTransformInfo.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
 #include "MCTargetDesc/ARMBaseInfo.h"
 #include "Utils/ARMBaseInfo.h"
@@ -6966,35 +6967,6 @@ static bool isVEXTMask(ArrayRef<int> M, EVT VT,
   return true;
 }
 
-/// isVREVMask - Check if a vector shuffle corresponds to a VREV
-/// instruction with the specified blocksize.  (The order of the elements
-/// within each block of the vector is reversed.)
-static bool isVREVMask(ArrayRef<int> M, EVT VT, unsigned BlockSize) {
-  assert((BlockSize==16 || BlockSize==32 || BlockSize==64) &&
-         "Only possible block sizes for VREV are: 16, 32, 64");
-
-  unsigned EltSz = VT.getScalarSizeInBits();
-  if (EltSz == 64)
-    return false;
-
-  unsigned NumElts = VT.getVectorNumElements();
-  unsigned BlockElts = M[0] + 1;
-  // If the first shuffle index is UNDEF, be optimistic.
-  if (M[0] < 0)
-    BlockElts = BlockSize / EltSz;
-
-  if (BlockSize <= EltSz || BlockSize != BlockElts * EltSz)
-    return false;
-
-  for (unsigned i = 0; i < NumElts; ++i) {
-    if (M[i] < 0) continue; // ignore UNDEF indices
-    if ((unsigned) M[i] != (i - i%BlockElts) + (BlockElts - 1 - i%BlockElts))
-      return false;
-  }
-
-  return true;
-}
-
 static bool isVTBLMask(ArrayRef<int> M, EVT VT) {
   // We can handle <8 x i8> vector shuffles. If the index in the mask is out of
   // range, then 0 is placed into the resulting vector. So pretty much any mask
@@ -12761,6 +12733,27 @@ static SDValue PerformADDCombine(SDNode *N,
   return PerformADDCombineWithOperands(N, N1, N0, DCI, Subtarget);
 }
 
+// Combine (sub 0, (csinc X, Y, CC)) -> (csinv -X, Y, CC)
+//   providing -X is as cheap as X (currently, just a constant).
+static SDValue PerformSubCSINCCombine(SDNode *N,
+                                      TargetLowering::DAGCombinerInfo &DCI) {
+  if (N->getValueType(0) != MVT::i32 || !isNullConstant(N->getOperand(0)))
+    return SDValue();
+  SDValue CSINC = N->getOperand(1);
+  if (CSINC.getOpcode() != ARMISD::CSINC)
+    return SDValue();
+
+  ConstantSDNode *X = dyn_cast<ConstantSDNode>(CSINC.getOperand(0));
+  if (!X)
+    return SDValue();
+
+  return DCI.DAG.getNode(ARMISD::CSINV, SDLoc(N), MVT::i32,
+                         DCI.DAG.getNode(ISD::SUB, SDLoc(N), MVT::i32,
+                                         N->getOperand(0), CSINC.getOperand(0)),
+                         CSINC.getOperand(1), CSINC.getOperand(2),
+                         CSINC.getOperand(3));
+}
+
 /// PerformSUBCombine - Target-specific dag combine xforms for ISD::SUB.
 ///
 static SDValue PerformSUBCombine(SDNode *N,
@@ -12773,6 +12766,9 @@ static SDValue PerformSUBCombine(SDNode *N,
   if (N1.getNode()->hasOneUse())
     if (SDValue Result = combineSelectAndUse(N, N1, N0, DCI))
       return Result;
+
+  if (SDValue R = PerformSubCSINCCombine(N, DCI))
+    return R;
 
   if (!Subtarget->hasMVEIntegerOps() || !N->getValueType(0).isVector())
     return SDValue();
@@ -17813,7 +17809,7 @@ void ARMTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
     else if (Op.getOpcode() == ARMISD::CSINV)
       std::swap(KnownOp1.Zero, KnownOp1.One);
     else if (Op.getOpcode() == ARMISD::CSNEG)
-      KnownOp1 = KnownBits::computeForMul(
+      KnownOp1 = KnownBits::mul(
           KnownOp1, KnownBits::makeConstant(APInt(32, -1)));
 
     Known = KnownBits::commonBits(KnownOp0, KnownOp1);

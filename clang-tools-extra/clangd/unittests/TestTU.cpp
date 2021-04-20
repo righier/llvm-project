@@ -36,6 +36,7 @@ ParseInputs TestTU::inputs(MockFS &FS) const {
   FS.Files[ImportThunk] = ThunkContents;
 
   ParseInputs Inputs;
+  Inputs.FeatureModules = FeatureModules;
   auto &Argv = Inputs.CompileCommand.CommandLine;
   Argv = {"clang"};
   // FIXME: this shouldn't need to be conditional, but it breaks a
@@ -195,7 +196,7 @@ const NamedDecl &findDecl(ParsedAST &AST, llvm::StringRef QName) {
                            llvm::StringRef Name) -> const NamedDecl & {
     auto LookupRes = Scope.lookup(DeclarationName(&Ctx.Idents.get(Name)));
     assert(!LookupRes.empty() && "Lookup failed");
-    assert(LookupRes.size() == 1 && "Lookup returned multiple results");
+    assert(LookupRes.isSingleResult() && "Lookup returned multiple results");
     return *LookupRes.front();
   };
 

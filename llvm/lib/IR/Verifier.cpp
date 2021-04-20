@@ -199,6 +199,27 @@ private:
 
   void Write(const unsigned i) { *OS << i << '\n'; }
 
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void Write(const Attribute *A) {
+    if (!A)
+      return;
+    *OS << A->getAsString() << '\n';
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void Write(const AttributeSet *AS) {
+    if (!AS)
+      return;
+    *OS << AS->getAsString() << '\n';
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void Write(const AttributeList *AL) {
+    if (!AL)
+      return;
+    AL->print(*OS);
+  }
+
   template <typename T> void Write(ArrayRef<T> Vs) {
     for (const T &V : Vs)
       Write(V);
@@ -813,6 +834,9 @@ void Verifier::visitMDNode(const MDNode &MD, AreDebugLocsAllowed AllowLocs) {
   if (!MDNodes.insert(&MD).second)
     return;
 
+  Assert(&MD.getContext() == &Context,
+         "MDNode context does not match Module context!", &MD);
+
   switch (MD.getMetadataID()) {
   default:
     llvm_unreachable("Invalid MDNode subclass");
@@ -919,8 +943,10 @@ void Verifier::visitDISubrange(const DISubrange &N) {
            "Subrange must contain count or upperBound", &N);
   AssertDI(!N.getRawCountNode() || !N.getRawUpperBound(),
            "Subrange can have any one of count or upperBound", &N);
-  AssertDI(!N.getRawCountNode() || N.getCount(),
-           "Count must either be a signed constant or a DIVariable", &N);
+  auto *CBound = N.getRawCountNode();
+  AssertDI(!CBound || isa<ConstantAsMetadata>(CBound) ||
+               isa<DIVariable>(CBound) || isa<DIExpression>(CBound),
+           "Count must be signed constant or DIVariable or DIExpression", &N);
   auto Count = N.getCount();
   AssertDI(!Count || !Count.is<ConstantInt *>() ||
                Count.get<ConstantInt *>()->getSExtValue() >= -1,
@@ -997,11 +1023,27 @@ void Verifier::visitDIDerivedType(const DIDerivedType &N) {
                N.getTag() == dwarf::DW_TAG_atomic_type ||
                N.getTag() == dwarf::DW_TAG_member ||
                N.getTag() == dwarf::DW_TAG_inheritance ||
-               N.getTag() == dwarf::DW_TAG_friend,
+               N.getTag() == dwarf::DW_TAG_friend ||
+               N.getTag() == dwarf::DW_TAG_set_type,
            "invalid tag", &N);
   if (N.getTag() == dwarf::DW_TAG_ptr_to_member_type) {
     AssertDI(isType(N.getRawExtraData()), "invalid pointer to member type", &N,
              N.getRawExtraData());
+  }
+
+  if (N.getTag() == dwarf::DW_TAG_set_type) {
+    if (auto *T = N.getRawBaseType()) {
+      auto *Enum = dyn_cast_or_null<DICompositeType>(T);
+      auto *Basic = dyn_cast_or_null<DIBasicType>(T);
+      AssertDI(
+          (Enum && Enum->getTag() == dwarf::DW_TAG_enumeration_type) ||
+              (Basic && (Basic->getEncoding() == dwarf::DW_ATE_unsigned ||
+                         Basic->getEncoding() == dwarf::DW_ATE_signed ||
+                         Basic->getEncoding() == dwarf::DW_ATE_unsigned_char ||
+                         Basic->getEncoding() == dwarf::DW_ATE_signed_char ||
+                         Basic->getEncoding() == dwarf::DW_ATE_boolean)),
+          "invalid set base type", &N, T);
+    }
   }
 
   AssertDI(isScope(N.getRawScope()), "invalid scope", &N, N.getRawScope());
@@ -1627,8 +1669,8 @@ static bool isFuncOnlyAttr(Attribute::AttrKind Kind) {
   case Attribute::NoImplicitFloat:
   case Attribute::Naked:
   case Attribute::InlineHint:
-  case Attribute::StackAlignment:
   case Attribute::UWTable:
+  case Attribute::VScaleRange:
   case Attribute::NonLazyBind:
   case Attribute::ReturnsTwice:
   case Attribute::SanitizeAddress:
@@ -1669,7 +1711,7 @@ static bool isFuncOnlyAttr(Attribute::AttrKind Kind) {
 static bool isFuncOrArgAttr(Attribute::AttrKind Kind) {
   return Kind == Attribute::ReadOnly || Kind == Attribute::WriteOnly ||
          Kind == Attribute::ReadNone || Kind == Attribute::NoFree ||
-         Kind == Attribute::Preallocated;
+         Kind == Attribute::Preallocated || Kind == Attribute::StackAlignment;
 }
 
 void Verifier::verifyAttributeTypes(AttributeSet Attrs, bool IsFunction,
@@ -1809,6 +1851,11 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
       Assert(Attrs.getPreallocatedType() == PTy->getElementType(),
              "Attribute 'preallocated' type does not match parameter!", V);
     }
+
+    if (Attrs.hasAttribute(Attribute::InAlloca)) {
+      Assert(Attrs.getInAllocaType() == PTy->getElementType(),
+             "Attribute 'inalloca' type does not match parameter!", V);
+    }
   } else {
     Assert(!Attrs.hasAttribute(Attribute::ByVal),
            "Attribute 'byval' only applies to parameters with pointer type!",
@@ -1829,6 +1876,17 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
                                    const Value *V, bool IsIntrinsic) {
   if (Attrs.isEmpty())
     return;
+
+  Assert(Attrs.hasParentContext(Context),
+         "Attribute list does not match Module context!", &Attrs);
+  for (const auto &AttrSet : Attrs) {
+    Assert(!AttrSet.hasAttributes() || AttrSet.hasParentContext(Context),
+           "Attribute set does not match Module context!", &AttrSet);
+    for (const auto &A : AttrSet) {
+      Assert(A.hasParentContext(Context),
+             "Attribute does not match Module context!", &A);
+    }
+  }
 
   bool SawNest = false;
   bool SawReturned = false;
@@ -1985,6 +2043,14 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
 
     if (Args.second && !CheckParam("number of elements", *Args.second))
       return;
+  }
+
+  if (Attrs.hasFnAttribute(Attribute::VScaleRange)) {
+    std::pair<unsigned, unsigned> Args =
+        Attrs.getVScaleRangeArgs(AttributeList::FunctionIndex);
+
+    if (Args.first > Args.second && Args.second != 0)
+      CheckFailed("'vscale_range' minimum cannot be greater than maximum", V);
   }
 
   if (Attrs.hasFnAttribute("frame-pointer")) {
@@ -3278,7 +3344,7 @@ static AttrBuilder getParameterABIAttributes(int I, AttributeList Attrs) {
   static const Attribute::AttrKind ABIAttrs[] = {
       Attribute::StructRet,    Attribute::ByVal,     Attribute::InAlloca,
       Attribute::InReg,        Attribute::SwiftSelf, Attribute::SwiftError,
-      Attribute::Preallocated, Attribute::ByRef};
+      Attribute::Preallocated, Attribute::ByRef,     Attribute::StackAlignment};
   AttrBuilder Copy;
   for (auto AK : ABIAttrs) {
     if (Attrs.hasParamAttribute(I, AK))
@@ -4542,7 +4608,8 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
   // know they are legal for the intrinsic!) get the intrinsic name through the
   // usual means.  This allows us to verify the mangling of argument types into
   // the name.
-  const std::string ExpectedName = Intrinsic::getName(ID, ArgTys);
+  const std::string ExpectedName =
+      Intrinsic::getName(ID, ArgTys, IF->getParent(), IFTy);
   Assert(ExpectedName == IF->getName(),
          "Intrinsic name not mangled correctly for type arguments! "
          "Should be: " +
@@ -5183,6 +5250,15 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
       Assert(Stride->getZExtValue() >= NumRows->getZExtValue(),
              "Stride must be greater or equal than the number of rows!", IF);
 
+    break;
+  }
+  case Intrinsic::experimental_stepvector: {
+    VectorType *VecTy = dyn_cast<VectorType>(Call.getType());
+    Assert(VecTy && VecTy->getScalarType()->isIntegerTy() &&
+               VecTy->getScalarSizeInBits() >= 8,
+           "experimental_stepvector only supported for vectors of integers "
+           "with a bitwidth of at least 8.",
+           &Call);
     break;
   }
   case Intrinsic::experimental_vector_insert: {

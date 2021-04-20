@@ -16,6 +16,8 @@
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/Stmt.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
@@ -375,6 +377,15 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     EmitOMPTargetTeamsDistributeSimdDirective(
         cast<OMPTargetTeamsDistributeSimdDirective>(*S));
     break;
+  case Stmt::OMPInteropDirectiveClass:
+    llvm_unreachable("Interop directive not supported yet.");
+    break;
+  case Stmt::OMPDispatchDirectiveClass:
+    llvm_unreachable("Dispatch directive not supported yet.");
+    break;
+  case Stmt::OMPMaskedDirectiveClass:
+    EmitOMPMaskedDirective(cast<OMPMaskedDirective>(*S));
+    break;
   }
 }
 
@@ -643,12 +654,20 @@ void CodeGenFunction::EmitLabelStmt(const LabelStmt &S) {
 
 void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
   bool nomerge = false;
-  for (const auto *A : S.getAttrs())
+  const CallExpr *musttail = nullptr;
+
+  for (const auto *A : S.getAttrs()) {
     if (A->getKind() == attr::NoMerge) {
       nomerge = true;
-      break;
     }
+    if (A->getKind() == attr::MustTail) {
+      const Stmt *Sub = S.getSubStmt();
+      const ReturnStmt *R = cast<ReturnStmt>(Sub);
+      musttail = cast<CallExpr>(R->getRetValue()->IgnoreParens());
+    }
+  }
   SaveAndRestore<bool> save_nomerge(InNoMergeAttributedStmt, nomerge);
+  SaveAndRestore<const CallExpr *> save_musttail(MustTailCall, musttail);
   EmitStmt(S.getSubStmt(), S.getAttrs());
 }
 
@@ -822,8 +841,11 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
     llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
     if (ConditionScope.requiresCleanups())
       ExitBlock = createBasicBlock("while.exit");
-    llvm::MDNode *Weights = createProfileOrBranchWeightsForLoop(
-        S.getCond(), getProfileCount(S.getBody()), S.getBody());
+    llvm::MDNode *Weights =
+        createProfileWeightsForLoop(S.getCond(), getProfileCount(S.getBody()));
+    if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
+      BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
+          BoolCondVal, Stmt::getLikelihood(S.getBody()));
     Builder.CreateCondBr(BoolCondVal, LoopBody, ExitBlock, Weights);
 
     if (ExitBlock != LoopExit.getBlock()) {
@@ -949,8 +971,8 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   // Start the loop with a block that tests the condition.
   // If there's an increment, the continue scope will be overwritten
   // later.
-  JumpDest Continue = getJumpDestInCurrentScope("for.cond");
-  llvm::BasicBlock *CondBlock = Continue.getBlock();
+  JumpDest CondDest = getJumpDestInCurrentScope("for.cond");
+  llvm::BasicBlock *CondBlock = CondDest.getBlock();
   EmitBlock(CondBlock);
 
   bool LoopMustProgress = false;
@@ -968,24 +990,33 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
                  ForAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()), LoopMustProgress);
 
-  // If the for loop doesn't have an increment we can just use the
-  // condition as the continue block.  Otherwise we'll need to create
-  // a block for it (in the current scope, i.e. in the scope of the
-  // condition), and that we will become our continue block.
-  if (S.getInc())
-    Continue = getJumpDestInCurrentScope("for.inc");
-
-  // Store the blocks to use for break and continue.
-  BreakContinueStack.push_back(BreakContinue(LoopExit, Continue));
-
   // Create a cleanup scope for the condition variable cleanups.
   LexicalScope ConditionScope(*this, S.getSourceRange());
+
+  // If the for loop doesn't have an increment we can just use the condition as
+  // the continue block. Otherwise, if there is no condition variable, we can
+  // form the continue block now. If there is a condition variable, we can't
+  // form the continue block until after we've emitted the condition, because
+  // the condition is in scope in the increment, but Sema's jump diagnostics
+  // ensure that there are no continues from the condition variable that jump
+  // to the loop increment.
+  JumpDest Continue;
+  if (!S.getInc())
+    Continue = CondDest;
+  else if (!S.getConditionVariable())
+    Continue = getJumpDestInCurrentScope("for.inc");
+  BreakContinueStack.push_back(BreakContinue(LoopExit, Continue));
 
   if (S.getCond()) {
     // If the for statement has a condition scope, emit the local variable
     // declaration.
     if (S.getConditionVariable()) {
       EmitDecl(*S.getConditionVariable());
+
+      // We have entered the condition variable's scope, so we're now able to
+      // jump to the continue block.
+      Continue = S.getInc() ? getJumpDestInCurrentScope("for.inc") : CondDest;
+      BreakContinueStack.back().ContinueBlock = Continue;
     }
 
     llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
@@ -1000,8 +1031,11 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     // C99 6.8.5p2/p4: The first substatement is executed if the expression
     // compares unequal to 0.  The condition must be a scalar type.
     llvm::Value *BoolCondVal = EvaluateExprAsBool(S.getCond());
-    llvm::MDNode *Weights = createProfileOrBranchWeightsForLoop(
-        S.getCond(), getProfileCount(S.getBody()), S.getBody());
+    llvm::MDNode *Weights =
+        createProfileWeightsForLoop(S.getCond(), getProfileCount(S.getBody()));
+    if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
+      BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
+          BoolCondVal, Stmt::getLikelihood(S.getBody()));
 
     if (llvm::ConstantInt *C = dyn_cast<llvm::ConstantInt>(BoolCondVal))
       if (C->isOne())
@@ -1086,8 +1120,11 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   // The body is executed if the expression, contextually converted
   // to bool, is true.
   llvm::Value *BoolCondVal = EvaluateExprAsBool(S.getCond());
-  llvm::MDNode *Weights = createProfileOrBranchWeightsForLoop(
-      S.getCond(), getProfileCount(S.getBody()), S.getBody());
+  llvm::MDNode *Weights =
+      createProfileWeightsForLoop(S.getCond(), getProfileCount(S.getBody()));
+  if (!Weights && CGM.getCodeGenOpts().OptimizationLevel)
+    BoolCondVal = emitCondLikelihoodViaExpectIntrinsic(
+        BoolCondVal, Stmt::getLikelihood(S.getBody()));
   Builder.CreateCondBr(BoolCondVal, ForBody, ExitBlock, Weights);
 
   if (ExitBlock != LoopExit.getBlock()) {
@@ -1361,7 +1398,7 @@ void CodeGenFunction::EmitCaseStmtRange(const CaseStmt &S,
     // this case.
     (*SwitchWeights)[0] += ThisCount;
   } else if (SwitchLikelihood)
-    Weights = createBranchWeights(LH);
+    Cond = emitCondLikelihoodViaExpectIntrinsic(Cond, LH);
 
   Builder.CreateCondBr(Cond, CaseDest, FalseDest, Weights);
 

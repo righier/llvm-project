@@ -418,7 +418,8 @@ private:
 
   /// Print the given region.
   void printRegion(Region &region, bool printEntryBlockArgs,
-                   bool printBlockTerminators) override {
+                   bool printBlockTerminators,
+                   bool printEmptyBlock = false) override {
     if (region.empty())
       return;
 
@@ -460,8 +461,9 @@ private:
     printOptionalAttrDict(attrs, elidedAttrs);
   }
 
-  /// Return 'nulls' as the output stream, this will ignore any data fed to it.
-  raw_ostream &getStream() const override { return llvm::nulls(); }
+  /// Return a null stream as the output stream, this will ignore any data fed
+  /// to it.
+  raw_ostream &getStream() const override { return os; }
 
   /// The following are hooks of `OpAsmPrinter` that are not necessary for
   /// determining potential aliases.
@@ -484,6 +486,9 @@ private:
 
   /// The initializer to use when identifying aliases.
   AliasInitializer &initializer;
+
+  /// A dummy output stream.
+  mutable llvm::raw_null_ostream os;
 };
 } // end anonymous namespace
 
@@ -1515,7 +1520,7 @@ static void printSymbolReference(StringRef symbolRef, raw_ostream &os) {
 // accept the string "elided". The first string must be a registered dialect
 // name and the latter must be a hex constant.
 static void printElidedElementsAttr(raw_ostream &os) {
-  os << R"(opaque<"", "0xDEADBEEF">)";
+  os << R"(opaque<"_", "0xDEADBEEF">)";
 }
 
 void ModulePrinter::printAttribute(Attribute attr,
@@ -1610,8 +1615,8 @@ void ModulePrinter::printAttribute(Attribute attr,
     if (printerFlags.shouldElideElementsAttr(opaqueAttr)) {
       printElidedElementsAttr(os);
     } else {
-      os << "opaque<\"" << opaqueAttr.getDialect()->getNamespace() << "\", ";
-      os << '"' << "0x" << llvm::toHex(opaqueAttr.getValue()) << "\">";
+      os << "opaque<\"" << opaqueAttr.getDialect() << "\", \"0x"
+         << llvm::toHex(opaqueAttr.getValue()) << "\">";
     }
 
   } else if (auto intOrFpEltAttr = attr.dyn_cast<DenseIntOrFPElementsAttr>()) {
@@ -1865,7 +1870,13 @@ void ModulePrinter::printType(Type type) {
             os << dim;
           os << 'x';
         }
-        os << tensorTy.getElementType() << '>';
+        os << tensorTy.getElementType();
+        // Only print the encoding attribute value if set.
+        if (tensorTy.getEncoding()) {
+          os << ", ";
+          printAttribute(tensorTy.getEncoding());
+        }
+        os << '>';
       })
       .Case<UnrankedTensorType>([&](UnrankedTensorType tensorTy) {
         os << "tensor<*x";
@@ -2324,7 +2335,7 @@ public:
 
   /// Print the given region.
   void printRegion(Region &region, bool printEntryBlockArgs,
-                   bool printBlockTerminators) override;
+                   bool printBlockTerminators, bool printEmptyBlock) override;
 
   /// Renumber the arguments for the specified region to the same names as the
   /// SSA values in namesToUse. This may only be used for IsolatedFromAbove
@@ -2409,6 +2420,11 @@ void OperationPrinter::printOperation(Operation *op) {
       opInfo->printAssembly(op, *this);
       return;
     }
+    // Otherwise try to dispatch to the dialect, if available.
+    if (Dialect *dialect = op->getDialect()) {
+      if (succeeded(dialect->printOperation(op, *this)))
+        return;
+    }
   }
 
   // Otherwise print with the generic assembly form.
@@ -2435,7 +2451,7 @@ void OperationPrinter::printGenericOp(Operation *op) {
     os << " (";
     interleaveComma(op->getRegions(), [&](Region &region) {
       printRegion(region, /*printEntryBlockArgs=*/true,
-                  /*printBlockTerminators=*/true);
+                  /*printBlockTerminators=*/true, /*printEmptyBlock=*/true);
     });
     os << ')';
   }
@@ -2536,12 +2552,18 @@ void OperationPrinter::printSuccessorAndUseList(Block *successor,
 }
 
 void OperationPrinter::printRegion(Region &region, bool printEntryBlockArgs,
-                                   bool printBlockTerminators) {
+                                   bool printBlockTerminators,
+                                   bool printEmptyBlock) {
   os << " {" << newLine;
   if (!region.empty()) {
     auto *entryBlock = &region.front();
-    print(entryBlock, printEntryBlockArgs && entryBlock->getNumArguments() != 0,
-          printBlockTerminators);
+    // Force printing the block header if printEmptyBlock is set and the block
+    // is empty or if printEntryBlockArgs is set and there are arguments to
+    // print.
+    bool shouldAlwaysPrintBlockHeader =
+        (printEmptyBlock && entryBlock->empty()) ||
+        (printEntryBlockArgs && entryBlock->getNumArguments() != 0);
+    print(entryBlock, shouldAlwaysPrintBlockHeader, printBlockTerminators);
     for (auto &b : llvm::drop_begin(region.getBlocks(), 1))
       print(&b);
   }

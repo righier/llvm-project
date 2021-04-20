@@ -21,7 +21,15 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Parser.h"
 
+#include "llvm/Support/Debug.h"
+
 using namespace mlir;
+
+//===----------------------------------------------------------------------===//
+// Global API.
+//===----------------------------------------------------------------------===//
+
+void mlirEnableGlobalDebug(bool enable) { ::llvm::DebugFlag = true; }
 
 //===----------------------------------------------------------------------===//
 // Context API.
@@ -58,6 +66,14 @@ intptr_t mlirContextGetNumLoadedDialects(MlirContext context) {
 MlirDialect mlirContextGetOrLoadDialect(MlirContext context,
                                         MlirStringRef name) {
   return wrap(unwrap(context)->getOrLoadDialect(unwrap(name)));
+}
+
+bool mlirContextIsRegisteredOperation(MlirContext context, MlirStringRef name) {
+  return unwrap(context)->isOperationRegistered(unwrap(name));
+}
+
+void mlirContextEnableMultithreading(MlirContext context, bool enable) {
+  return unwrap(context)->enableMultithreading(enable);
 }
 
 //===----------------------------------------------------------------------===//

@@ -64,7 +64,6 @@ static llvm::cl::opt<bool> testEmitIncludeTdHeader(
                    "tblgen testing."),
     llvm::cl::init(false), llvm::cl::cat(ODSGenCat));
 
-using llvm::SetVector;
 using llvm::SMLoc;
 using llvm::StringRef;
 using llvm::Twine;
@@ -1010,8 +1009,7 @@ struct TensorUse : public Expression {
 
   /// Visitation function. Performs preorder or postorder traversal depending on
   /// `PreOrder` and applies `callback` on each node.
-  template <typename Lambda, bool PreOrder>
-  void visit(Lambda callback) const;
+  template <typename Lambda, bool PreOrder> void visit(Lambda callback) const;
 
   StringRef tensorId;
   AffineMap indexingMap;
@@ -1055,8 +1053,7 @@ struct TensorExpr : public Expression {
 
   /// Visitation function. Performs preorder or postorder traversal depending on
   /// `PreOrder` and applies `callback` on each node.
-  template <typename Lambda, bool PreOrder>
-  void visit(Lambda callback) const;
+  template <typename Lambda, bool PreOrder> void visit(Lambda callback) const;
 
   StringRef operationName;
   SmallVector<std::unique_ptr<Expression>, 4> expressions;
@@ -1204,8 +1201,7 @@ private:
 
 namespace llvm {
 
-template <>
-struct DenseMapInfo<TensorUse> {
+template <> struct DenseMapInfo<TensorUse> {
   static TensorUse getEmptyKey() { return TensorUse("", AffineMap()); }
   static TensorUse getTombstoneKey() {
     return TensorUse(DenseMapInfo<StringRef>::getTombstoneKey(),
@@ -1517,7 +1513,6 @@ LogicalResult TCParser::parseExpression(TensorUse currentDefinition,
     for (auto iter : iters)
       reductionDims.push_back(iter.cast<AffineDimExpr>().getPosition());
   }
-
 
   auto parseExpr = [&]() -> LogicalResult {
     std::unique_ptr<Expression> e;
@@ -2074,10 +2069,10 @@ void TCParser::printCanonicalizersAndFolders(llvm::raw_ostream &os,
                                              StringRef cppOpName) {
   const char *canonicalizersAndFoldersFmt = R"FMT(
     void {0}::getCanonicalizationPatterns(
-        OwningRewritePatternList &results,
+        RewritePatternSet &results,
         MLIRContext *context) {{
-      results.insert<EraseDeadLinalgOp>();
-      results.insert<FoldTensorCastOp>();
+      results.add<EraseDeadLinalgOp>(context);
+      results.add<FoldTensorCastOp>(context);
     }
     LogicalResult {0}::fold(ArrayRef<Attribute>,
                             SmallVectorImpl<OpFoldResult> &) {{

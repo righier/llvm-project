@@ -10,6 +10,13 @@ def run(f):
   assert Context._get_live_count() == 0
 
 
+# CHECK-LABEL: TEST: testExports
+def testExports():
+  from mlir.ir import _enable_debug
+
+run(testExports)
+
+
 # CHECK-LABEL: TEST: testContextEnterExit
 def testContextEnterExit():
   with Context() as ctx:
@@ -62,7 +69,7 @@ run(testLocationEnterExit)
 def testInsertionPointEnterExit():
   ctx1 = Context()
   m = Module.create(Location.unknown(ctx1))
-  ip = InsertionPoint.at_block_terminator(m.body)
+  ip = InsertionPoint(m.body)
 
   with ip:
     assert InsertionPoint.current is ip

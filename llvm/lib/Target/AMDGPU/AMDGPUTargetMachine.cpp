@@ -193,10 +193,10 @@ static cl::opt<bool> EnableStructurizerWorkarounds(
     cl::desc("Enable workarounds for the StructurizeCFG pass"), cl::init(true),
     cl::Hidden);
 
-static cl::opt<bool>
-    DisableLowerModuleLDS("amdgpu-disable-lower-module-lds", cl::Hidden,
-                          cl::desc("Disable lower module lds pass"),
-                          cl::init(false));
+static cl::opt<bool, true> EnableLowerModuleLDS(
+    "amdgpu-enable-lower-module-lds", cl::desc("Enable lower module lds pass"),
+    cl::location(AMDGPUTargetMachine::EnableLowerModuleLDS), cl::init(true),
+    cl::Hidden);
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   // Register the target
@@ -249,9 +249,8 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeSIModeRegisterPass(*PR);
   initializeSIWholeQuadModePass(*PR);
   initializeSILowerControlFlowPass(*PR);
-  initializeSIRemoveShortExecBranchesPass(*PR);
   initializeSIPreEmitPeepholePass(*PR);
-  initializeSIInsertSkipsPass(*PR);
+  initializeSILateBranchLoweringPass(*PR);
   initializeSIMemoryLegalizerPass(*PR);
   initializeSIOptimizeExecMaskingPass(*PR);
   initializeSIPreAllocateWWMRegsPass(*PR);
@@ -265,7 +264,6 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUPrintfRuntimeBindingPass(*PR);
   initializeGCNRegBankReassignPass(*PR);
   initializeGCNNSAReassignPass(*PR);
-  initializeSIAddIMGInitPass(*PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -390,15 +388,12 @@ AMDGPUTargetMachine::AMDGPUTargetMachine(const Target &T, const Triple &TT,
     else if (getMCSubtargetInfo()->checkFeatures("+wavefrontsize32"))
       MRI.reset(llvm::createGCNMCRegisterInfo(AMDGPUDwarfFlavour::Wave32));
   }
-  // Set -fixed-function-abi to true if not provided..
-  if (TT.getOS() == Triple::AMDHSA &&
-      EnableAMDGPUFixedFunctionABIOpt.getNumOccurrences() == 0)
-    EnableFixedFunctionABI = true;
 }
 
 bool AMDGPUTargetMachine::EnableLateStructurizeCFG = false;
 bool AMDGPUTargetMachine::EnableFunctionCalls = false;
 bool AMDGPUTargetMachine::EnableFixedFunctionABI = false;
+bool AMDGPUTargetMachine::EnableLowerModuleLDS = true;
 
 AMDGPUTargetMachine::~AMDGPUTargetMachine() = default;
 
@@ -894,7 +889,7 @@ void AMDGPUPassConfig::addIRPasses() {
   addPass(createAMDGPUOpenCLEnqueuedBlockLoweringPass());
 
   // Can increase LDS used by kernel so runs before PromoteAlloca
-  if (!DisableLowerModuleLDS)
+  if (EnableLowerModuleLDS)
     addPass(createAMDGPULowerModuleLDSPass());
 
   if (TM.getOptLevel() > CodeGenOpt::None) {
@@ -1098,7 +1093,6 @@ bool GCNPassConfig::addInstSelector() {
   AMDGPUPassConfig::addInstSelector();
   addPass(&SIFixSGPRCopiesID);
   addPass(createSILowerI1CopiesPass());
-  addPass(createSIAddIMGInitPass());
   return false;
 }
 
@@ -1135,10 +1129,6 @@ void GCNPassConfig::addPreGlobalInstructionSelect() {
 
 bool GCNPassConfig::addGlobalInstructionSelect() {
   addPass(new InstructionSelect(getOptLevel()));
-  // TODO: Fix instruction selection to do the right thing for image
-  // instructions with tfe or lwe in the first place, instead of running a
-  // separate pass to fix them up?
-  addPass(createSIAddIMGInitPass());
   return false;
 }
 
@@ -1187,7 +1177,7 @@ void GCNPassConfig::addOptimizedRegAlloc() {
 bool GCNPassConfig::addPreRewrite() {
   if (EnableRegReassign) {
     addPass(&GCNNSAReassignID);
-    addPass(&GCNRegBankReassignID);
+    addPass(createGCNRegBankReassignPass(AMDGPU::RM_BOTH));
   }
   return true;
 }
@@ -1215,9 +1205,9 @@ void GCNPassConfig::addPreEmitPass() {
   if (getOptLevel() > CodeGenOpt::None)
     addPass(&SIInsertHardClausesID);
 
-  addPass(&SIRemoveShortExecBranchesID);
-  addPass(&SIInsertSkipsPassID);
-  addPass(&SIPreEmitPeepholeID);
+  addPass(&SILateBranchLoweringPassID);
+  if (getOptLevel() > CodeGenOpt::None)
+    addPass(&SIPreEmitPeepholeID);
   // The hazard recognizer that runs as part of the post-ra scheduler does not
   // guarantee to be able handle all hazards correctly. This is because if there
   // are multiple scheduling regions in a basic block, the regions are scheduled
