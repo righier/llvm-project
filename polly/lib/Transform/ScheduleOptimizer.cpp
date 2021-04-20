@@ -1857,6 +1857,9 @@ static bool runIslScheduleOptimizer(
   walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
   LLVM_DEBUG(printSchedule(dbgs(), Schedule, "Original schedule tree"));
 
+  isl_ctx *Ctx = S.getIslCtx().get();
+  isl_options_set_tile_scale_tile_loops(Ctx, 0);
+
   bool HasUserTransformation = false;
   if (PragmaBasedOpts) {
     isl::schedule ManuallyTransformed = applyManualTransformations(&S, Schedule, D, &ORE);
@@ -1883,8 +1886,7 @@ static bool runIslScheduleOptimizer(
   }
 
 
-  isl_ctx *Ctx = S.getIslCtx().get();
-  isl_options_set_tile_scale_tile_loops(Ctx, 0);
+
 
 
 

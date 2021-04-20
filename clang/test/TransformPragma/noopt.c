@@ -9,9 +9,9 @@ void loopnest(int M, int N, double C[const restrict static M][N]) {
 }
 
 
-// AST:      // anon loop
+// AST:      // Loop with Metadata
 // AST-NEXT: for (int c0 = 0; c0 < M; c0 += 1) {
-// AST-NEXT:   // anon loop
+// AST-NEXT:   // Loop with Metadata
 // AST-NEXT:   for (int c1 = 0; c1 < N; c1 += 1) 
 // AST-NEXT:     Stmt_for_body4(c0, c1);
 // AST-NEXT: }

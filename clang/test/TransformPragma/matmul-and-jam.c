@@ -70,25 +70,25 @@ int main() {
 
 // AST: {
 // AST: 	if (M >= 64) {
-// AST: 		// Loop: interchange
+// AST: 		// Loop with Metadata
 // AST: 		for (int c0 = 0; c0 < floord(N, 2048); c0 += 1) {
-// AST: 			// Loop: interchange
+// AST: 			// Loop with Metadata
 // AST: 			for (int c1 = 0; c1 < floord(K, 256); c1 += 1) {
 // AST: 				for (int c5 = 0; c5 <= 255; c5 += 1)
 // AST: 					for (int c6 = 0; c6 <= 255; c6 += 1)
 // AST: 						for (int c7 = 0; c7 <= 7; c7 += 1)
 // AST: 							CopyStmt_1(0, c0, c1, c5, c6, c7);
-// AST: 				// Loop: i1
+// AST: 				// Loop with Metadata
 // AST: 				for (int c2 = 0; c2 < floord(M, 64); c2 += 1) {
 // AST: 					for (int c7 = 0; c7 <= 15; c7 += 1)
 // AST: 						for (int c8 = 0; c8 <= 255; c8 += 1)
 // AST: 							for (int c9 = 0; c9 <= 3; c9 += 1)
 // AST: 								CopyStmt_0(0, c0, c1, c2, c7, c8, c9);
-// AST: 					// Loop: unrolled-and-jam
+// AST: 					// Loop with Metadata
 // AST: 					for (int c3 = 0; c3 <= 2047; c3 += 8) {
-// AST: 						// Loop: unrolled-and-jam
+// AST: 						// Loop with Metadata
 // AST: 						for (int c4 = 0; c4 <= 63; c4 += 4) {
-// AST: 							// Loop: jammed
+// AST: 							// Loop with Metadata
 // AST: 							for (int c5 = 0; c5 <= 255; c5 += 1) {
 // AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
 // AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3, 256 * c1 + c5);

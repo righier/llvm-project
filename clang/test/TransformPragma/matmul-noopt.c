@@ -13,11 +13,11 @@ void matmul(int M, int N, int K, double C[const restrict static M][N], double A[
 }
 
 
-// AST:      // Loop: i
+// AST:      // Loop with Metadata
 // AST-NEXT: for (int c0 = 0; c0 < M; c0 += 1) {
-// AST-NEXT:   // Loop: j
+// AST-NEXT:   // Loop with Metadata
 // AST-NEXT:   for (int c1 = 0; c1 < N; c1 += 1) {
-// AST-NEXT:     // Loop: k
+// AST-NEXT:     // Loop with Metadata
 // AST-NEXT:     for (int c2 = 0; c2 < K; c2 += 1)
 // AST-NEXT:       Stmt_for_body8(c0, c1, c2);
 // AST-NEXT:   }

@@ -262,8 +262,7 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
 
   BandAttr *Attr = new BandAttr();
 
-  auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
-                       .getValueOr(StringRef());
+  auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id").getValueOr(StringRef());
   if (GivenName.empty())
     GivenName = Name;
   if (GivenName.empty())
@@ -278,10 +277,8 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
 
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
-  assert(moveToBandMark(Band).is_equal(Band) &&
-         "Don't add a two marks for a band");
-  Band = isl::manage(
-      isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+  assert(moveToBandMark(Band).is_equal(Band) && "Don't add a two marks for a band");
+  Band = isl::manage(isl_schedule_node_insert_mark(Band.release(), Mark.release()));
   return Band.get_child(0);
 }
 

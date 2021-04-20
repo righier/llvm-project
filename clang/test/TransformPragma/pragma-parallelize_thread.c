@@ -44,7 +44,7 @@ int main() {
 
 
 // AST: if (1)
-// AST:   // Loop: threaded
+// AST:   // Loop with Metadata
 // AST:   for (int c0 = 0; c0 <= 255; c0 += 1)
 // AST:     Stmt_for_body(c0);
 // AST: else
