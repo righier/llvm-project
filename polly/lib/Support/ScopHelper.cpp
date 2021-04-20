@@ -749,22 +749,7 @@ bool polly::isMark(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
 }
 
-isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
-  assert(Attr);
 
-  std::string IdLabel;
-  if (Attr->LoopName.empty())
-    IdLabel = "anon loop";
-  else
-    IdLabel = (Twine("Loop: ") + Attr->LoopName).str();
-
-  auto Result = isl::id::alloc(Ctx, IdLabel.c_str(), Attr);
-  Result = isl::manage(isl_id_set_free_user(Result.release(), [](void *Ptr) {
-    BandAttr *Attr = (BandAttr *)(Ptr);
-    delete Attr;
-  }));
-  return Result;
-}
 
 isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   // Root of loop tree
@@ -848,7 +833,38 @@ bool polly::hasDisableAllTransformsHint(Loop *L) {
   return llvm::hasDisableAllTransformsHint(L);
 }
 
+#if 0
+isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
+  assert(Attr);
 
+  std::string IdLabel;
+  if (Attr->LoopName.empty())
+    IdLabel = "anon loop";
+  else
+    IdLabel = (Twine("Loop: ") + Attr->LoopName).str();
+
+  auto Result = isl::id::alloc(Ctx, IdLabel.c_str(), Attr);
+  Result = isl::manage(isl_id_set_free_user(Result.release(), [](void *Ptr) {
+    BandAttr *Attr = (BandAttr *)(Ptr);
+    delete Attr;
+    }));
+  return Result;
+}
+#endif
+
+isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
+  assert(Attr && "Must be a valid BandAttr");
+
+  // The name "Loop" signals that this id contains a pointer to a BandAttr.
+  // The ScheduleOptimizer also uses the string "Inter iteration alias-free" in
+  // markers, but it's user pointer is an llvm::Value.
+  isl::id Result = isl::id::alloc(Ctx, "Loop with Metadata", Attr);
+  Result = isl::manage(isl_id_set_free_user(Result.release(), [](void *Ptr) {
+    BandAttr *Attr = reinterpret_cast<BandAttr *>(Ptr);
+    delete Attr;
+  }));
+  return Result;
+}
 
 isl::id polly::createIslLoopAttr(isl::ctx Ctx, Loop *L) {
   if (!L)

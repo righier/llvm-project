@@ -23,10 +23,12 @@ namespace polly {
 class Scop;
 struct Dependences;
 
+
+#if 0
 isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                          const Dependences &D,
                                          llvm ::OptimizationRemarkEmitter *ORE);
-
+#endif
 
 
 class Scop;
@@ -43,7 +45,7 @@ class Scop;
 /// @return The transformed schedule with all mark-nodes with loop
 ///         transformations applied. Returns NULL in case of an error or @p
 ///         Sched itself if no transformation has been applied.
-isl::schedule applyManualTransformations(Scop *S, isl::schedule Sched);
+isl::schedule applyManualTransformations(Scop *S, isl::schedule Sched,      const Dependences &D, llvm:: OptimizationRemarkEmitter *ORE);
 } // namespace polly
 
 #endif /* POLLY_MANUALOPTIMIZER_H */

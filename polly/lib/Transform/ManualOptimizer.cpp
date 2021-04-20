@@ -116,6 +116,7 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
   return StrMD;
 }
 
+#if 0
 static isl::schedule applyLoopUnroll(MDNode *LoopMD,
                                      isl::schedule_node BandToUnroll) {
   auto Factor =
@@ -125,7 +126,7 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 
   return applyLoopUnroll(BandToUnroll, Factor, Full);
 }
-
+#endif
 
 
 
@@ -2522,6 +2523,30 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
 }
 
 
+/// Apply full or partial unrolling.
+static isl::schedule applyLoopUnroll(MDNode *LoopMD,    isl::schedule_node BandToUnroll) {
+  assert(BandToUnroll);
+  // TODO: Isl's codegen also supports unrolling by isl_ast_build via
+  // isl_schedule_node_band_set_ast_build_options({ unroll[x] }) which would be
+  // more efficient because the content duplication is delayed. However, the
+  // unrolled loop could be input of another loop transformation which expects
+  // the explicit schedule nodes. That is, we would need this explicit expansion
+  // anyway and using the ISL codegen option is a compile-time optimization.
+  int64_t Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
+  bool Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full").getValueOr(false);
+  assert((!Full || !(Factor > 0)) && "Cannot unroll fully and partially at the same time");
+
+  if (Full)
+    return applyFullUnroll(BandToUnroll);
+
+  if (Factor > 0)
+    return applyPartialUnroll(BandToUnroll, Factor);
+
+  llvm_unreachable("Negative unroll factor");
+}
+
+
+#if 1
 /// Recursively visit all nodes in a schedule, loop for loop-transformations
 /// metadata and apply the first encountered.
 class SearchTransformVisitor
@@ -2537,9 +2562,15 @@ private:
   OptimizationRemarkEmitter *ORE;
 
 public:
-  SearchTransformVisitor(llvm::Function *F, polly::Scop *S,
-                         const Dependences *D, OptimizationRemarkEmitter *ORE)
+  SearchTransformVisitor(llvm::Function *F, polly::Scop *S, const Dependences *D, OptimizationRemarkEmitter *ORE)
       : F(F), S(S), D(D), ORE(ORE) {}
+
+  static isl::schedule applyOneTransformation(llvm::Function *F, polly::Scop *S, const Dependences *D, OptimizationRemarkEmitter *ORE,const isl::schedule &Sched) {
+    SearchTransformVisitor Transformer(F,S,D,ORE);
+    Transformer.visit(Sched);
+    return Transformer.Result;
+  }
+
 
   isl::schedule Result;
 
@@ -2651,6 +2682,8 @@ public:
       } else if (AttrName == "llvm.loop.unroll.enable") {
         // TODO: Read argument (0 to disable)
         // Also: llvm.loop.unroll.disable is a thing
+        
+        // TODO: Handle disabling like llvm::hasUnrollTransformation().
         Result = applyLoopUnroll(LoopMD, Band);
       } else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
         // TODO: Read argument (0 to disable)
@@ -2721,6 +2754,8 @@ public:
 };
 
 
+#endif
+
 namespace {
   /// Extract an integer property from an LoopID metadata node.
   static llvm::Optional<int64_t> findOptionalIntOperand(MDNode *LoopMD,
@@ -2755,31 +2790,6 @@ namespace {
     llvm_unreachable("unexpected number of options");
   }
 
-  /// Apply full or partial unrolling.
-  static isl::schedule applyLoopUnroll(MDNode *LoopMD,
-    isl::schedule_node BandToUnroll) {
-    assert(BandToUnroll);
-    // TODO: Isl's codegen also supports unrolling by isl_ast_build via
-    // isl_schedule_node_band_set_ast_build_options({ unroll[x] }) which would be
-    // more efficient because the content duplication is delayed. However, the
-    // unrolled loop could be input of another loop transformation which expects
-    // the explicit schedule nodes. That is, we would need this explicit expansion
-    // anyway and using the ISL codegen option is a compile-time optimization.
-    int64_t Factor =
-      findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
-    bool Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full")
-      .getValueOr(false);
-    assert((!Full || !(Factor > 0)) &&
-      "Cannot unroll fully and partially at the same time");
-
-    if (Full)
-      return applyFullUnroll(BandToUnroll);
-
-    if (Factor > 0)
-      return applyPartialUnroll(BandToUnroll, Factor);
-
-    llvm_unreachable("Negative unroll factor");
-  }
 
   // Return the properties from a LoopID. Scalar properties are ignored.
   static auto getLoopMDProps(MDNode *LoopMD) {
@@ -2865,6 +2875,7 @@ namespace {
 
 } // namespace
 
+#if 0
 isl::schedule
 polly::applyManualTransformations(Scop &S, isl::schedule Sched,
                                   const Dependences &D,
@@ -2886,16 +2897,17 @@ polly::applyManualTransformations(Scop &S, isl::schedule Sched,
     return Sched;
   return {};
 }
+#endif
 
 
 
 
-#if 0
-isl::schedule polly::applyManualTransformations(Scop *S, isl::schedule Sched) {
+isl::schedule polly::applyManualTransformations(Scop *S, isl::schedule Sched,      const Dependences &D,OptimizationRemarkEmitter *ORE) {
+  Function &F = S->getFunction();
+
   // Search the loop nest for transformations until fixpoint.
   while (true) {
-    isl::schedule Result =
-        SearchTransformVisitor::applyOneTransformation(Sched);
+    isl::schedule Result = SearchTransformVisitor::applyOneTransformation(&F, S, &D, ORE, Sched);
     if (!Result) {
       // No (more) transformation has been found.
       break;
@@ -2907,4 +2919,3 @@ isl::schedule polly::applyManualTransformations(Scop *S, isl::schedule Sched) {
 
   return Sched;
 }
-#endif

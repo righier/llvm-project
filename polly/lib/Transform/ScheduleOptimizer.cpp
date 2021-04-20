@@ -1850,7 +1850,6 @@ static bool runIslScheduleOptimizer(
     return false;
   }
 
-  ScopsProcessed++;
 
   // Schedule without optimizations.
   isl::schedule Schedule = S.getScheduleTree();
@@ -1860,14 +1859,7 @@ static bool runIslScheduleOptimizer(
 
   bool HasUserTransformation = false;
   if (PragmaBasedOpts) {
-    isl::schedule ManuallyTransformed =
-      applyManualTransformations(S, Schedule, D, &ORE);
-    if (ManuallyTransformed) {
-      // User transformations have precedence over other transformations.
-      HasUserTransformation = true;
-      Schedule = ManuallyTransformed;
-    }
-
+    isl::schedule ManuallyTransformed = applyManualTransformations(&S, Schedule, D, &ORE);
     if (ManuallyTransformed.get() != Schedule.get()) {
       // User transformations have precedence over other transformations.
       HasUserTransformation = true;
@@ -1938,7 +1930,7 @@ static bool runIslScheduleOptimizer(
 
 
     ScopsProcessed++;
-    walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
+
 
 
 
