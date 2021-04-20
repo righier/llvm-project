@@ -1932,8 +1932,6 @@ private:
   /// A number that uniquely represents a Scop within its function
   const int ID;
 
-
-
   /// Map of values to the MemoryAccess that writes its definition.
   ///
   /// There must be at most one definition per llvm::Instruction in a SCoP.

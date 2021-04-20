@@ -1006,7 +1006,7 @@ void LoopInfo::finish(LoopInfoStack &LIS) {
 
   MDNode *LoopID;
   LoopAttributes CurLoopAttr = Attrs;
- LLVMContext &Ctx = LIS.Ctx;
+  LLVMContext &Ctx = LIS.Ctx;
 
   if (Parent && (Parent->Attrs.UnrollAndJamEnable ||
                  Parent->Attrs.UnrollAndJamCount != 0)) {

@@ -18,8 +18,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Metadata.h"
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 
 using namespace polly;
@@ -377,8 +375,6 @@ static MDNode *findOptionalNodeOperand(MDNode *LoopMD, StringRef Name) {
       findMetadataOperand(LoopMD, Name).getValueOr(nullptr));
 }
 
-
-
 /// Is this node of type mark?
 static bool isMark(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
@@ -433,7 +429,6 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   return nullptr;
 }
 
-
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand,
                                      BandAttr *&Attr) {
   MarkOrBand = moveToBandMark(MarkOrBand);
@@ -460,7 +455,7 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
 static isl::schedule_node removeMark2(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
   while (isl_schedule_node_get_type(MarkOrBand.get()) ==
-    isl_schedule_node_mark) {
+         isl_schedule_node_mark) {
     if (isBandMark(MarkOrBand))
       MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
     else
@@ -468,10 +463,6 @@ static isl::schedule_node removeMark2(isl::schedule_node MarkOrBand) {
   }
   return MarkOrBand;
 }
-
-
-
-
 
 } // namespace
 
@@ -513,7 +504,6 @@ isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
   return NewSched;
 }
 
-
 static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   if (!LoopMD)
     return nullptr;
@@ -528,11 +518,6 @@ static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   return nullptr;
 }
 
-
-
-
-
-
 /// Return the (one-dimensional) set of numbers that are divisible by @p Factor
 /// with remainder @p Offset.
 ///
@@ -540,7 +525,7 @@ static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
 ///  isDivisibleBySet(Ctx, 4, 1) = { [i] : floord(i,4) = 1 }
 ///
 static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, long Factor,
-  long Offset) {
+                                       long Offset) {
   isl::val ValFactor{Ctx, Factor};
   isl::val ValOffset{Ctx, Offset};
 
@@ -555,7 +540,6 @@ static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, long Factor,
   isl::basic_map Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
   return Modulo.domain();
 }
-
 
 static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
                                                            StringRef Name) {
@@ -592,17 +576,13 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
   return getIslLoopAttr(Ctx, Attr);
 }
 
-
-
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isBand(Band));
   assert(moveToBandMark(Band).is_equal(Band) &&
-    "Don't add a two marks for a band");
+         "Don't add a two marks for a band");
 
   return Band.insert_mark(Mark).get_child(0);
 }
-
-
 
 isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
                                      int Factor, bool Full) {
@@ -712,7 +692,6 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
 
   llvm_unreachable("Negative unroll factor");
 }
-
 
 isl::schedule polly::applyFullUnroll(isl::schedule_node BandToUnroll) {
   isl::ctx Ctx = BandToUnroll.get_ctx();

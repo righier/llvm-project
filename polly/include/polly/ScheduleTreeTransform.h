@@ -86,11 +86,13 @@ struct ScheduleTreeVisitor {
   }
 
   RetTy visitExtension(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitSingleChild(Extension, std::forward<Args>(args)...);
+    return getDerived().visitSingleChild(Extension,
+                                         std::forward<Args>(args)...);
   }
 
   RetTy visitFilter(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitSingleChild(Extension, std::forward<Args>(args)...);
+    return getDerived().visitSingleChild(Extension,
+                                         std::forward<Args>(args)...);
   }
 
   RetTy visitSingleChild(const isl::schedule_node &Node, Args... args) {
@@ -105,7 +107,6 @@ struct ScheduleTreeVisitor {
     llvm_unreachable("Unimplemented other");
   }
 };
-
 
 #if 0
 template <typename Derived, typename RetVal = void, typename... Args>
@@ -258,11 +259,8 @@ BandAttr *getBandAttr(isl::schedule_node MarkOrBand);
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
 
-
 isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
                               bool Full);
-
-
 
 /// Replace the AST band @p BandToUnroll by a sequence of all its iterations.
 ///
@@ -273,7 +271,6 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
-
 
 } // namespace polly
 

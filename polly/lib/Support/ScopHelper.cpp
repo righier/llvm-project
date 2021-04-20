@@ -729,7 +729,6 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
   return false;
 }
 
-
 bool polly::isBandMark(const isl::id &Id) {
   if (Id.is_null())
     return false;
@@ -748,8 +747,6 @@ bool polly::isBandMark(const isl::schedule_node &Node) {
 bool polly::isMark(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
 }
-
-
 
 isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   // Root of loop tree

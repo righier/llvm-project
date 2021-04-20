@@ -546,7 +546,6 @@ bool isDebugCall(llvm::Instruction *Inst);
 /// Such a statement must not be removed, even if has no side-effects.
 bool hasDebugCall(ScopStmt *Stmt);
 
-
 bool isBandMark(const isl::id &Id);
 bool isBandMark(const isl::schedule_node &Node);
 bool isMark(const isl::schedule_node &Node);
@@ -575,7 +574,6 @@ struct BandAttr {
 isl::id getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr);
 isl::id getIslLoopAttr(isl::ctx Ctx, llvm::Loop *L);
 
-
 /// Find a property value in a LoopID.
 ///
 /// Generally, a property MDNode has the format
@@ -601,8 +599,6 @@ llvm::Optional<llvm::Metadata *> findMetadataOperand(llvm::MDNode *LoopMD,
 /// having to include LoopUtils.h in other files.
 bool hasDisableAllTransformsHint(llvm::Loop *L);
 
-
-
 /// Get an isl::id representing a loop.
 ///
 /// This takes the ownership of the BandAttr and will be free'd when the
@@ -626,7 +622,6 @@ bool isLoopAttr(const isl::id &Id);
 
 /// Return the BandAttr of a loop's isl::id.
 BandAttr *getLoopAttr(const isl::id &Id);
-
 
 } // namespace polly
 #endif

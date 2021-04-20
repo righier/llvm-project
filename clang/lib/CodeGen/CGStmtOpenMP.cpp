@@ -2579,9 +2579,9 @@ void CodeGenFunction::EmitOMPOuterLoop(
   llvm::BasicBlock *CondBlock = createBasicBlock("omp.dispatch.cond");
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
-   OMPLoopNestStack.clear();
+  OMPLoopNestStack.clear();
   LoopStack.push(CondBlock, CurFn, SourceLocToDebugLoc(R.getBegin()),
- 
+
                  SourceLocToDebugLoc(R.getEnd()));
 
   llvm::Value *BoolCondVal = nullptr;

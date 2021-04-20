@@ -11,13 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/ManualOptimizer.h"
-#include "polly/ScheduleTreeTransform.h"
-#include "polly/Support/ScopHelper.h"
-#include "llvm/ADT/Optional.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Analysis/LoopInfo.h"
-#include "llvm/IR/Metadata.h"
-#include "polly/ManualOptimizer.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
@@ -30,14 +23,19 @@
 #include "polly/Simplify.h"
 #include "polly/Support/ISLOStream.h"
 #include "polly/Support/ISLTools.h"
+#include "polly/Support/ScopHelper.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -68,7 +66,6 @@ static cl::opt<bool> IgnoreDepcheck(
     "polly-pragma-ignore-depcheck",
     cl::desc("Skip the dependency check for pragma-based transformations"),
     cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
-
 
 static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
                                                   StringRef Name) {
@@ -128,11 +125,12 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 }
 #endif
 
-
-
 template <typename Derived, typename... Args>
-struct ScheduleNodeRewriteVisitor: public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...> {
-  using BaseTy = RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...>;
+struct ScheduleNodeRewriteVisitor
+    : public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node,
+                                          Args...> {
+  using BaseTy =
+      RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...>;
 
   BaseTy &getBase() { return *this; }
   const BaseTy &getBase() const { return *this; }
@@ -188,11 +186,9 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
     return *static_cast<const Derived *>(this);
   }
 
-
-
   isl::schedule_node visitMark(const isl::schedule_node &Mark, Args... args) {
     auto OneRemoved = isl::manage(isl_schedule_node_delete(Mark.copy()));
-    auto Result= getDerived().visit(OneRemoved, args...);
+    auto Result = getDerived().visit(OneRemoved, args...);
     if (!Result) {
       int a = 0;
     }
@@ -201,11 +197,7 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
   }
 };
 
-
-
 struct MarkRemoverPlain : public MarkRemover<MarkRemoverPlain> {};
-
-
 
 static bool isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
@@ -287,7 +279,8 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
 
   BandAttr *Attr = new BandAttr();
 
-  auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id").getValueOr(StringRef());
+  auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
+                       .getValueOr(StringRef());
   if (GivenName.empty())
     GivenName = Name;
   if (GivenName.empty())
@@ -302,8 +295,10 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
 
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
-  assert(moveToBandMark(Band).is_equal(Band) && "Don't add a two marks for a band");
-  Band = isl::manage(isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+  assert(moveToBandMark(Band).is_equal(Band) &&
+         "Don't add a two marks for a band");
+  Band = isl::manage(
+      isl_schedule_node_insert_mark(Band.release(), Mark.release()));
   return Band.get_child(0);
 }
 
@@ -2544,9 +2539,9 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
   return ParallelizedBand.get_schedule();
 }
 
-
 /// Apply full or partial unrolling.
-static isl::schedule applyLoopUnroll(MDNode *LoopMD,    isl::schedule_node BandToUnroll) {
+static isl::schedule applyLoopUnroll(MDNode *LoopMD,
+                                     isl::schedule_node BandToUnroll) {
   assert(BandToUnroll);
   // TODO: Isl's codegen also supports unrolling by isl_ast_build via
   // isl_schedule_node_band_set_ast_build_options({ unroll[x] }) which would be
@@ -2554,9 +2549,12 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,    isl::schedule_node BandT
   // unrolled loop could be input of another loop transformation which expects
   // the explicit schedule nodes. That is, we would need this explicit expansion
   // anyway and using the ISL codegen option is a compile-time optimization.
-  int64_t Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
-  bool Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full").getValueOr(false);
-  assert((!Full || !(Factor > 0)) && "Cannot unroll fully and partially at the same time");
+  int64_t Factor =
+      findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
+  bool Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full")
+                  .getValueOr(false);
+  assert((!Full || !(Factor > 0)) &&
+         "Cannot unroll fully and partially at the same time");
 
   if (Full)
     return applyFullUnroll(BandToUnroll);
@@ -2566,7 +2564,6 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,    isl::schedule_node BandT
 
   llvm_unreachable("Negative unroll factor");
 }
-
 
 #if 1
 /// Recursively visit all nodes in a schedule, loop for loop-transformations
@@ -2584,15 +2581,18 @@ private:
   OptimizationRemarkEmitter *ORE;
 
 public:
-  SearchTransformVisitor(llvm::Function *F, polly::Scop *S, const Dependences *D, OptimizationRemarkEmitter *ORE)
+  SearchTransformVisitor(llvm::Function *F, polly::Scop *S,
+                         const Dependences *D, OptimizationRemarkEmitter *ORE)
       : F(F), S(S), D(D), ORE(ORE) {}
 
-  static isl::schedule applyOneTransformation(llvm::Function *F, polly::Scop *S, const Dependences *D, OptimizationRemarkEmitter *ORE,const isl::schedule &Sched) {
-    SearchTransformVisitor Transformer(F,S,D,ORE);
+  static isl::schedule applyOneTransformation(llvm::Function *F, polly::Scop *S,
+                                              const Dependences *D,
+                                              OptimizationRemarkEmitter *ORE,
+                                              const isl::schedule &Sched) {
+    SearchTransformVisitor Transformer(F, S, D, ORE);
     Transformer.visit(Sched);
     return Transformer.Result;
   }
-
 
   isl::schedule Result;
 
@@ -2704,7 +2704,7 @@ public:
       } else if (AttrName == "llvm.loop.unroll.enable") {
         // TODO: Read argument (0 to disable)
         // Also: llvm.loop.unroll.disable is a thing
-        
+
         // TODO: Handle disabling like llvm::hasUnrollTransformation().
         Result = applyLoopUnroll(LoopMD, Band);
       } else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
@@ -2775,52 +2775,50 @@ public:
   }
 };
 
-
 #endif
 
 namespace {
-  /// Extract an integer property from an LoopID metadata node.
-  static llvm::Optional<int64_t> findOptionalIntOperand(MDNode *LoopMD,
-    StringRef Name) {
-    Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
-    if (!AttrMD)
-      return None;
+/// Extract an integer property from an LoopID metadata node.
+static llvm::Optional<int64_t> findOptionalIntOperand(MDNode *LoopMD,
+                                                      StringRef Name) {
+  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
+  if (!AttrMD)
+    return None;
 
-    ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
-    if (!IntMD)
-      return None;
+  ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
+  if (!IntMD)
+    return None;
 
-    return IntMD->getSExtValue();
-  }
+  return IntMD->getSExtValue();
+}
 
-  /// Extract boolean property from an LoopID metadata node.
-  static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
-    StringRef Name) {
-    auto MD = findOptionMDForLoopID(LoopMD, Name);
-    if (!MD)
-      return None;
+/// Extract boolean property from an LoopID metadata node.
+static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
+                                                    StringRef Name) {
+  auto MD = findOptionMDForLoopID(LoopMD, Name);
+  if (!MD)
+    return None;
 
-    switch (MD->getNumOperands()) {
-    case 1:
-      // When the value is absent it is interpreted as 'attribute set'.
-      return true;
-    case 2:
-      ConstantInt *IntMD =
+  switch (MD->getNumOperands()) {
+  case 1:
+    // When the value is absent it is interpreted as 'attribute set'.
+    return true;
+  case 2:
+    ConstantInt *IntMD =
         mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get());
-      return IntMD->getZExtValue() != 0;
-    }
-    llvm_unreachable("unexpected number of options");
+    return IntMD->getZExtValue() != 0;
   }
+  llvm_unreachable("unexpected number of options");
+}
 
-
-  // Return the properties from a LoopID. Scalar properties are ignored.
-  static auto getLoopMDProps(MDNode *LoopMD) {
-    return map_range(
+// Return the properties from a LoopID. Scalar properties are ignored.
+static auto getLoopMDProps(MDNode *LoopMD) {
+  return map_range(
       make_filter_range(
-        drop_begin(LoopMD->operands(), 1),
-        [](const MDOperand &MDOp) { return isa<MDNode>(MDOp.get()); }),
+          drop_begin(LoopMD->operands(), 1),
+          [](const MDOperand &MDOp) { return isa<MDNode>(MDOp.get()); }),
       [](const MDOperand &MDOp) { return cast<MDNode>(MDOp.get()); });
-  }
+}
 
 #if 0
   /// Recursively visit all nodes in a schedule, loop for loop-transformations
@@ -2921,15 +2919,16 @@ polly::applyManualTransformations(Scop &S, isl::schedule Sched,
 }
 #endif
 
-
-
-
-isl::schedule polly::applyManualTransformations(Scop *S, isl::schedule Sched,      const Dependences &D,OptimizationRemarkEmitter *ORE) {
+isl::schedule
+polly::applyManualTransformations(Scop *S, isl::schedule Sched,
+                                  const Dependences &D,
+                                  OptimizationRemarkEmitter *ORE) {
   Function &F = S->getFunction();
 
   // Search the loop nest for transformations until fixpoint.
   while (true) {
-    isl::schedule Result = SearchTransformVisitor::applyOneTransformation(&F, S, &D, ORE, Sched);
+    isl::schedule Result =
+        SearchTransformVisitor::applyOneTransformation(&F, S, &D, ORE, Sched);
     if (!Result) {
       // No (more) transformation has been found.
       break;
