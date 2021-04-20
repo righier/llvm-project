@@ -131,11 +131,8 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 
 
 template <typename Derived, typename... Args>
-struct ScheduleNodeRewriteVisitor
-    : public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node,
-                                          Args...> {
-  using BaseTy =
-      RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...>;
+struct ScheduleNodeRewriteVisitor: public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...> {
+  using BaseTy = RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...>;
 
   BaseTy &getBase() { return *this; }
   const BaseTy &getBase() const { return *this; }
@@ -144,12 +141,28 @@ struct ScheduleNodeRewriteVisitor
     return *static_cast<const Derived *>(this);
   }
 
-  isl::schedule_node visitOther(const isl::schedule_node &Node, Args... args) {
-    return visitChildren(Node, args...);
+#if 0
+  isl::schedule_node visit(const isl::schedule_node &Node, Args... args) {
+    return visitNode(Node, args...);
   }
 
-  isl::schedule_node visitChildren(const isl::schedule_node &Node,
-                                   Args... args) {
+
+  isl::schedule_node visitLeaf(const isl::schedule_node& Leaf, Args... args) {
+    return Leaf;
+  }
+
+
+
+  isl::schedule_node visitNode(const isl::schedule_node& Node, Args... args) {
+    if (!Node.has_children())
+      return Node;
+
+    llvm_unreachable("unhandled node type");
+  }
+#endif
+
+#if 1
+  isl::schedule_node visitNode(const isl::schedule_node &Node, Args... args) {
     if (!Node.has_children())
       return Node;
 
@@ -161,11 +174,12 @@ struct ScheduleNodeRewriteVisitor
       Child = Child.next_sibling();
     }
   }
+#endif
 };
 
 template <typename Derived, typename... Args>
 struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
-  using BaseTy = RecursiveScheduleTreeVisitor<Derived, Args...>;
+  using BaseTy = ScheduleNodeRewriteVisitor<Derived, Args...>;
 
   BaseTy &getBase() { return *this; }
   const BaseTy &getBase() const { return *this; }
@@ -174,13 +188,24 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
     return *static_cast<const Derived *>(this);
   }
 
+
+
   isl::schedule_node visitMark(const isl::schedule_node &Mark, Args... args) {
     auto OneRemoved = isl::manage(isl_schedule_node_delete(Mark.copy()));
-    return getDerived().visit(OneRemoved, args...);
+    auto Result= getDerived().visit(OneRemoved, args...);
+    if (!Result) {
+      int a = 0;
+    }
+    assert(Result);
+    return Result;
   }
 };
 
+
+
 struct MarkRemoverPlain : public MarkRemover<MarkRemoverPlain> {};
+
+
 
 static bool isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;

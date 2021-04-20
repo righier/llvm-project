@@ -86,13 +86,11 @@ struct ScheduleTreeVisitor {
   }
 
   RetTy visitExtension(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitSingleChild(Extension,
-                                         std::forward<Args>(args)...);
+    return getDerived().visitSingleChild(Extension, std::forward<Args>(args)...);
   }
 
   RetTy visitFilter(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitSingleChild(Extension,
-                                         std::forward<Args>(args)...);
+    return getDerived().visitSingleChild(Extension, std::forward<Args>(args)...);
   }
 
   RetTy visitSingleChild(const isl::schedule_node &Node, Args... args) {
@@ -107,6 +105,7 @@ struct ScheduleTreeVisitor {
     llvm_unreachable("Unimplemented other");
   }
 };
+
 
 #if 0
 template <typename Derived, typename RetVal = void, typename... Args>
