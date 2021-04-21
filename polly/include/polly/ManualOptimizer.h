@@ -23,12 +23,6 @@ namespace polly {
 class Scop;
 struct Dependences;
 
-#if 0
-isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
-                                         const Dependences &D,
-                                         llvm ::OptimizationRemarkEmitter *ORE);
-#endif
-
 class Scop;
 
 /// Apply loop-transformation metadata.

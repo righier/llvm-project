@@ -469,12 +469,6 @@ static isl::schedule_node removeMark2(isl::schedule_node MarkOrBand) {
 
 } // namespace
 
-#if 0
-bool polly::isBandMark(const isl::schedule_node &Node) {
-  return isMark(Node) && isLoopAttr(Node.mark_get_id());
-}
-#endif
-
 BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
   if (!isMark(MarkOrBand))

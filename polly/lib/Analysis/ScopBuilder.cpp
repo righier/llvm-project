@@ -59,13 +59,7 @@
 #include <cassert>
 
 using namespace llvm;
-// namespace cl = llvm::cl;
-// using llvm::seq;
-// using llvm::ICmpInst;
-// using llvm::ConstantInt;
-
 using namespace polly;
-// using MemAccess = polly::MemoryAccess;
 
 #define DEBUG_TYPE "polly-scops"
 

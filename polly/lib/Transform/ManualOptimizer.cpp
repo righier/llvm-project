@@ -80,6 +80,7 @@ static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
   return IntMD->getSExtValue();
 }
 
+/// Extract boolean property from an LoopID metadata node.
 static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
                                                     StringRef Name) {
   auto MD = findOptionMDForLoopID(LoopMD, Name);
@@ -113,18 +114,6 @@ static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
   return StrMD;
 }
 
-#if 0
-static isl::schedule applyLoopUnroll(MDNode *LoopMD,
-                                     isl::schedule_node BandToUnroll) {
-  auto Factor =
-      findOptionalIntOperand(LoopMD, "llvm.loop.unroll.count").getValueOr(0);
-  auto Full = findOptionalBoolOperand(LoopMD, "llvm.loop.unroll.full")
-                  .getValueOr(false);
-
-  return applyLoopUnroll(BandToUnroll, Factor, Full);
-}
-#endif
-
 template <typename Derived, typename... Args>
 struct ScheduleNodeRewriteVisitor
     : public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node,
@@ -139,27 +128,6 @@ struct ScheduleNodeRewriteVisitor
     return *static_cast<const Derived *>(this);
   }
 
-#if 0
-  isl::schedule_node visit(const isl::schedule_node &Node, Args... args) {
-    return visitNode(Node, args...);
-  }
-
-
-  isl::schedule_node visitLeaf(const isl::schedule_node& Leaf, Args... args) {
-    return Leaf;
-  }
-
-
-
-  isl::schedule_node visitNode(const isl::schedule_node& Node, Args... args) {
-    if (!Node.has_children())
-      return Node;
-
-    llvm_unreachable("unhandled node type");
-  }
-#endif
-
-#if 1
   isl::schedule_node visitNode(const isl::schedule_node &Node, Args... args) {
     if (!Node.has_children())
       return Node;
@@ -172,7 +140,6 @@ struct ScheduleNodeRewriteVisitor
       Child = Child.next_sibling();
     }
   }
-#endif
 };
 
 template <typename Derived, typename... Args>
@@ -189,9 +156,6 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
   isl::schedule_node visitMark(const isl::schedule_node &Mark, Args... args) {
     auto OneRemoved = isl::manage(isl_schedule_node_delete(Mark.copy()));
     auto Result = getDerived().visit(OneRemoved, args...);
-    if (!Result) {
-      int a = 0;
-    }
     assert(Result);
     return Result;
   }
@@ -223,14 +187,6 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
     return Band; // Has no mark.
   return nullptr;
 }
-
-#if 0
-static BandAttr *getBandAttr(isl::schedule_node Node) {
-  Node = moveToBandMark(Node);
-  assert(isBandMark(Node));
-  return static_cast<BandAttr *>(Node.mark_get_id().get_user());
-}
-#endif
 
 // FIXME: What is the difference of returning nullptr vs None?
 static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
@@ -2565,7 +2521,6 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
   llvm_unreachable("Negative unroll factor");
 }
 
-#if 1
 /// Recursively visit all nodes in a schedule, loop for loop-transformations
 /// metadata and apply the first encountered.
 class SearchTransformVisitor
@@ -2774,150 +2729,6 @@ public:
     return getBase().visitNode(Other);
   }
 };
-
-#endif
-
-namespace {
-/// Extract an integer property from an LoopID metadata node.
-static llvm::Optional<int64_t> findOptionalIntOperand(MDNode *LoopMD,
-                                                      StringRef Name) {
-  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
-  if (!AttrMD)
-    return None;
-
-  ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
-  if (!IntMD)
-    return None;
-
-  return IntMD->getSExtValue();
-}
-
-/// Extract boolean property from an LoopID metadata node.
-static llvm::Optional<bool> findOptionalBoolOperand(MDNode *LoopMD,
-                                                    StringRef Name) {
-  auto MD = findOptionMDForLoopID(LoopMD, Name);
-  if (!MD)
-    return None;
-
-  switch (MD->getNumOperands()) {
-  case 1:
-    // When the value is absent it is interpreted as 'attribute set'.
-    return true;
-  case 2:
-    ConstantInt *IntMD =
-        mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get());
-    return IntMD->getZExtValue() != 0;
-  }
-  llvm_unreachable("unexpected number of options");
-}
-
-// Return the properties from a LoopID. Scalar properties are ignored.
-static auto getLoopMDProps(MDNode *LoopMD) {
-  return map_range(
-      make_filter_range(
-          drop_begin(LoopMD->operands(), 1),
-          [](const MDOperand &MDOp) { return isa<MDNode>(MDOp.get()); }),
-      [](const MDOperand &MDOp) { return cast<MDNode>(MDOp.get()); });
-}
-
-#if 0
-  /// Recursively visit all nodes in a schedule, loop for loop-transformations
-  /// metadata and apply the first encountered.
-  class SearchTransformVisitor
-    : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
-  private:
-    using BaseTy = RecursiveScheduleTreeVisitor<SearchTransformVisitor>;
-    BaseTy &getBase() { return *this; }
-    const BaseTy &getBase() const { return *this; }
-
-    // Set after a transformation is applied. Recursive search must be aborted
-    // once this happens to ensure that any new followup transformation is
-    // transformed in innermost-first order.
-    isl::schedule Result;
-
-  public:
-    static isl::schedule applyOneTransformation(const isl::schedule &Sched) {
-      SearchTransformVisitor Transformer;
-      Transformer.visit(Sched);
-      return Transformer.Result;
-    }
-
-    void visitBand(const isl::schedule_node &Band) {
-      // Transform inner loops first (depth-first search).
-      getBase().visitBand(Band);
-      if (Result)
-        return;
-
-      // Since it is (currently) not possible to have a BandAttr marker that is
-      // specific to each loop in a band, we only support single-loop bands.
-      if (isl_schedule_node_band_n_member(Band.get()) != 1)
-        return;
-
-      BandAttr *Attr = getBandAttr(Band);
-      if (!Attr) {
-        // Band has no attribute.
-        return;
-      }
-
-      MDNode *LoopMD = Attr->Metadata;
-      if (!LoopMD)
-        return;
-
-      // Iterate over loop properties to find the first transformation.
-      // FIXME: If there are more than one transformation in the LoopMD (making
-      // the order of transformations ambiguous), all others are silently ignored.
-      for (MDNode *MD : getLoopMDProps(LoopMD)) {
-        auto *NameMD = dyn_cast<MDString>(MD->getOperand(0).get());
-        if (!NameMD)
-          continue;
-        StringRef AttrName = NameMD->getString();
-
-        if (AttrName == "llvm.loop.unroll.enable") {
-          // TODO: Handle disabling like llvm::hasUnrollTransformation().
-          Result = applyLoopUnroll(LoopMD, Band);
-        } else {
-          // not a loop transformation; look for next property
-          continue;
-        }
-
-        assert(Result && "expecting applied transformation");
-        return;
-      }
-    }
-
-    void visitNode(const isl::schedule_node &Other) {
-      if (Result)
-        return;
-      getBase().visitNode(Other);
-    }
-  };
-#endif
-
-} // namespace
-
-#if 0
-isl::schedule
-polly::applyManualTransformations(Scop &S, isl::schedule Sched,
-                                  const Dependences &D,
-                                  OptimizationRemarkEmitter *ORE) {
-  Function &F = S.getFunction();
-
-  // Search the loop nest for transformations; apply until no more are found.
-  bool Applied = false;
-  while (true) {
-    SearchTransformVisitor Transformer(&F, &S, &D, ORE);
-    Transformer.visit(Sched);
-    if (!Transformer.Result)
-      break;
-    Sched = Transformer.Result;
-    Applied = true;
-  }
-
-  if (Applied)
-    return Sched;
-  return {};
-}
-#endif
 
 isl::schedule
 polly::applyManualTransformations(Scop *S, isl::schedule Sched,

@@ -776,21 +776,6 @@ isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
 
   // Attr->OriginalLoopID = L->getLoopID();
   return getIslLoopAttr(Ctx, Attr);
-#if 0
-  auto LoopID = L->getLoopID();
-  if (!LoopID)
-    return {};
-
-  IslLoopIdUserTy User{L};
-
-  auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
-  if (!LoopName)
-    return isl::id::alloc(Ctx, "", User.getOpaqueValue());
-
-  auto ValOp = LoopName.getValue();
-  auto ValStr = cast<MDString>(ValOp->get());
-  return isl::id::alloc(Ctx, (Twine("Loop_") + ValStr->getString()).str(), User.getOpaqueValue());
-#endif
 }
 
 /// Find a property in a LoopID.
@@ -829,25 +814,6 @@ Optional<Metadata *> polly::findMetadataOperand(MDNode *LoopMD,
 bool polly::hasDisableAllTransformsHint(Loop *L) {
   return llvm::hasDisableAllTransformsHint(L);
 }
-
-#if 0
-isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
-  assert(Attr);
-
-  std::string IdLabel;
-  if (Attr->LoopName.empty())
-    IdLabel = "anon loop";
-  else
-    IdLabel = (Twine("Loop: ") + Attr->LoopName).str();
-
-  auto Result = isl::id::alloc(Ctx, IdLabel.c_str(), Attr);
-  Result = isl::manage(isl_id_set_free_user(Result.release(), [](void *Ptr) {
-    BandAttr *Attr = (BandAttr *)(Ptr);
-    delete Attr;
-    }));
-  return Result;
-}
-#endif
 
 isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
   assert(Attr && "Must be a valid BandAttr");

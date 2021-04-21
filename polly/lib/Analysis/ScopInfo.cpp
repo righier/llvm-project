@@ -1292,7 +1292,6 @@ ScopStmt::ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain)
     Parent.addAccessFunction(NewMA, /*IsPrimary=*/false);
     addAccess(NewMA);
   }
-  // this->InstructionToAccess
 }
 
 ScopStmt::~ScopStmt() = default;

@@ -263,14 +263,6 @@ static cl::list<int>
                       cl::Hidden, cl::ZeroOrMore, cl::CommaSeparated,
                       cl::cat(PollyCategory));
 
-#if 0
-static cl::opt<bool> EnablePragmaBasedOpts(
-    "polly-pragma-based-opts",
-    cl::desc("Apply pragma transformations instead heuristics "
-             "(if any pragma is present)"),
-    cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
-#endif
-
 static cl::opt<bool> EnableReschedule("polly-reschedule",
                                       cl::desc("Optimize SCoPs using ISL"),
                                       cl::init(true), cl::ZeroOrMore,
@@ -1966,6 +1958,7 @@ static bool runIslScheduleOptimizer(
     }
 
     int IslOuterCoincidence;
+
     if (OuterCoincidence == "yes") {
       IslOuterCoincidence = 1;
     } else if (OuterCoincidence == "no") {

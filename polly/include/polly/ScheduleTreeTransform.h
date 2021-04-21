@@ -108,87 +108,6 @@ struct ScheduleTreeVisitor {
   }
 };
 
-#if 0
-template <typename Derived, typename RetVal = void, typename... Args>
-struct ScheduleTreeVisitor {
-  Derived &getDerived() { return *static_cast<Derived *>(this); }
-  const Derived &getDerived() const {
-    return *static_cast<const Derived *>(this);
-  }
-
-  RetVal visit(const isl::schedule &Schedule, Args... args) {
-    return visit(Schedule.get_root(), args...);
-  }
-
-  RetVal visit(const isl::schedule_node &Node, Args... args) {
-    switch (isl_schedule_node_get_type(Node.get())) {
-    case isl_schedule_node_domain:
-      assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return getDerived().visitDomain(Node, args...);
-    case isl_schedule_node_band:
-      assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return getDerived().visitBand(Node, args...);
-    case isl_schedule_node_sequence:
-      assert(isl_schedule_node_n_children(Node.get()) >= 2);
-      return getDerived().visitSequence(Node, args...);
-    case isl_schedule_node_set:
-      return getDerived().visitSet(Node, args...);
-      assert(isl_schedule_node_n_children(Node.get()) >= 2);
-    case isl_schedule_node_leaf:
-      assert(isl_schedule_node_n_children(Node.get()) == 0);
-      return getDerived().visitLeaf(Node, args...);
-    case isl_schedule_node_mark:
-      assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return getDerived().visitMark(Node, args...);
-    case isl_schedule_node_extension:
-      assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return getDerived().visitExtension(Node, args...);
-    case isl_schedule_node_filter:
-      assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return getDerived().visitFilter(Node, args...);
-    default:
-      llvm_unreachable("unimplemented schedule node type");
-    }
-  }
-
-  RetVal visitDomain(const isl::schedule_node &Domain, Args... args) {
-    return getDerived().visitOther(Domain, args...);
-  }
-
-  RetVal visitBand(const isl::schedule_node &Band, Args... args) {
-    return getDerived().visitOther(Band, args...);
-  }
-
-  RetVal visitSequence(const isl::schedule_node &Sequence, Args... args) {
-    return getDerived().visitOther(Sequence, args...);
-  }
-
-  RetVal visitSet(const isl::schedule_node &Set, Args... args) {
-    return getDerived().visitOther(Set, args...);
-  }
-
-  RetVal visitLeaf(const isl::schedule_node &Leaf, Args... args) {
-    return getDerived().visitOther(Leaf, args...);
-  }
-
-  RetVal visitMark(const isl::schedule_node &Mark, Args... args) {
-    return getDerived().visitOther(Mark, args...);
-  }
-
-  RetVal visitExtension(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitOther(Extension, args...);
-  }
-
-  RetVal visitFilter(const isl::schedule_node &Extension, Args... args) {
-    return getDerived().visitOther(Extension, args...);
-  }
-
-  RetVal visitOther(const isl::schedule_node &Other, Args... args) {
-    llvm_unreachable("Unimplemented other");
-  }
-};
-#endif
-
 /// Recursively visit all nodes of a schedule tree.
 template <typename Derived, typename RetTy = void, typename... Args>
 struct RecursiveScheduleTreeVisitor
@@ -220,30 +139,6 @@ struct RecursiveScheduleTreeVisitor
     return RetTy();
   }
 };
-
-#if 0
-template <typename Derived, typename RetTy = void, typename... Args>
-struct RecursiveScheduleTreeVisitor
-  : public ScheduleTreeVisitor<Derived, RetTy, Args...> {
-  Derived &getDerived() { return *static_cast<Derived *>(this); }
-  const Derived &getDerived() const {
-    return *static_cast<const Derived *>(this);
-  }
-
-  RetTy visitOther(const isl::schedule_node &Node, Args... args) {
-    getDerived().visitChildren(Node, args...);
-    return RetTy();
-  }
-
-  void visitChildren(const isl::schedule_node &Node, Args... args) {
-    auto NumChildren = isl_schedule_node_n_children(Node.get());
-    for (int i = 0; i < NumChildren; i += 1) {
-      auto Child = Node.child(i);
-      getDerived().visit(Child, args...);
-    }
-  }
-};
-#endif
 
 /// Is this node the marker for its parent band?
 bool isBandMark(const isl::schedule_node &Node);
