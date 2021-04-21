@@ -52,10 +52,11 @@ int main() {
 
 
 // TRANS-LABEL: @pragma_id_reverse(
+// TRANS:       polly.loop_header:
 // TRANS:         %polly.indvar_next = add nsw i64 %polly.indvar, 1
-// TRANS:         %exitcond.not = icmp eq i64 %polly.indvar, %smax
+// TRANS:         %exitcond.not = icmp eq i64 %polly.indvar, 0
 // TRANS:       polly.loop_preheader:
-// TRANS:         %smax = call i64 @llvm.smax.i64(i64 %1, i64 0)
+// TRANS:         %1 = sub nsw i64 1, %0
 
 
 // RESULT: (43)
