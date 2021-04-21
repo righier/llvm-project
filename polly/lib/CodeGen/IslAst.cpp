@@ -638,7 +638,7 @@ bool IslAstInfo::isReductionParallel(const isl::ast_node &Node) {
 }
 
 bool IslAstInfo::isExecutedInParallel(const isl::ast_node &Node) {
-  IslAstUserPayload *Payload = getNodePayload(isl::manage_copy(Node));
+  IslAstUserPayload *Payload = getNodePayload(Node);
   if (Payload && Payload->IsForcedThreadParallel)
     return true;
 
