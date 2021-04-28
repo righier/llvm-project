@@ -100,6 +100,8 @@ void F() {
 // CHECK-NOT: mustprogress
 // CHECK-LABEL: @w1(
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    br label %while.cond
+// CHECK:       while.cond:
 // CHECK-NEXT:    br label %while.body
 // CHECK:       while.body:
 // CHECK-NOT:     br {{.*}}, !llvm.loop
@@ -144,6 +146,8 @@ void w2() {
 // C11:           br label %while.cond, !llvm.loop [[LOOP4:!.*]]
 // FINITE:        br label %while.cond, !llvm.loop [[LOOP4:!.*]]
 // CHECK:       while.end:
+// CHECK-NEXT:    br label %while.cond1
+// CHECK:       while.cond1:
 // CHECK-NEXT:    br label %while.body2
 // CHECK:       while.body2:
 // CHECK-NOT:     br {{.*}} !llvm.loop

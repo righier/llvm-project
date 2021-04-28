@@ -2089,6 +2089,10 @@ private:
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
 
+  bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                 SourceRange &Range,
+                                 SmallVectorImpl<ArgsUnion> &ArgHints);
+
   /// Describes the behavior that should be taken for an __if_exists
   /// block.
   enum IfExistsBehavior {

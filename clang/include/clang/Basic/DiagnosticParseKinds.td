@@ -1421,6 +1421,16 @@ def note_pragma_loop_invalid_vectorize_option : Note<
   "vectorize_width loop hint malformed; use vectorize_width(X, fixed) or "
   "vectorize_width(X, scalable) where X is an integer, or vectorize_width('fixed' or 'scalable')">;
 
+// Pragma transform support.
+def err_pragma_transform : Error<
+  "transform directive parse error">;
+def warn_pragma_transform : Warning<
+  "transform directive parse warning">;
+def err_pragma_transform_unknown_directive : Error<
+  "expected a transformation">;
+def err_pragma_transform_unexpected_directive : Error<
+  "unexpected transform directive %select{|'#pragma clang transform %1'}0">;
+
 def err_pragma_fp_invalid_option : Error<
   "%select{invalid|missing}0 option%select{ %1|}0; expected 'contract', 'reassociate' or 'exceptions'">;
 def err_pragma_fp_invalid_argument : Error<

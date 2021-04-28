@@ -1938,6 +1938,9 @@ bool CompilerInvocation::ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args,
 
   Opts.EmitVersionIdentMetadata = Args.hasFlag(OPT_Qy, OPT_Qn, true);
 
+  Opts.DisableLegacyLoopTransformation =
+      Args.hasArg(OPT_disable_legacy_loop_transformations);
+
   if (Args.hasArg(options::OPT_ffinite_loops))
     Opts.FiniteLoops = CodeGenOptions::FiniteLoopsKind::Always;
   else if (Args.hasArg(options::OPT_fno_finite_loops))

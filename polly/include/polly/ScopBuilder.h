@@ -62,6 +62,8 @@ class ScopBuilder {
   // The Scop
   std::unique_ptr<Scop> scop;
 
+  llvm::json::Array *LoopNest = nullptr;
+
   /// Collection to hold taken assumptions.
   ///
   /// There are two reasons why we want to record assumptions first before we
@@ -779,6 +781,8 @@ class ScopBuilder {
     // The (possibly incomplete) schedule for this loop.
     isl::schedule Schedule;
 
+    llvm::json::Array *Nest = nullptr;
+
     // The number of basic blocks in the current loop, for which a schedule has
     // already been constructed.
     unsigned NumBlocksProcessed;
@@ -838,6 +842,8 @@ public:
   /// @return Give up the ownership of the scop object or static control part
   ///         for the region
   std::unique_ptr<Scop> getScop() { return std::move(scop); }
+
+  auto getLoopNest() { return LoopNest; }
 };
 } // end namespace polly
 
