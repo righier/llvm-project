@@ -63,7 +63,15 @@
 using namespace polly;
 using namespace llvm;
 
-namespace {
+
+
+
+static cl::opt<bool> IgnoreDepcheck(
+  "polly-pragma-ignore-depcheck",
+  cl::desc("Skip the dependency check for pragma-based transformations"),
+  cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+
 /// Same as llvm::hasUnrollTransformation(), but takes a LoopID as argument
 /// instead of a Loop.
 static TransformationMode hasUnrollTransformation(MDNode *LoopID) {
@@ -89,10 +97,7 @@ static TransformationMode hasUnrollTransformation(MDNode *LoopID) {
 
 
 
-static cl::opt<bool> IgnoreDepcheck(
-    "polly-pragma-ignore-depcheck",
-    cl::desc("Skip the dependency check for pragma-based transformations"),
-    cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+
 
 static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
                                                   StringRef Name) {
@@ -2555,26 +2560,26 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 /// Recursively visit all nodes in a schedule, loop for loop-transformations
 /// metadata and apply the first encountered.
 class SearchTransformVisitor
-    : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
+  : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
 private:
   using BaseTy = RecursiveScheduleTreeVisitor<SearchTransformVisitor>;
-  BaseTy &getBase() { return *this; }
-  const BaseTy &getBase() const { return *this; }
+  BaseTy& getBase() { return *this; }
+  const BaseTy& getBase() const { return *this; }
 
-  llvm::Function *F;
-  polly::Scop *S;
-  const Dependences *D;
-  OptimizationRemarkEmitter *ORE;
+  llvm::Function* F;
+  polly::Scop* S;
+  const Dependences* D;
+  OptimizationRemarkEmitter* ORE;
 
 public:
-  SearchTransformVisitor(llvm::Function *F, polly::Scop *S,
-                         const Dependences *D, OptimizationRemarkEmitter *ORE)
-      : F(F), S(S), D(D), ORE(ORE) {}
+  SearchTransformVisitor(llvm::Function* F, polly::Scop* S,
+    const Dependences* D, OptimizationRemarkEmitter* ORE)
+    : F(F), S(S), D(D), ORE(ORE) {}
 
-  static isl::schedule applyOneTransformation(llvm::Function *F, polly::Scop *S,
-                                              const Dependences *D,
-                                              OptimizationRemarkEmitter *ORE,
-                                              const isl::schedule &Sched) {
+  static isl::schedule applyOneTransformation(llvm::Function* F, polly::Scop* S,
+    const Dependences* D,
+    OptimizationRemarkEmitter* ORE,
+    const isl::schedule& Sched) {
     SearchTransformVisitor Transformer(F, S, D, ORE);
     Transformer.visit(Sched);
     return Transformer.Result;
@@ -2583,32 +2588,32 @@ public:
   isl::schedule Result;
 
   isl::schedule
-  checkDependencyViolation(llvm::MDNode *LoopMD, llvm::Value *CodeRegion,
-                           const isl::noexceptions::schedule_node &OrigBand,
-                           StringRef DebugLocAttr, StringRef TransPrefix,
-                           StringRef RemarkName, StringRef TransformationName) {
+    checkDependencyViolation(llvm::MDNode* LoopMD, llvm::Value* CodeRegion,
+      const isl::noexceptions::schedule_node& OrigBand,
+      StringRef DebugLocAttr, StringRef TransPrefix,
+      StringRef RemarkName, StringRef TransformationName) {
     // Check legality
     // FIXME: This assumes that there was no dependency violation before; If
     // there are any before, we should remove those dependencies.
     if (D->isValidSchedule(*S, Result))
       return Result;
 
-    auto &Ctx = LoopMD->getContext();
+    auto& Ctx = LoopMD->getContext();
     LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
 
     if (IgnoreDepcheck) {
       LLVM_DEBUG(dbgs() << "Still accepting transformation due to "
-                           "-polly-pragma-ignore-depcheck\n");
+        "-polly-pragma-ignore-depcheck\n");
       if (ORE) {
         auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
         // Each '<<' on ORE is visible in the YAML output; to avoid breaking
         // changes, use Twine.
         ORE->emit(
-            OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
-            << (Twine("Could not verify dependencies for ") +
-                TransformationName +
-                "; still applying because of -polly-pragma-ignore-depcheck")
-                   .str());
+          OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
+          << (Twine("Could not verify dependencies for ") +
+            TransformationName +
+            "; still applying because of -polly-pragma-ignore-depcheck")
+          .str());
       }
       return Result;
     }
@@ -2620,16 +2625,16 @@ public:
       // Each '<<' on ORE is visible in the YAML output; to avoid breaking
       // changes, use Twine.
       ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, RemarkName, Loc,
-                                                  CodeRegion)
-                << (Twine("not applying ") + TransformationName +
-                    ": cannot ensure semantic equivalence due to possible "
-                    "dependency violations")
-                       .str());
+        CodeRegion)
+        << (Twine("not applying ") + TransformationName +
+          ": cannot ensure semantic equivalence due to possible "
+          "dependency violations")
+        .str());
     }
 
     // If illegal, revert and remove the transformation.
     auto NewLoopMD =
-        makePostTransformationMetadata(Ctx, LoopMD, {TransPrefix}, {});
+      makePostTransformationMetadata(Ctx, LoopMD, { TransPrefix }, {});
     auto Attr = getBandAttr(OrigBand);
     Attr->Metadata = NewLoopMD;
 
@@ -2638,7 +2643,7 @@ public:
     return Result;
   }
 
-  void visitBand(const isl::schedule_node &Band) {
+  void visitBand(const isl::schedule_node& Band) {
     // Transform inn loops first.
     getBase().visitBand(Band);
     if (Result)
@@ -2648,9 +2653,9 @@ public:
     if (!Mark || Mark.get() == Band.get())
       return;
 
-    auto Attr = static_cast<BandAttr *>(Mark.mark_get_id().get_user());
+    auto Attr = static_cast<BandAttr*>(Mark.mark_get_id().get_user());
     auto Loop = Attr->OriginalLoop;
-    Value *CodeRegion = nullptr;
+    Value* CodeRegion = nullptr;
     if (Loop)
       CodeRegion = Loop->getHeader();
     if (!CodeRegion)
@@ -2659,9 +2664,9 @@ public:
     auto LoopMD = Attr->Metadata;
     if (!LoopMD)
       return;
-    auto &Ctx = LoopMD->getContext();
+    auto& Ctx = LoopMD->getContext();
 
-    for (auto &MDOp : drop_begin(LoopMD->operands(), 1)) {
+    for (auto& MDOp : drop_begin(LoopMD->operands(), 1)) {
       auto MD = cast<MDNode>(MDOp.get());
       auto NameMD = dyn_cast<MDString>(MD->getOperand(0).get());
       if (!NameMD)
@@ -2672,126 +2677,138 @@ public:
         // TODO: Read argument (0 to disable)
         Result = applyLoopReversal(LoopMD, Band);
         checkDependencyViolation(LoopMD, CodeRegion, Band,
-                                 "llvm.loop.reverse.loc", "llvm.loop.reverse.",
-                                 "FailedRequestedReversal", "loop reversal");
-                                  if (Result)
+          "llvm.loop.reverse.loc", "llvm.loop.reverse.",
+          "FailedRequestedReversal", "loop reversal");
+        if (Result)
           return;
-      } else if (AttrName == "llvm.loop.tile.enable") {
+      }
+      else if (AttrName == "llvm.loop.tile.enable") {
         // TODO: Read argument (0 to disable)
         Result = applyLoopTiling(LoopMD, Band);
         checkDependencyViolation(LoopMD, CodeRegion, Band, "llvm.loop.tile.loc",
-                                 "llvm.loop.tile.", "FailedRequestedTiling",
-                                 "loop tiling");
-                                  if (Result)
+          "llvm.loop.tile.", "FailedRequestedTiling",
+          "loop tiling");
+        if (Result)
           return;
-      } else if (AttrName == "llvm.loop.interchange.enable") {
+      }
+      else if (AttrName == "llvm.loop.interchange.enable") {
         // TODO: Read argument (0 to disable)
         Result = applyLoopInterchange(LoopMD, Band);
         checkDependencyViolation(
-            LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
-            "llvm.loop.interchange.", "FailedRequestedInterchange",
-            "loop interchange");
-             if (Result)
+          LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
+          "llvm.loop.interchange.", "FailedRequestedInterchange",
+          "loop interchange");
+        if (Result)
           return;
-      } else if (AttrName == "llvm.loop.unroll.enable") {
+      }
+      else if (AttrName == "llvm.loop.unroll.enable") {
         // TODO: Read argument (0 to disable)
         // Also: llvm.loop.unroll.disable is a thing
 
       // Honor transformation order; transform the first transformation in the
       // list first.
-      if (AttrName == "llvm.loop.unroll.enable" ||
+        if (AttrName == "llvm.loop.unroll.enable" ||
           AttrName == "llvm.loop.unroll.count" ||
           AttrName == "llvm.loop.unroll.full") {
-        Result = applyLoopUnroll(LoopMD, Band);
-         if (Result)
-          return;
-      } else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
-        // TODO: Read argument (0 to disable)
-        Result = applyLoopUnrollAndJam(LoopMD, Band);
-        checkDependencyViolation(
+          Result = applyLoopUnroll(LoopMD, Band);
+          if (Result)
+            return;
+        }
+        else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
+          // TODO: Read argument (0 to disable)
+          Result = applyLoopUnrollAndJam(LoopMD, Band);
+          checkDependencyViolation(
             LoopMD, CodeRegion, Band, "llvm.loop.unroll_and_jam.loc",
             "llvm.loop.unroll_and_jam.", "FailedRequestedUnrollAndJam",
             "unroll-and-jam");
-             if (Result)
-          return;
-      } else if (AttrName == "llvm.data.pack.enable") {
-        // TODO: When is this transformation illegal? E.g. non-access?
-        Result = applyArrayPacking(LoopMD, Band, F, S, ORE, CodeRegion);
-         if (Result)
-          return;
-      } else if (AttrName == "llvm.loop.parallelize_thread.enable") {
-        auto IsCoincident = Band.band_member_get_coincident(0);
-        if (!IsCoincident) {
-          auto DepsAll =
+          if (Result)
+            return;
+        }
+        else if (AttrName == "llvm.data.pack.enable") {
+          // TODO: When is this transformation illegal? E.g. non-access?
+          Result = applyArrayPacking(LoopMD, Band, F, S, ORE, CodeRegion);
+          if (Result)
+            return;
+        }
+        else if (AttrName == "llvm.loop.parallelize_thread.enable") {
+          auto IsCoincident = Band.band_member_get_coincident(0);
+          if (!IsCoincident) {
+            auto DepsAll =
               D->getDependences(Dependences::TYPE_RAW | Dependences::TYPE_WAW |
-                                Dependences::TYPE_WAR | Dependences::TYPE_RED);
-          auto MySchedMap = Band.first_child().get_prefix_schedule_relation();
-          auto IsParallel = D->isParallel(MySchedMap.get(), DepsAll.release());
-          if (!IsParallel) {
-            LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
-            if (IgnoreDepcheck) {
-              LLVM_DEBUG(dbgs()
-                         << "Ignoring due to -polly-pragma-ignore-depcheck\n");
-            } else {
-              LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
-
-              if (ORE) {
-                auto Loc = findOptionalDebugLoc(
-                    LoopMD, "llvm.loop.parallelize_thread.loc");
-                // Each '<<' on ORE is visible in the YAML output; to avoid
-                // breaking changes, use Twine.
-                ORE->emit(DiagnosticInfoOptimizationFailure(
-                              DEBUG_TYPE, "FailedRequestedThreadParallelism",
-                              Loc, CodeRegion)
-                          << "loop not thread-parallelized: transformation "
-                             "would violate dependencies");
+                Dependences::TYPE_WAR | Dependences::TYPE_RED);
+            auto MySchedMap = Band.first_child().get_prefix_schedule_relation();
+            auto IsParallel = D->isParallel(MySchedMap.get(), DepsAll.release());
+            if (!IsParallel) {
+              LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
+              if (IgnoreDepcheck) {
+                LLVM_DEBUG(dbgs()
+                  << "Ignoring due to -polly-pragma-ignore-depcheck\n");
               }
+              else {
+                LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
 
-              // If illegal, revert and remove the transformation.
-              auto NewLoopMD = makePostTransformationMetadata(
-                  Ctx, LoopMD, {"llvm.loop.parallelize_thread."}, {});
-              auto Attr = getBandAttr(Band);
-              Attr->Metadata = NewLoopMD;
+                if (ORE) {
+                  auto Loc = findOptionalDebugLoc(
+                    LoopMD, "llvm.loop.parallelize_thread.loc");
+                  // Each '<<' on ORE is visible in the YAML output; to avoid
+                  // breaking changes, use Twine.
+                  ORE->emit(DiagnosticInfoOptimizationFailure(
+                    DEBUG_TYPE, "FailedRequestedThreadParallelism",
+                    Loc, CodeRegion)
+                    << "loop not thread-parallelized: transformation "
+                    "would violate dependencies");
+                }
 
-              // Roll back old schedule.
-              Result = Band.get_schedule();
-              return;
+                // If illegal, revert and remove the transformation.
+                auto NewLoopMD = makePostTransformationMetadata(
+                  Ctx, LoopMD, { "llvm.loop.parallelize_thread." }, {});
+                auto Attr = getBandAttr(Band);
+                Attr->Metadata = NewLoopMD;
+
+                // Roll back old schedule.
+                Result = Band.get_schedule();
+                return;
+              }
             }
           }
-        }
 
-        Result = applyParallelizeThread(LoopMD, Band);
-      } else {
+          Result = applyParallelizeThread(LoopMD, Band);
+          if (Result)
+            return;
+        }
         continue;
       }
     }
   }
 
-  void visitNode(const isl::schedule_node &Other) {
-    if (Result)
-      return;
-    return getBase().visitNode(Other);
-  }
-};
+    void visitNode(const isl::schedule_node & Other) {
+      if (Result)
+        return;
+      return getBase().visitNode(Other);
+    }
+  };
+
+
 
 isl::schedule
-polly::applyManualTransformations(Scop *S, isl::schedule Sched,
-                                  const Dependences &D,
-                                  OptimizationRemarkEmitter *ORE) {
-  Function &F = S->getFunction();
+    polly::applyManualTransformations(Scop* S, isl::schedule Sched,
+      const Dependences& D,
+      OptimizationRemarkEmitter* ORE) {
+    Function& F = S->getFunction();
 
-  // Search the loop nest for transformations until fixpoint.
-  while (true) {
-    isl::schedule Result =
+    // Search the loop nest for transformations until fixpoint.
+    while (true) {
+      isl::schedule Result =
         SearchTransformVisitor::applyOneTransformation(&F, S, &D, ORE, Sched);
-    if (!Result) {
-      // No (more) transformation has been found.
-      break;
+      if (!Result) {
+        // No (more) transformation has been found.
+        break;
+      }
+
+      // Use transformed schedule and look for more transformations.
+      Sched = Result;
     }
 
-    // Use transformed schedule and look for more transformations.
-    Sched = Result;
+    return Sched;
   }
 
-  return Sched;
-}

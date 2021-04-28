@@ -26,6 +26,8 @@
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/Sequence.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -1271,24 +1273,7 @@ void ScopBuilder::buildSchedule(Region *R, LoopStackTy &LoopStack) {
   }
 }
 
-// from LoopUtils.cpp
-static Optional<bool> getOptionalBoolLoopAttribute(const Loop *TheLoop,
-                                                   StringRef Name) {
-  MDNode *MD = findOptionMDForLoop(TheLoop, Name);
-  if (!MD)
-    return None;
-  switch (MD->getNumOperands()) {
-  case 1:
-    // When the value is absent it is interpreted as 'attribute set'.
-    return true;
-  case 2:
-    if (ConstantInt *IntMD =
-            mdconst::extract_or_null<ConstantInt>(MD->getOperand(1).get()))
-      return IntMD->getZExtValue();
-    return true;
-  }
-  llvm_unreachable("unexpected number of options");
-}
+
 
 void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   if (RN->isSubRegion()) {
