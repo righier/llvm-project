@@ -37,7 +37,6 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/Loads.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/RegionInfo.h"
@@ -61,6 +60,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
@@ -2840,7 +2840,7 @@ bool ScopInfoRegionPass::doFinalization(Module &) {
 
   // Write to file.
   std::error_code EC;
-  ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs:: OF_TextWithCRLF);
+  ToolOutputFile F(PollyLoopNestOutputFile, EC, llvm::sys::fs::OF_TextWithCRLF);
 
   errs() << "Writing LoopNest to '" << PollyLoopNestOutputFile << "'.\n";
 

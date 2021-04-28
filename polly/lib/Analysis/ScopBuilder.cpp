@@ -26,8 +26,6 @@
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/Sequence.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Path.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -56,6 +54,8 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include <cassert>
@@ -1272,8 +1272,6 @@ void ScopBuilder::buildSchedule(Region *R, LoopStackTy &LoopStack) {
     buildSchedule(RN, LoopStack);
   }
 }
-
-
 
 void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   if (RN->isSubRegion()) {
