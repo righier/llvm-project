@@ -52,7 +52,7 @@ int main() {
 
 
 // TRANS-LABEL: @pragma_reverse(
-// TRANS:       polly.loop_header:
+// TRANS:       polly.stmt.for.body:
 // TRANS:         %polly.indvar_next = add nsw i64 %polly.indvar, 1
 // TRANS:         %exitcond.not = icmp eq i64 %polly.indvar, 0
 // TRANS:       polly.loop_preheader:
