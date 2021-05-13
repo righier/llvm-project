@@ -237,6 +237,11 @@ struct PragmaLoopHintHandler : public PragmaHandler {
   PragmaLoopHintHandler() : PragmaHandler("loop") {}
   void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
                     Token &FirstToken) override;
+
+  void HandleLegacySyntax(Preprocessor &PP, PragmaIntroducer Introducer,
+                          Token &FirstToken);
+  void HandleOmpSyntax(Preprocessor &PP, PragmaIntroducer Introducer,
+                       Token &FirstToken);
 };
 
 struct PragmaUnrollHintHandler : public PragmaHandler {
@@ -1295,6 +1300,781 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   Hint.Range = SourceRange(Info->PragmaName.getLocation(),
                            Info->Toks.back().getLocation());
   return true;
+}
+
+static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
+                                  ArrayRef<Token> Toks, int &Count,
+                                  bool ExpectComma) {
+  // TODO: Use BalancedDelimiterTracker
+  auto NumOpenParens = 0;
+  int i = 0;
+  while (true) {
+    if (i >= Toks.size())
+      break;
+    auto &Tok = Toks[i];
+    if (Tok.is(tok::l_paren))
+      NumOpenParens += 1;
+    else if (Tok.is(tok::r_paren)) {
+      if (NumOpenParens <= 0)
+        break;
+      NumOpenParens -= 1;
+    } else if (ExpectComma && Tok.is(tok::comma))
+      break;
+    i += 1;
+  }
+  Count += i;
+
+  auto ClauseValue = Toks.slice(0, i);
+
+  // Token Annotation;
+  // PP.Lex(Annotation);
+
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+
+  SourceLocation AfterEndLoc;
+  if (i < Toks.size()) {
+    AfterEndLoc = Toks[i].getLocation();
+  } else {
+    Token AfterAnnotation;
+    PP.Lex(AfterAnnotation);
+    AfterEndLoc = AfterAnnotation.getLocation();
+    PP.EnterTokenStream(AfterAnnotation, true, /*IsReinject=*/true);
+  }
+
+  // Push back end marker that does not get accidentally consumed.
+  Token Eof;
+  Eof.startToken();
+  Eof.setKind(tok::eod);
+  Eof.setLocation(AfterEndLoc);
+  PP.EnterTokenStream(Eof, true, /*IsReinject=*/false);
+
+  // Push back the tokens on the stack so we can parse them.
+  PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/true,
+                      /*IsReinject*/ true);
+
+  // Save current Parser.Tok to restore later.
+  Token Annotation = Tok;
+
+  // ParseConstantExpression() takes Parser.Tok as first token.
+  PP.Lex(Tok);
+
+  ExprResult R = Parse.ParseConstantExpression();
+
+  // Restore state
+  if (Tok.isNot(tok::eod))
+    PP.DiscardUntilEndOfDirective();
+  Tok = Annotation;
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+  return R;
+}
+
+enum class TransformClauseKind {
+  None,
+  ReversedId,  // reverse
+  Sizes,       // tile
+  Permutation, // interchange
+  PermutedIds, // interchange
+  Array,       // pack
+  FloorIds,    // tile
+  TileIds,     // tile
+  Peel,        // tile
+  Allocate,    // pack
+  IslSize,     // pack
+  IslRedirect, // pack
+  Factor,      // unrolling, unrollingandjam
+  Full,        // unrolling, unrollingandjam
+};
+
+// TODO: Introduce enum for clause names
+static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
+                                           Token &Tok, ArrayRef<Token> Toks,
+                                           int &i,
+                                           SmallVectorImpl<ArgsUnion> &Args) {
+  auto &ClauseTok = Toks[i];
+  if (ClauseTok.is(tok::eof))
+    return TransformClauseKind::None;
+
+  assert(ClauseTok.is(tok::identifier));
+  auto ClauseName = ClauseTok.getIdentifierInfo()->getName();
+
+  auto Kind = llvm::StringSwitch<TransformClauseKind>(ClauseName)
+                  .Case("reversed_id", TransformClauseKind::ReversedId)
+                  .Case("sizes", TransformClauseKind::Sizes)
+                  .Case("permutation", TransformClauseKind::Permutation)
+                  .Case("permuted_ids", TransformClauseKind::PermutedIds)
+                  .Case("array", TransformClauseKind::Array)
+                  .Case("floor_ids", TransformClauseKind::FloorIds)
+                  .Case("tile_ids", TransformClauseKind::TileIds)
+                  .Case("peel", TransformClauseKind::Peel)
+                  .Case("allocate", TransformClauseKind::Allocate)
+                  .Case("isl_size", TransformClauseKind::IslSize)
+                  .Case("isl_redirect", TransformClauseKind::IslRedirect)
+                  .Case("factor", TransformClauseKind::Factor)
+                  .Case("full", TransformClauseKind::Full)
+                  .Default(TransformClauseKind::None);
+
+  switch (Kind) {
+  case TransformClauseKind::ReversedId: {
+    i += 1;
+
+    assert(Toks[i].is(tok::l_paren));
+    i += 1;
+
+    auto LoopIdInfo = Toks[i].getIdentifierInfo();
+    auto LoopIdStr = LoopIdInfo->getName();
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                         Toks[i].getLocation(), LoopIdInfo));
+    i += 1;
+
+    assert(Toks[i].is(tok::r_paren));
+    i += 1;
+    return Kind;
+  } break;
+  case TransformClauseKind::Sizes: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    i += 2;
+
+    // Get option value
+    // TODO: Use BalancedDelimiterTracker
+    auto NumOpenParens = 1;
+    auto StartInner = i;
+    while (NumOpenParens > 0) {
+      auto &Tok = Toks[i];
+      assert(Tok.isNot(tok::eof));
+      if (Tok.is(tok::l_paren))
+        NumOpenParens += 1;
+      else if (Tok.is(tok::r_paren))
+        NumOpenParens -= 1;
+      i += 1;
+    }
+    auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner + 1);
+    auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
+
+    // Push back the tokens on the stack so we can parse them
+    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/true,
+                        /*IsReinject=*/true);
+
+    // Update token stream; current token could be an annotation token or a
+    // closing paren.
+    PP.Lex(Tok);
+
+    while (true) {
+      ExprResult R = Parse.ParseConstantExpression();
+      assert(!R.isInvalid());
+      Args.push_back(R.get());
+
+      if (Tok.is(tok::comma)) {
+        PP.Lex(Tok);
+        continue;
+      }
+      if (Tok.is(tok::r_paren)) // FIXME: Maybe use eod token to be sure the we
+                                // don't hit a nested rparen
+        break;
+      llvm_unreachable("Unexpected token");
+    }
+    return TransformClauseKind::Sizes;
+  } break;
+
+  case TransformClauseKind::FloorIds:
+  case TransformClauseKind::TileIds:
+  case TransformClauseKind::Permutation:
+  case TransformClauseKind::PermutedIds: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    i += 2;
+    while (true) {
+      assert(Toks[i].is(tok::identifier));
+      auto LoopIdInfo = Toks[i].getIdentifierInfo();
+      auto LoopIdStr = LoopIdInfo->getName();
+      Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                           Toks[i].getLocation(), LoopIdInfo));
+
+      i += 1;
+      if (Toks[i].is(tok::comma)) {
+        i += 1;
+        continue;
+      } else if (Toks[i].is(tok::r_paren)) {
+        i += 1;
+        break;
+      }
+      llvm_unreachable("unexpected token");
+    }
+    return Kind;
+  } break;
+
+  case TransformClauseKind::Array: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    assert(Toks[i + 2].is(tok::identifier));
+    assert(Toks[i + 3].is(tok::r_paren));
+    auto ClauseSlice = Toks.slice(i, 4);
+    i += 4;
+
+    // Push identifier on main stack to be parsed
+    PP.EnterTokenStream(ClauseSlice.slice(2), /*DisableMacroExpansion=*/true,
+                        /*IsReinject=*/true);
+
+    // Push an end marker to the token stream
+    // Token EndMarker;
+    //  EndMarker.startToken();
+    // EndMarker.setKind(tok::eod);
+    //  PP.EnterTokenStream(EndMarker,false);
+
+    // Update token stream; current token could be an annotation token from when
+    // the #pragma started or a closing paren from the previous clause
+    PP.Lex(Tok);
+
+    ExprResult VarExpr = Parse.getActions().CorrectDelayedTyposInExpr(
+        Parse.ParseAssignmentExpression());
+    assert(VarExpr.isUsable());
+    auto V = cast<DeclRefExpr>(VarExpr.get());
+
+    Args.push_back(V);
+    return TransformClauseKind::Array;
+  } break;
+
+  case TransformClauseKind::Allocate:
+  case TransformClauseKind::Peel: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    assert(Toks[i + 2].is(tok::identifier));
+    assert(Toks[i + 3].is(tok::r_paren));
+
+    auto OptionInfo = Toks[i + 2].getIdentifierInfo();
+    auto OptionStr = OptionInfo->getName();
+    // assert(OptionStr == "malloc");
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                         Toks[i].getLocation(), OptionInfo));
+
+    i += 4;
+    return Kind;
+  } break;
+
+  case TransformClauseKind::IslSize:
+  case TransformClauseKind::IslRedirect: {
+    i += 1;
+    assert(Toks[i].is(tok::l_paren));
+    i += 1;
+    int Count = 0;
+    auto Expr = parseExpression(PP, Parse, Tok, Toks.slice(i), Count, false);
+    assert(Expr.isUsable());
+    // assert(Expr.get()->getType().isConstant());
+
+    i += Count;
+    assert(Toks[i].is(tok::r_paren));
+
+    Args.push_back(Expr.get());
+
+    i += 1;
+    return Kind;
+  } break;
+
+  case TransformClauseKind::Factor: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    i += 2;
+
+    // Get option value
+    auto NumOpenParens = 1;
+    auto StartInner = i;
+    while (NumOpenParens > 0) {
+      auto &Tok = Toks[i];
+      assert(Tok.isNot(tok::eof));
+      if (Tok.is(tok::l_paren))
+        NumOpenParens += 1;
+      else if (Tok.is(tok::r_paren))
+        NumOpenParens -= 1;
+      i += 1;
+    }
+    auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner + 1);
+    auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
+
+    // Push back the tokens on the stack so we can parse them
+    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/true,
+                        /*IsReinject=*/true);
+
+    // Update token stream; current token could be an annotation token or a
+    // closing paren.
+    PP.Lex(Tok);
+
+    ExprResult R = Parse.ParseConstantExpression();
+    assert(!R.isInvalid());
+    assert(Tok.is(tok::r_paren)); // Closing paren of factor(
+    Args.push_back(R.get());      // The factor
+
+    return TransformClauseKind::Factor;
+  } break;
+
+  case TransformClauseKind::Full: {
+    assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
+    auto OptionInfo = Toks[i].getIdentifierInfo();
+    auto OptionStr = OptionInfo->getName();
+    assert(OptionStr == "full");
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                         Toks[i].getLocation(), OptionInfo));
+
+    i += 1;
+    return TransformClauseKind::Full;
+  } break;
+
+  case TransformClauseKind::None:
+    llvm_unreachable("Unknown clause");
+  }
+  llvm_unreachable("Unknown clause");
+}
+
+bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                       SourceRange &Range,
+                                       SmallVectorImpl<ArgsUnion> &ArgHints) {
+  assert(Tok.is(tok::annot_pragma_loop_transform));
+  assert(ArgHints.size() == 0);
+  PragmaLoopHintInfo *Info =
+      static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
+
+  auto &Toks = Info->Toks;
+
+  int i = 0;
+  auto &LoopTok = Toks[i];
+  assert(LoopTok.is(tok::identifier));
+  assert(LoopTok.getIdentifierInfo()->getName() == "loop");
+  i += 1;
+
+  // IdentifierLoc *ApplyOnLoc=nullptr;
+
+  // Parse loop name this applies to.
+  // SmallVector<StringRef,4> ApplyOns;
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  Expr *ApplyOnFollowing = nullptr;
+  // StringRef ApplyOn;
+  if (Toks[i].is(tok::l_paren)) {
+    i += 1;
+
+    auto &LoopCountTok = Toks[i];
+    if (LoopCountTok.is(
+            tok::numeric_constant)) { // TODO: Allow arbitrary expressions.
+      int Count = 0;
+      auto R = parseExpression(PP, *this, Tok, Toks.slice(i), Count, false);
+      assert(R.isUsable());
+      ApplyOnFollowing = R.get();
+
+      i += Count;
+      assert(Toks[i].is(tok::r_paren));
+      i += 1;
+    } else {
+      while (true) {
+        auto &LoopNameTok = Toks[i];
+        assert(LoopNameTok.is(tok::identifier));
+        auto ApplyOnLoc =
+            IdentifierLoc::create(Actions.Context, LoopNameTok.getLocation(),
+                                  LoopNameTok.getIdentifierInfo());
+        // auto ApplyOn = LoopNameTok.getIdentifierInfo()->getName();
+
+        ApplyOnLocs.push_back(ApplyOnLoc);
+
+        auto &RParTok = Toks[i + 1];
+        if (RParTok.is(tok::r_paren)) {
+          i += 2;
+          break;
+        }
+
+        if (RParTok.is(tok::comma)) {
+          i += 2;
+          continue;
+        }
+
+        llvm_unreachable("unexpected token");
+      }
+    }
+  }
+
+  auto &IdTok = Toks[i];
+  assert(IdTok.is(tok::identifier));
+  PragmaNameLoc = IdentifierLoc::create(Actions.Context, IdTok.getLocation(),
+                                        IdTok.getIdentifierInfo());
+  i += 1;
+
+  if (IdTok.getIdentifierInfo()->getName() == "id") {
+    assert(ApplyOnLocs.empty() && "No id on already named loop");
+    assert(!ApplyOnFollowing && "Id always applies to nest loop only");
+    auto &LParTok = Toks[i];
+    auto &NameTok = Toks[i + 1];
+    auto &RParTok = Toks[i + 2];
+    auto &EofTok = Toks[i + 3];
+
+    assert(LParTok.is(tok::l_paren));
+    assert(NameTok.is(tok::identifier));
+    auto LoopId = NameTok.getIdentifierInfo()->getName();
+    assert(RParTok.is(tok::r_paren));
+    assert(EofTok.is(tok::eof));
+
+    Range = SourceRange(IdTok.getLocation(), RParTok.getLocation());
+    // ArgHints.push_back(OptionLoc);
+    ArgHints.push_back(IdentifierLoc::create(
+        Actions.Context, NameTok.getLocation(), NameTok.getIdentifierInfo()));
+
+    i += 4;
+    assert(Toks.size() == i);
+    ConsumeAnnotationToken();
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "reverse") {
+    // TODO: With ApplyOn, could appear anywhere (in the function?)
+    // Use Sema::ActOnXYZ instead of adding a token
+    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for reverse");
+    assert(!ApplyOnFollowing && "Reverse applies on only one next loop");
+
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1);
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    ArgsUnion ReverseId = (IdentifierLoc *)nullptr;
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("wrong clause for tile");
+      case TransformClauseKind::ReversedId:
+        assert(!ReverseId);
+        assert(ClauseArgs.size() == 1);
+        ReverseId = ClauseArgs[0];
+        break;
+      }
+    }
+
+    ArgHints.push_back(ReverseId);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    ConsumeAnnotationToken();
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "tile") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(!ApplyOnFollowing || ApplyOnLocs.empty());
+    if (ApplyOnFollowing)
+      ArgHints.push_back(ApplyOnFollowing);
+    for (auto NameLoc : ApplyOnLocs)
+      ArgHints.push_back(NameLoc);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+
+    SmallVector<ArgsUnion, 4> TileSizes;
+    SmallVector<ArgsUnion, 4> FloorIds;
+    SmallVector<ArgsUnion, 4> TileIds;
+    ArgsUnion Peel = (IdentifierLoc *)nullptr;
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("wrong clause for tile");
+      case TransformClauseKind::Sizes:
+        assert(!ClauseArgs.empty());
+        assert(TileSizes.empty());
+        TileSizes = std::move(ClauseArgs);
+        break;
+      case TransformClauseKind::FloorIds:
+        assert(!ClauseArgs.empty());
+        assert(FloorIds.empty());
+        FloorIds = std::move(ClauseArgs);
+        break;
+      case TransformClauseKind::TileIds:
+        assert(!ClauseArgs.empty());
+        assert(TileIds.empty());
+        TileIds = std::move(ClauseArgs);
+        break;
+      case TransformClauseKind::Peel:
+        assert(ClauseArgs.size() == 1);
+        Peel = ClauseArgs[0];
+        break;
+      }
+    }
+
+    for (auto TileSize : TileSizes)
+      ArgHints.push_back(TileSize);
+    ArgHints.push_back((Expr *)nullptr);
+    for (auto PitId : FloorIds)
+      ArgHints.push_back(PitId);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+    for (auto TileId : TileIds)
+      ArgHints.push_back(TileId);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+    ArgHints.push_back(Peel);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "interchange") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(!ApplyOnFollowing || ApplyOnLocs.empty());
+    if (ApplyOnFollowing)
+      ArgHints.push_back(ApplyOnFollowing);
+    for (auto NameLoc : ApplyOnLocs)
+      ArgHints.push_back(NameLoc);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+
+    SmallVector<ArgsUnion, 4> Permutation;
+    SmallVector<ArgsUnion, 4> PermutedIds;
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for interchange");
+      case TransformClauseKind::Permutation:
+        assert(!ClauseArgs.empty());
+        assert(Permutation.empty());
+        Permutation = std::move(ClauseArgs);
+        break;
+      case TransformClauseKind::PermutedIds:
+        assert(!ClauseArgs.empty());
+        assert(PermutedIds.empty());
+        PermutedIds = std::move(ClauseArgs);
+        break;
+      }
+    }
+
+    for (auto PermuteId : Permutation)
+      ArgHints.push_back(PermuteId);
+    ArgHints.push_back((IdentifierLoc *)nullptr); // NULL terminator
+
+    for (auto PermutedId : PermutedIds)
+      ArgHints.push_back(PermutedId);
+    ArgHints.push_back((IdentifierLoc *)nullptr); // NULL terminator
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    ConsumeAnnotationToken();
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "pack") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for pack");
+    assert(!ApplyOnFollowing && "pack applies to single loop only");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    DeclRefExpr *Array = nullptr;
+    ArgsUnion OnHeap = (IdentifierLoc *)nullptr;
+    Expr *IslSize = nullptr;
+    Expr *IslRedirect = nullptr;
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for pack");
+      case TransformClauseKind::Allocate:
+        assert(ClauseArgs.size() == 1);
+        assert(!OnHeap);
+        OnHeap = ClauseArgs[0];
+        break;
+      case TransformClauseKind::Array:
+        assert(ClauseArgs.size() == 1);
+        assert(!Array);
+        Array = cast<DeclRefExpr>(ClauseArgs[0].get<Expr *>());
+        break;
+      case TransformClauseKind::IslSize:
+        assert(ClauseArgs.size() == 1);
+        assert(!IslSize);
+        IslSize = ClauseArgs[0].get<Expr *>();
+        break;
+      case TransformClauseKind::IslRedirect:
+        assert(ClauseArgs.size() == 1);
+        assert(!IslRedirect);
+        IslRedirect = ClauseArgs[0].get<Expr *>();
+        break;
+      }
+    }
+
+    ArgHints.push_back(Array);
+    ArgHints.push_back(OnHeap);
+    ArgHints.push_back(IslSize);
+    ArgHints.push_back(IslRedirect);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "unrolling") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for unrolling");
+    assert(!ApplyOnFollowing && "unrolling applies to single loop only");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    ArgsUnion Factor{(Expr *)nullptr};
+    ArgsUnion Full{(IdentifierLoc *)nullptr}; // Only presence matters
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for unrolling");
+      case TransformClauseKind::Factor:
+        assert(ClauseArgs.size() == 1);
+        Factor = ClauseArgs[0];
+        break;
+      case TransformClauseKind::Full:
+        assert(ClauseArgs.size() == 1);
+        Full = ClauseArgs[0];
+        break;
+      }
+    }
+
+    assert((!Factor || !Full) && "factor(n) and full contradicting");
+    ArgHints.push_back(Factor);
+    ArgHints.push_back(Full);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "unrollingandjam") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for unrollingandjam");
+    assert(!ApplyOnFollowing && "unrollingandjam applies to single loop only");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    ArgsUnion Factor{(Expr *)nullptr};
+    ArgsUnion Full{(IdentifierLoc *)nullptr}; // Only presence matters
+    while (true) {
+      // TODO: Unroll-and-Jam not necessarily jams the innermost loop, might
+      // also jam some loop in-between. Add clause for this option. Maybe by
+      // having two loops in the "on" clause?
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for unrollingandjam");
+      case TransformClauseKind::Factor:
+        assert(ClauseArgs.size() == 1);
+        Factor = ClauseArgs[0];
+        break;
+      case TransformClauseKind::Full:
+        assert(ClauseArgs.size() == 1);
+        Full = ClauseArgs[0];
+        break;
+      }
+    }
+
+    assert((!Factor || !Full) && "factor(n) and full contradicting");
+    ArgHints.push_back(Factor);
+    ArgHints.push_back(Full);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
+  }
+
+  if (IdTok.getIdentifierInfo()->getName() == "parallelize_thread") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for thread-parallelism; use collapse "
+           "before to parallelize multiple loops");
+    assert(!ApplyOnFollowing &&
+           "parallelize_thread applies to single loop only");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for thread-parallelism");
+      }
+    }
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
+  }
+
+  llvm_unreachable("Unrecognized transformation");
 }
 
 namespace {
@@ -2394,6 +3174,13 @@ void PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
     Pragma.push_back(Tok);
     PP.Lex(Tok);
     if (Tok.is(tok::annot_pragma_openmp)) {
+      // #pragma omp INSIDE a #pragma omp?!?
+      // According to
+      // http://lab.llvm.org:8080/coverage/coverage-reports/clang/coverage/Users/buildslave/jenkins/workspace/clang-stage2-coverage-R/llvm/tools/clang/lib/Parse/ParsePragma.cpp.html#L2134
+      // this does actually happen
+      // Have to find when. Can this happen for #pragma clang loop as well?
+      // Added in r325369
+
       PP.Diag(Tok, diag::err_omp_unexpected_directive) << 0;
       unsigned InnerPragmaCnt = 1;
       while (InnerPragmaCnt != 0) {
@@ -3195,6 +3982,64 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
   return false;
 }
 
+void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
+                                         PragmaIntroducer Introducer,
+                                         Token &Tok) {
+  // Identify the legacy syntax
+  // Matches one of:
+  //   "loop" <keyword> "("
+  //
+  // New syntax does not have "(" after <keyword>
+
+  auto &KeywordLoopToken = Tok;
+  assert(KeywordLoopToken.is(tok::identifier));
+  assert(KeywordLoopToken.getIdentifierInfo()->getName() == "loop");
+
+  Token HintToken;
+  PP.Lex(HintToken);
+
+  if (HintToken.is(tok::l_paren)) {
+    // New Syntax:
+    // #pragma clang loop(loopname) ...
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
+    return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
+  }
+
+  if (HintToken.is(tok::eof) ||
+      (HintToken.is(tok::identifier) &&
+       llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
+           .Cases("vectorize", "vectorize_width", "interleave",
+                  "interleave_count", "unroll", "unroll_count", "distribute",
+                  "unrollandjam", "unrollandjam_count", "badkeyword", true)
+           .Cases("pipeline", "pipeline_initiation_interval", true)
+           .Default(false))) {
+    // Known legacy keywords, not (yet) supported by new syntax
+    // #pragma clang loop <keyword>(<option>)
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
+    return HandleLegacySyntax(PP, Introducer, Tok);
+  }
+
+  if (HintToken.is(tok::identifier) &&
+      HintToken.getIdentifierInfo()->getName() == "id") {
+    // New keyword
+    // #pragma clang loop id(loopname)
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
+    return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
+  }
+
+  Token LParToken;
+  PP.Lex(LParToken);
+
+  if (!LParToken.is(tok::l_paren)) {
+    // New syntax has no direct option after <keyword>
+    PP.EnterTokenStream({HintToken, LParToken}, true, /*IsReinject=*/true);
+    return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
+  }
+
+  PP.EnterTokenStream({HintToken, LParToken}, true, /*IsReinject=*/true);
+  return HandleLegacySyntax(PP, Introducer, Tok);
+}
+
 /// Handle the \#pragma clang loop directive.
 ///  #pragma clang 'loop' loop-hints
 ///
@@ -3243,9 +4088,9 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
 /// compile time.  Specifying unroll(disable) disables unrolling for the
 /// loop. Specifying unroll_count(_value_) instructs llvm to try to unroll the
 /// loop the number of times indicated by the value.
-void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
-                                         PragmaIntroducer Introducer,
-                                         Token &Tok) {
+void PragmaLoopHintHandler::HandleLegacySyntax(Preprocessor &PP,
+                                               PragmaIntroducer Introducer,
+                                               Token &Tok) {
   // Incoming token is "loop" from "#pragma clang loop".
   Token PragmaName = Tok;
   SmallVector<Token, 1> TokenList;
@@ -3313,6 +4158,46 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
   std::copy(TokenList.begin(), TokenList.end(), TokenArray.get());
 
   PP.EnterTokenStream(std::move(TokenArray), TokenList.size(),
+                      /*DisableMacroExpansion=*/false, /*IsReinject=*/false);
+}
+
+void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP,
+                                            PragmaIntroducer Introducer,
+                                            Token &Tok) {
+  // New #pragma clang loop syntax, one hint per line.
+
+  // Add all tokens for later parsing
+  auto StartLoc = Tok.getLocation();
+  auto *Info = new (PP.getPreprocessorAllocator()) PragmaLoopHintInfo;
+
+  SmallVector<Token, 4> ValueList;
+  while (Tok.isNot(tok::eod)) {
+    ValueList.push_back(Tok);
+    PP.Lex(Tok);
+  }
+  auto EndLoc = Tok.getLocation();
+
+  Token EOFTok;
+  EOFTok.startToken();
+  EOFTok.setKind(tok::eof);
+  EOFTok.setLocation(EndLoc);
+  ValueList.push_back(EOFTok); // Terminates expression for parsing.
+
+  Info->Toks =
+      llvm::makeArrayRef(ValueList).copy(PP.getPreprocessorAllocator());
+  // Info->PragmaName = PragmaName;
+  // Info->Option = Option;
+
+  auto TokenArray = std::make_unique<Token[]>(1);
+  Token &LoopHintTok = TokenArray[0];
+
+  LoopHintTok.startToken();
+  LoopHintTok.setKind(tok::annot_pragma_loop_transform);
+  LoopHintTok.setLocation(StartLoc);
+  LoopHintTok.setAnnotationEndLoc(EndLoc);
+  LoopHintTok.setAnnotationValue(static_cast<void *>(Info));
+
+  PP.EnterTokenStream(std::move(TokenArray), 1,
                       /*DisableMacroExpansion=*/false, /*IsReinject=*/false);
 }
 

@@ -498,6 +498,9 @@ CodeGenFunction::EmitCompoundStmtWithoutScope(const CompoundStmt &S,
 }
 
 void CodeGenFunction::SimplifyForwardingBlocks(llvm::BasicBlock *BB) {
+  // Disable: It may remove loop header that LoopInfo may want to attach
+  // metadata to.
+  return;
   llvm::BranchInst *BI = dyn_cast<llvm::BranchInst>(BB->getTerminator());
 
   // If there is a cleanup stack, then we it isn't worth trying to
@@ -820,7 +823,7 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   bool CondIsConstInt = C != nullptr;
   bool EmitBoolCondBranch = !CondIsConstInt || !C->isOne();
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(),
+  LoopStack.push(LoopHeader.getBlock(), CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
                  WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
                  checkIfLoopMustProgress(CondIsConstInt));
@@ -919,8 +922,8 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   bool EmitBoolCondBranch = !C || !C->isZero();
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(LoopBody, CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
+                 DoAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
                  checkIfLoopMustProgress(CondIsConstInt));
 
@@ -965,8 +968,8 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
       !S.getCond() || S.getCond()->EvaluateAsInt(Result, getContext());
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(CondBlock, CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
+                 ForAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
                  checkIfLoopMustProgress(CondIsConstInt));
 
@@ -1080,8 +1083,8 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   EmitBlock(CondBlock);
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(CondBlock, CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
+                 ForAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
   // If there are any cleanups between here and the loop-exit scope,

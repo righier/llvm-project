@@ -420,6 +420,7 @@ Retry:
     return StmtEmpty();
 
   case tok::annot_pragma_loop_hint:
+  case tok::annot_pragma_loop_transform:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, StmtCtx, TrailingElseLoc, Attrs);
 
@@ -2224,16 +2225,34 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
   SourceLocation StartLoc = Tok.getLocation();
 
   // Get loop hints and consume annotated token.
-  while (Tok.is(tok::annot_pragma_loop_hint)) {
-    LoopHint Hint;
-    if (!HandlePragmaLoopHint(Hint))
-      continue;
+  while (true) {
+    if (Tok.is(tok::annot_pragma_loop_hint)) {
+      LoopHint Hint;
+      if (!HandlePragmaLoopHint(Hint))
+        continue;
 
-    ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
-                            ArgsUnion(Hint.ValueExpr)};
-    TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
-                     Hint.PragmaNameLoc->Loc, ArgHints, 4,
-                     ParsedAttr::AS_Pragma);
+      ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
+                              ArgsUnion(Hint.ValueExpr)};
+      TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
+                       Hint.PragmaNameLoc->Loc, ArgHints, 4,
+                       ParsedAttr::AS_Pragma);
+
+      continue;
+    }
+
+    if (Tok.is(tok::annot_pragma_loop_transform)) {
+      IdentifierLoc *PragmaNameLoc;
+      SourceRange Range;
+      SmallVector<ArgsUnion, 8> ArgHints;
+      if (!HandlePragmaLoopTransform(PragmaNameLoc, Range, ArgHints))
+        continue;
+
+      TempAttrs.addNew(PragmaNameLoc->Ident, Range, nullptr, SourceLocation(),
+                       ArgHints.data(), ArgHints.size(), ParsedAttr::AS_Pragma);
+      continue;
+    }
+
+    break;
   }
 
   // Get the next statement.
