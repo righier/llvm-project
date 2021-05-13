@@ -75,7 +75,7 @@ buildInlinePasses(llvm::PassBuilder::OptimizationLevel Level) {
   // Invalidate AAManager so it can be recreated and pick up the newly available
   // GlobalsAA.
   MIWP.addModulePass(
-    createModuleToFunctionPassAdaptor(InvalidateAnalysisPass<AAManager>()));
+      createModuleToFunctionPassAdaptor(InvalidateAnalysisPass<AAManager>()));
 
   // Require the ProfileSummaryAnalysis for the module so we can query it within
   // the inliner pass.
@@ -110,7 +110,8 @@ FunctionPassManager polly::buildCanonicalicationPassesForNPM(
     LoopPassManager LPM;
     LPM.addPass(LoopRotatePass(Level != PassBuilder::OptimizationLevel::Oz));
     FPM.addPass(createFunctionToLoopPassAdaptor<LoopPassManager>(
-        std::move(LPM), /*UseMemorySSA=*/false, /*UseBlockFrequencyInfo=*/false));
+        std::move(LPM), /*UseMemorySSA=*/false,
+        /*UseBlockFrequencyInfo=*/false));
   }
   if (PollyInliner) {
     MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
@@ -125,7 +126,8 @@ FunctionPassManager polly::buildCanonicalicationPassesForNPM(
   {
     LoopPassManager LPM;
     LPM.addPass(IndVarSimplifyPass());
-    FPM.addPass(createFunctionToLoopPassAdaptor<LoopPassManager>(std::move(LPM), false, true));
+    FPM.addPass(createFunctionToLoopPassAdaptor<LoopPassManager>(std::move(LPM),
+                                                                 false, true));
   }
 
   return FPM;
