@@ -66,10 +66,10 @@ int main() {
 // AST:   {  /* original code */ }
 
 
-// TRANS: %polly.indvar = phi
-// TRANS: %polly.indvar37.us = phi
-// TRANS: %polly.indvar45.us.us = phi
-// TRANS: %polly.indvar53.us.us = phi
+// TRANS: %polly.indvar{{[0-9]*}} = phi
+// TRANS: %polly.indvar{{[0-9]*}}.us = phi
+// TRANS: %polly.indvar{{[0-9]*}}.us.us = phi
+// TRANS: %polly.indvar{{[0-9]*}}.us.us = phi
 
 
 // RESULT: (3)

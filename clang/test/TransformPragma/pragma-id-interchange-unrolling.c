@@ -86,12 +86,12 @@ int main() {
 
 
 // TRANS-LABEL: @pragma_id_interchange_unrolling
-// TRANS:       polly.loop_header32:
+// TRANS:       polly.loop_header{{[0-9]*}}:
 // TRANS:         store
 // TRANS:         store
 // TRANS:         store
 // TRANS:         store
-// TRANS:       polly.loop_header71:
+// TRANS:       polly.loop_header{{[0-9]*}}:
 // TRANS:         store
 // TRANS:         store
 // TRANS:         store

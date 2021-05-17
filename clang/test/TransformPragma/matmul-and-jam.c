@@ -164,10 +164,10 @@ int main() {
 // AST: 	{  /* original code */ }
 
 
-// TRANS: %malloccall = tail call dereferenceable_or_null(131072) i8* @malloc(i64 131072)
-// TRANS: %malloccall60 = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304) #3
-// TRANS: tail call void @free(i8* %malloccall)
-// TRANS: tail call void @free(i8* %malloccall60)
+// TRANS: %malloccall{{[0-9]*}} = tail call dereferenceable_or_null(131072) i8* @malloc(i64 131072)
+// TRANS: %malloccall{{[0-9]*}} = tail call dereferenceable_or_null(4194304) i8* @malloc(i64 4194304)
+// TRANS: tail call void @free(i8* %malloccall{{[0-9]*}})
+// TRANS: tail call void @free(i8* %malloccall{{[0-9]*}})
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
 // TRANS: store double %p_add
