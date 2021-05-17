@@ -838,8 +838,8 @@ void registerPollyPasses(PassBuilder &PB) {
   default:
     llvm_unreachable("Unknown -polly-position option");
   }
-  }
 }
+
 } // namespace polly
 
 llvm::PassPluginLibraryInfo getPollyPluginInfo() {
