@@ -13,6 +13,9 @@
 #ifndef POLLY_SUPPORT_DUMPMODULEPASS_H
 #define POLLY_SUPPORT_DUMPMODULEPASS_H
 
+#include "llvm/IR/PassManager.h"
+#include <string>
+
 namespace llvm {
 class StringRef;
 class ModulePass;
@@ -28,12 +31,37 @@ namespace polly {
 /// The intent of IsSuffix is to avoid the file being overwritten when
 /// processing multiple modules and/or with multiple dump passes in the
 /// pipeline.
-llvm::ModulePass *createDumpModulePass(llvm::StringRef Filename, bool IsSuffix);
+llvm::ModulePass *createDumpModuleWrapperPass(std::string Filename,
+                                              bool IsSuffix);
+
+struct DumpModulePass : llvm::PassInfoMixin<DumpModulePass> {
+  std::string Filename;
+  bool IsSuffix;
+
+  DumpModulePass(std::string Filename, bool IsSuffix)
+      : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+
+  llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &AM);
+};
+
+struct DumpModuleOfFunctionPass
+    : llvm::PassInfoMixin<DumpModuleOfFunctionPass> {
+  std::string Filename;
+  bool IsSuffix;
+  llvm::DenseSet<llvm::Module *> AlreadyDumped;
+
+  DumpModuleOfFunctionPass(std::string Filename, bool IsSuffix)
+      : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+
+  llvm::PreservedAnalyses run(llvm::Function &F,
+                              llvm::FunctionAnalysisManager &AM);
+};
+
 } // namespace polly
 
 namespace llvm {
 class PassRegistry;
-void initializeDumpModulePass(llvm::PassRegistry &);
+void initializeDumpModuleWrapperPassPass(llvm::PassRegistry &);
 } // namespace llvm
 
 #endif /* POLLY_SUPPORT_DUMPMODULEPASS_H */

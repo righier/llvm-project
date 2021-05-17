@@ -627,6 +627,7 @@ bool polly::isIgnoredIntrinsic(const Value *V) {
     // Lifetime markers are supported/ignored.
     case llvm::Intrinsic::lifetime_start:
     case llvm::Intrinsic::lifetime_end:
+    case llvm::Intrinsic::experimental_noalias_scope_decl:
     // Invariant markers are supported/ignored.
     case llvm::Intrinsic::invariant_start:
     case llvm::Intrinsic::invariant_end:
@@ -726,6 +727,55 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
   }
 
   return false;
+}
+
+bool polly::isBandMark(const isl::id &Id) {
+  if (Id.is_null())
+    return false;
+
+  // Alias-free marker does not have BandAttr* in its user ptr.
+  if (strcmp(isl_id_get_name(Id.get()), "Inter iteration alias-free") == 0)
+    return false;
+
+  return true;
+}
+
+bool polly::isBandMark(const isl::schedule_node &Node) {
+  return isMark(Node) && isBandMark(Node.mark_get_id());
+}
+
+bool polly::isMark(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
+}
+
+isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
+  // Root of loop tree
+  if (!L)
+    return {};
+
+  auto LoopID = L->getLoopID();
+  bool Needed = LoopID; // FIXME: Currently, transformations reference LoopIDs,
+                        // which are not IDs.
+  StringRef LoopName;
+
+  auto LoopNameMD = findStringMetadataForLoop(L, "llvm.loop.id");
+  if (LoopNameMD) {
+    auto ValOp = LoopNameMD.getValue();
+    auto ValStr = cast<MDString>(ValOp->get());
+    LoopName = ValStr->getString();
+    Needed = true;
+  }
+
+  if (!Needed)
+    return {};
+
+  BandAttr *Attr = new BandAttr();
+  Attr->OriginalLoop = L;
+  Attr->LoopName = LoopName.str();
+  Attr->Metadata = LoopID; // FIXME: Set this? LoopID is not unique
+
+  // Attr->OriginalLoopID = L->getLoopID();
+  return getIslLoopAttr(Ctx, Attr);
 }
 
 /// Find a property in a LoopID.

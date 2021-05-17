@@ -154,6 +154,9 @@ BandAttr *getBandAttr(isl::schedule_node MarkOrBand);
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
 
+isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
+                              bool Full);
+
 /// Replace the AST band @p BandToUnroll by a sequence of all its iterations.
 ///
 /// The implementation enumerates all points in the partial schedule and creates

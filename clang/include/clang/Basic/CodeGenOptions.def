@@ -432,6 +432,8 @@ CODEGENOPT(AAPCSBitfieldWidth, 1, 1)
 /// propagate signaling NaN inputs per IEEE 754-2008 (AMDGPU Only)
 CODEGENOPT(EmitIEEENaNCompliantInsts, 1, 1)
 
+CODEGENOPT(DisableLegacyLoopTransformation, 1, 0)
+
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT
 #undef VALUE_CODEGENOPT
