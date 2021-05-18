@@ -28,8 +28,8 @@ namespace {
 static void runDumpModule(llvm::Module &M, StringRef Filename, bool IsSuffix) {
   std::string Dumpfile;
   if (IsSuffix) {
-    auto ModuleName = M.getName();
-    auto Stem = sys::path::stem(ModuleName);
+    StringRef ModuleName = M.getName();
+    StringRef Stem = sys::path::stem(ModuleName);
     Dumpfile = (Twine(Stem) + Filename + ".ll").str();
   } else {
     Dumpfile = Filename.str();

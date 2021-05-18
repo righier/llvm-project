@@ -2710,6 +2710,12 @@ defm stack_size_section : BoolFOption<"stack-size-section",
   CodeGenOpts<"StackSizeSection">, DefaultFalse,
   PosFlag<SetTrue, [CC1Option], "Emit section containing metadata on function stack sizes">,
   NegFlag<SetFalse>>;
+def fstack_usage : Flag<["-"], "fstack-usage">, Group<f_Group>,
+  HelpText<"Emit .su file containing information on function stack sizes">;
+def stack_usage_file : Separate<["-"], "stack-usage-file">,
+  Flags<[CC1Option, NoDriverOption]>,
+  HelpText<"Filename (or -) to write stack usage output to">,
+  MarshallingInfoString<CodeGenOpts<"StackUsageOutput">>;
 
 defm unique_basic_block_section_names : BoolFOption<"unique-basic-block-section-names",
   CodeGenOpts<"UniqueBasicBlockSectionNames">, DefaultFalse,
@@ -3404,7 +3410,7 @@ def mstack_protector_guard_EQ : Joined<["-"], "mstack-protector-guard=">, Group<
   MarshallingInfoString<CodeGenOpts<"StackProtectorGuard">>;
 def mstack_protector_guard_offset_EQ : Joined<["-"], "mstack-protector-guard-offset=">, Group<m_Group>, Flags<[CC1Option]>,
   HelpText<"Use the given offset for addressing the stack-protector guard">,
-  MarshallingInfoInt<CodeGenOpts<"StackProtectorGuardOffset">, "INT_MAX">;
+  MarshallingInfoInt<CodeGenOpts<"StackProtectorGuardOffset">, "INT_MAX", "int">;
 def mstack_protector_guard_reg_EQ : Joined<["-"], "mstack-protector-guard-reg=">, Group<m_Group>, Flags<[CC1Option]>,
   HelpText<"Use the given reg for addressing the stack-protector guard">,
   MarshallingInfoString<CodeGenOpts<"StackProtectorGuardReg">, [{"none"}]>;

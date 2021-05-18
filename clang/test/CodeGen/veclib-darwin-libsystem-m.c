@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -fveclib=Darwin_libsystem_m -triple arm64-apple-darwin %s -target-cpu apple-a7 -vectorize-loops -emit-llvm -O3 -o - | FileCheck %s
 
+// REQUIRES: aarch64-registered-target
+
 // Make sure -fveclib=Darwin_libsystem_m gets passed through to LLVM as
 // expected: a call to _simd_sin_f4 should be generated.
 
