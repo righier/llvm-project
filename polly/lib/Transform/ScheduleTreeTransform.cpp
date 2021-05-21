@@ -803,3 +803,15 @@ isl::schedule polly::applyPartialUnroll(isl::schedule_node BandToUnroll,
 
   return NewLoop.get_schedule();
 }
+
+
+
+
+isl::schedule polly::applyAutofission(isl::schedule_node BandToFission, const Dependences *D) {
+
+
+
+  llvm_unreachable("not implemented");
+}
+
+

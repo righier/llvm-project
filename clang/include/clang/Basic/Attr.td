@@ -3638,6 +3638,58 @@ def LoopInterchange : Attr {
 }
 
 
+
+def LoopFission : Attr {
+  // #pragma clang fission
+  // #pragma clang loop(loopname) fission
+  // #pragma clang loop(depth) fission
+
+  let Spellings = [Pragma<"", "fission">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, VariadicExprArgument<"SplitAt">, BoolArgument<"AutoFission">,  VariadicStringArgument<"FissionedIds">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " fission";
+
+      if (splitAt_size()) {
+      	OS << " split_at(";
+				bool First=true;
+				for (auto SplitPos : splitAt()) {
+				  if (!First) { OS << ", "; }
+				  OS << SplitPos;
+				  First = false;
+				}
+				OS << ")";
+      }
+
+      if (getAutoFission()) {
+					OS << " autofission";
+			}
+
+			if (fissionedIds_size()) {
+				OS << " fissioned_ids(";
+				bool First=true;
+				for (auto FissionId : fissionedIds()) {
+				  if (!First) { OS << ", "; }
+				  OS << FissionId;
+				  First = false;
+				}
+				OS << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
 def Pack : Attr {
   // #pragma clang loop           pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
   // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
@@ -3653,27 +3705,27 @@ def Pack : Attr {
 
 			if (!getApplyOn().empty()) {
 				OS << "(" << getApplyOn() << ")";
-            }
+      }
 
 			OS << " pack";
 
-				if (getArray()) {
-						OS << " array(";
-						getArray()->printPretty(OS, nullptr, Policy);
-						OS << ")";
-				}
+			if (getArray()) {
+					OS << " array(";
+					getArray()->printPretty(OS, nullptr, Policy);
+					OS << ")";
+			}
 
-				if (getOnHeap()) {
-					OS << " allocate(malloc)";
-				}
+			if (getOnHeap()) {
+				OS << " allocate(malloc)";
+			}
 
-				if (!getIslSize().empty()) {
-					OS << " isl_size(\"" << getIslSize() << "\")";
-				}
+			if (!getIslSize().empty()) {
+				OS << " isl_size(\"" << getIslSize() << "\")";
+			}
 
-				if (!getIslRedirect().empty()) {
-					OS << " isl_redirect(\"" << getIslRedirect() << "\")";
-				}
+			if (!getIslRedirect().empty()) {
+				OS << " isl_redirect(\"" << getIslRedirect() << "\")";
+			}
 		}
   }];
 

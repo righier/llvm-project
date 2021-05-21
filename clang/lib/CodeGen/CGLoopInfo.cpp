@@ -972,7 +972,13 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
   assert(On);
   auto Orig = On;
 
+
+
+
+
   auto Result = new VirtualLoopInfo();
+
+
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -988,6 +994,57 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
 
   return Result;
 }
+
+
+
+VirtualLoopInfo* LoopInfoStack::applyFission(const LoopTransformation& Transform, VirtualLoopInfo* On) {
+  assert(On);
+  auto Orig = On;
+
+ auto Autofission= Transform.Autofission;
+ auto& FissionIds = Transform.FissionFissionedIds;
+
+
+
+ Orig->markDisableHeuristic();
+ Orig->addTransformMD(MDNode::get(
+   Ctx, {MDString::get(Ctx, "llvm.loop.fission.enable"),
+   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
+ if (Autofission) {
+   Orig->addTransformMD(MDNode::get(
+     Ctx, {MDString::get(Ctx, "llvm.loop.fission.autofission"),
+     ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
+ }
+
+ addDebugLoc(Ctx, "llvm.loop.fission.loc", Transform, Orig);
+
+ SmallVector<VirtualLoopInfo *, 4> FissionedLoops;
+ FissionedLoops.reserve(FissionIds.size());
+ for (auto FissionedId : FissionIds) {
+    auto Fissioned =  new VirtualLoopInfo(FissionedId); 
+
+    Fissioned->addTransformMD(  MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"), MDString::get(Ctx, FissionedId)}));
+    Fissioned->markNondefault(); assert(!NamedLoopMap.count(FissionedId));
+    NamedLoopMap[FissionedId] = Fissioned;
+
+    // Inherit attributes (debug loc, etc).
+    Fissioned->markNondefault();
+    for (auto X : Orig->Attributes) {
+      Fissioned->addAttribute(X);
+    }
+
+    Orig->addFollowup("llvm.loop.fission.followup_fissioned", Fissioned);
+    Orig->addSubloop(Fissioned);
+ }
+
+ return Orig;
+}
+
+
+
+
+
+
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
   //	LLVMContext &Ctx = Header->getContext();
@@ -1103,13 +1160,38 @@ MDNode *VirtualLoopInfo ::makeLoopID(llvm::LLVMContext &Ctx) {
   for (auto Y : Transforms)
     Args.push_back(Y);
 
+
+  // Preserve order of followup properties
+  SmallVector<std::string> FollowupNames;
+  StringMap<SmallVector<VirtualLoopInfo*, 0> > FollowupsByName;
   for (auto Z : Followups) {
+    auto Name = Z.first;
     auto FollowupInfo = Z.second;
-    if (!FollowupInfo->IsDefault) {
+    auto It = FollowupsByName.insert({ Name , {} });
+    if (It.second) {
+      FollowupNames.push_back(Name);
+    } 
+    It.first->second.push_back(  FollowupInfo);
+  }
+
+  for (auto Name : FollowupNames) {
+    auto &FollowupInfos = FollowupsByName[Name];
+    bool AllDefaults = true;
+    SmallVector<Metadata*> MD;
+    MD.reserve(1 + FollowupInfos.size());
+    MD.push_back(MDString::get(Ctx, Name));
+    for (auto FollowupInfo : FollowupInfos) {
+      if (!FollowupInfo->IsDefault)
+        AllDefaults = false;
       auto FollowupLoopMD = FollowupInfo->makeLoopID(Ctx);
-      Args.push_back(
-          MDNode::get(Ctx, {MDString::get(Ctx, Z.first), FollowupLoopMD}));
+      MD.push_back(FollowupLoopMD);
     }
+
+    if (AllDefaults)
+      continue;
+
+    auto FollowupProp = MDNode::get(Ctx, MD);
+    Args.push_back(FollowupProp);
   }
 
   // Set the first operand to itself.
@@ -1244,6 +1326,22 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           LocBegin, LocEnd, ThreadParallel->getApplyOn()));
       continue;
     }
+
+
+    if (auto LFission = dyn_cast<LoopFissionAttr>(Attr)) {
+      auto ApplyOn = LFission->getApplyOn();
+      if (ApplyOn.empty()) {
+        // Apply to the following loop
+      } else {
+        // Apply on the loop with that name
+      }
+
+
+
+      addTransformation(LoopTransformation::createFission(  LocBegin, LocEnd, ApplyOn, LFission->getAutoFission(),     makeArrayRef(LFission->fissionedIds_begin(), LFission->fissionedIds_end())  ));
+      continue;
+    }
+
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
@@ -1605,6 +1703,9 @@ LoopInfoStack::applyTransformation(const LoopTransformation &Transform,
   case LoopTransformation::ThreadParallel:
     assert(ApplyTo.size() == 1);
     return applyThreadParallel(Transform, ApplyTo[0]);
+  case LoopTransformation::Fission:
+    assert(ApplyTo.size() == 1);
+    return applyFission(Transform, ApplyTo[0]);
   }
 }
 

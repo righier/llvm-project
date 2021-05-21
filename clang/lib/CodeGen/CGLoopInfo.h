@@ -47,7 +47,8 @@ struct LoopTransformation {
     Pack,
     Unrolling,
     UnrollingAndJam,
-    ThreadParallel
+    ThreadParallel,
+    Fission
   };
   TransformKind Kind;
 
@@ -65,20 +66,33 @@ struct LoopTransformation {
 
   llvm::StringRef Name;
   llvm::StringRef FollowupName;
+
+  // Tiling
   llvm::SmallVector<int64_t, 4> TileSizes;
   llvm::SmallVector<llvm::StringRef, 4> TileFloorIds;
   llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
   llvm::StringRef TilePeel;
 
+  // Interchange
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   llvm::SmallVector<llvm::StringRef, 4> PermutedIds;
+
+  // Pack
   clang::DeclRefExpr *Array;
   bool OnHeap = false;
   llvm::StringRef IslSize;
   llvm::StringRef IslRedirect;
 
+  // Unroll / UnrollAndJam
   int64_t Factor = -1;
   bool Full = false;
+
+  // Fission
+  bool Autofission = false;
+  llvm::SmallVector<uint64_t, 4> FissionSplitAt;
+  llvm::SmallVector<llvm::StringRef, 4> FissionFissionedIds;
+
+
 
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
@@ -225,6 +239,30 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     return Result;
   }
+
+
+
+
+  static LoopTransformation createFission(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
+    llvm::StringRef ApplyOn,
+    bool Autofission,
+    llvm::ArrayRef<StringRef> FissionedIds, 
+    llvm::ArrayRef<uint64_t> SplitAt) {
+
+    LoopTransformation Result;
+    Result.BeginLoc = BeginLoc;
+    Result.EndLoc = EndLoc;
+    Result.Kind = Fission;
+    if (!ApplyOn.empty())
+      Result.ApplyOns.push_back(ApplyOn);
+
+    Result.Autofission = Autofission;
+    llvm::append_range(Result.FissionSplitAt, SplitAt);
+    llvm::append_range(Result.FissionFissionedIds, FissionedIds);
+
+    return Result;
+  }
+
 };
 
 /// Attributes that may be specified on loops.
@@ -414,9 +452,9 @@ public:
 
   void addTransformMD(llvm::Metadata *Node) { Transforms.push_back(Node); }
 
-  void addFollowup(const char *FollowupAttributeName,
-                   VirtualLoopInfo *Followup) {
-    Followups.push_back({FollowupAttributeName, Followup});
+  void addFollowup(const char* FollowupAttributeName, VirtualLoopInfo* Followup) {  
+   // assert(!Followups.count(FollowupAttributeName));
+    Followups.push_back({ FollowupAttributeName, Followup });
   }
 
   void addSubloop(VirtualLoopInfo *Subloop) { Subloops.push_back(Subloop); }
@@ -581,6 +619,7 @@ public:
                              llvm::ArrayRef<VirtualLoopInfo *> On);
   VirtualLoopInfo *applyThreadParallel(const LoopTransformation &Transform,
                                        VirtualLoopInfo *On);
+  VirtualLoopInfo *applyFission(const LoopTransformation &Transform, VirtualLoopInfo *On);
 
   void finish();
 

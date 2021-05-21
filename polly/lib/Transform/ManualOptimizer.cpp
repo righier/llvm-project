@@ -2548,6 +2548,15 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
   return {};
 }
 
+
+
+static isl::schedule applyLoopFission(MDNode *LoopMD, isl::schedule_node BandToFission,  const Dependences *D) {
+  // Assume autofission
+  return applyAutofission(BandToFission,D);
+}
+
+
+
 // Return the properties from a LoopID. Scalar properties are ignored.
 static auto getLoopMDProps(MDNode *LoopMD) {
   return map_range(
@@ -2762,12 +2771,19 @@ public:
               return;
             }
           }
-        }
+        }  
 
         Result = applyParallelizeThread(LoopMD, Band);
         if (Result)
           return;
+      } else if (AttrName == "llvm.loop.fission.enable") {
+        Result = applyLoopFission(LoopMD, Band, D);
+        if (Result) 
+          Result = checkDependencyViolation(LoopMD, CodeRegion, Band, "llvm.loop.fission.loc", "llvm.loop.fission.", "FailedRequestedFission", "loop fission/distribution");
+        if (Result) 
+          return;
       }
+
       continue;
     }
   }

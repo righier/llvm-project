@@ -1382,19 +1382,22 @@ static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
 
 enum class TransformClauseKind {
   None,
-  ReversedId,  // reverse
-  Sizes,       // tile
-  Permutation, // interchange
-  PermutedIds, // interchange
-  Array,       // pack
-  FloorIds,    // tile
-  TileIds,     // tile
-  Peel,        // tile
-  Allocate,    // pack
-  IslSize,     // pack
-  IslRedirect, // pack
-  Factor,      // unrolling, unrollingandjam
-  Full,        // unrolling, unrollingandjam
+  ReversedId,    // reverse
+  Sizes,         // tile
+  Permutation,   // interchange
+  PermutedIds,   // interchange
+  Array,         // pack
+  FloorIds,      // tile
+  TileIds,       // tile
+  Peel,          // tile
+  Allocate,      // pack
+  IslSize,       // pack
+  IslRedirect,   // pack
+  Factor,        // unrolling, unrollingandjam
+  Full,          // unrolling, unrollingandjam
+  Autofission,   // fission
+  SplitAt,       // fission
+  FissionendIds, // fission
 };
 
 // TODO: Introduce enum for clause names
@@ -1423,6 +1426,9 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("isl_redirect", TransformClauseKind::IslRedirect)
                   .Case("factor", TransformClauseKind::Factor)
                   .Case("full", TransformClauseKind::Full)
+                  .Case("autofission", TransformClauseKind::Autofission)
+                  .Case("split_at", TransformClauseKind::SplitAt)
+                  .Case("fissioned_ids", TransformClauseKind::FissionendIds)
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
@@ -1442,7 +1448,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     i += 1;
     return Kind;
   } break;
-  case TransformClauseKind::Sizes: {
+  case TransformClauseKind::Sizes: 
+  case TransformClauseKind::SplitAt:  {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
 
@@ -1484,13 +1491,14 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
         break;
       llvm_unreachable("Unexpected token");
     }
-    return TransformClauseKind::Sizes;
+    return Kind;
   } break;
 
   case TransformClauseKind::FloorIds:
   case TransformClauseKind::TileIds:
   case TransformClauseKind::Permutation:
-  case TransformClauseKind::PermutedIds: {
+  case TransformClauseKind::PermutedIds: 
+  case TransformClauseKind::FissionendIds:{
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
     while (true) {
@@ -1613,16 +1621,17 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     return TransformClauseKind::Factor;
   } break;
 
-  case TransformClauseKind::Full: {
+  case TransformClauseKind::Full: 
+  case TransformClauseKind::Autofission :{
     assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
     auto OptionInfo = Toks[i].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
-    assert(OptionStr == "full");
-    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
-                                         Toks[i].getLocation(), OptionInfo));
+
+    // Use the keyword itself as "argument".
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
 
     i += 1;
-    return TransformClauseKind::Full;
+    return Kind;
   } break;
 
   case TransformClauseKind::None:
@@ -1700,6 +1709,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   PragmaNameLoc = IdentifierLoc::create(Actions.Context, IdTok.getLocation(),
                                         IdTok.getIdentifierInfo());
   i += 1;
+  Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
   if (IdTok.getIdentifierInfo()->getName() == "id") {
     assert(ApplyOnLocs.empty() && "No id on already named loop");
@@ -1770,8 +1780,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "tile") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(!ApplyOnFollowing || ApplyOnLocs.empty());
     if (ApplyOnFollowing)
       ArgHints.push_back(ApplyOnFollowing);
@@ -1834,8 +1842,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "interchange") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(!ApplyOnFollowing || ApplyOnLocs.empty());
     if (ApplyOnFollowing)
       ArgHints.push_back(ApplyOnFollowing);
@@ -1884,8 +1890,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "pack") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(ApplyOnLocs.size() <= 1 && "only single loop supported for pack");
     assert(!ApplyOnFollowing && "pack applies to single loop only");
     if (ApplyOnLocs.empty())
@@ -1944,8 +1948,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "unrolling") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(ApplyOnLocs.size() <= 1 &&
            "only single loop supported for unrolling");
     assert(!ApplyOnFollowing && "unrolling applies to single loop only");
@@ -1990,8 +1992,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "unrollingandjam") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(ApplyOnLocs.size() <= 1 &&
            "only single loop supported for unrollingandjam");
     assert(!ApplyOnFollowing && "unrollingandjam applies to single loop only");
@@ -2039,8 +2039,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "parallelize_thread") {
-    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-
     assert(ApplyOnLocs.size() <= 1 &&
            "only single loop supported for thread-parallelism; use collapse "
            "before to parallelize multiple loops");
@@ -2072,8 +2070,65 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     return true;
   }
 
+  if (IdTok.getIdentifierInfo()->getName() == "fission") {
+    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for loop fission/distribution");
+    assert(!ApplyOnFollowing && "fission applies to single loop only");
+    if (ApplyOnLocs.empty())
+      // Apply to following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+
+    ArgsUnion Autofission{(IdentifierLoc *)nullptr}; // Only presence matters
+    SmallVector<ArgsUnion, 4>  SplitAt;
+    SmallVector<ArgsUnion, 4>  FissionedIds;
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      case TransformClauseKind::Autofission:
+        assert(ClauseArgs.size() == 1);
+        Autofission = ClauseArgs[0];
+        break;
+      case TransformClauseKind::SplitAt:
+        assert(!ClauseArgs.empty());
+        assert(SplitAt.empty());
+        SplitAt = ClauseArgs;
+        break;
+      case TransformClauseKind::FissionendIds:
+        assert(!ClauseArgs.empty());
+        assert(FissionedIds.empty());
+        FissionedIds = std::move(ClauseArgs);
+        break;
+      default:
+        llvm_unreachable("unsupported clause for fission");
+      }
+    }
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    ArgHints.push_back(Autofission);
+    for (auto SplitPos : SplitAt)
+      ArgHints.push_back(SplitPos);
+    ArgHints.push_back((Expr *)nullptr);
+    for (auto PitId : FissionedIds)
+      ArgHints.push_back(PitId);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+
+    assert(Toks.size() == i && "must have parsed all clauses"); 
+    PP.Lex(Tok);             
+    return true;
+  }
+
   llvm_unreachable("Unrecognized transformation");
 }
+
+
 
 namespace {
 struct PragmaAttributeInfo {

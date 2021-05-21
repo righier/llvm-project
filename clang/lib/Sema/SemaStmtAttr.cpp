@@ -293,6 +293,38 @@ static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,
                                                    A.getRange());
 }
 
+static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+  auto AutofissionLoc = A.getArgAsIdent(1);
+
+  SmallVector<Expr *, 4> SplitAt;
+  int i = 2;
+  while (true) {
+    auto SplitPos = A.getArgAsExpr(i);
+    i += 1;
+    if (!SplitPos)
+      break;
+    SplitAt.push_back(SplitPos);
+  }
+
+  SmallVector<IdentifierLoc *, 4> FissionedIdLocs;
+  SmallVector<StringRef, 4> FissionedId;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    FissionedIdLocs.push_back(Ident);
+    FissionedId.push_back(Ident->Ident->getName());
+  }
+  assert(A.getNumArgs() == i);
+
+
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopFissionAttr::CreateImplicit(S.Context, ApplyOn,AutofissionLoc,  FissionedId.data(), FissionedId.size(), A.getRange());
+}
+
+
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
@@ -655,6 +687,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLoopUnrollingAndJam(S, St, A, Range);
   case ParsedAttr::AT_LoopParallelizeThread:
     return handleLoopParallelizeThread(S, St, A, Range);
+  case ParsedAttr::AT_LoopFission:
+    return handleLoopFission(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   case ParsedAttr::AT_NoMerge:

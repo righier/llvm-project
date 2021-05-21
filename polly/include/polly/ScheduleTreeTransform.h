@@ -19,6 +19,7 @@
 
 namespace polly {
 struct BandAttr;
+struct Dependences;
 
 /// This class defines a simple visitor class that may be used for
 /// various schedule tree analysis purposes.
@@ -166,6 +167,11 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
+
+
+isl::schedule applyAutofission(isl::schedule_node BandToFission,  const Dependences *D);
+
+
 
 } // namespace polly
 
