@@ -1247,6 +1247,10 @@ void SelectionDAGBuilder::resolveDanglingDebugInfo(const Value *V,
 }
 
 void SelectionDAGBuilder::salvageUnresolvedDbgValue(DanglingDebugInfo &DDI) {
+  // TODO: For the variadic implementation, instead of only checking the fail
+  // state of `handleDebugValue`, we need know specifically which values were
+  // invalid, so that we attempt to salvage only those values when processing
+  // a DIArgList.
   assert(!DDI.getDI()->hasArgList() &&
          "Not implemented for variadic dbg_values");
   Value *V = DDI.getDI()->getValue(0);
@@ -1270,16 +1274,21 @@ void SelectionDAGBuilder::salvageUnresolvedDbgValue(DanglingDebugInfo &DDI) {
   while (isa<Instruction>(V)) {
     Instruction &VAsInst = *cast<Instruction>(V);
     // Temporary "0", awaiting real implementation.
-    DIExpression *NewExpr = salvageDebugInfoImpl(VAsInst, Expr, StackValue, 0);
+    SmallVector<Value *, 4> AdditionalValues;
+    DIExpression *SalvagedExpr =
+        salvageDebugInfoImpl(VAsInst, Expr, StackValue, 0, AdditionalValues);
 
     // If we cannot salvage any further, and haven't yet found a suitable debug
     // expression, bail out.
-    if (!NewExpr)
+    // TODO: If AdditionalValues isn't empty, then the salvage can only be
+    // represented with a DBG_VALUE_LIST, so we give up. When we have support
+    // here for variadic dbg_values, remove that condition.
+    if (!SalvagedExpr || !AdditionalValues.empty())
       break;
 
     // New value and expr now represent this debuginfo.
     V = VAsInst.getOperand(0);
-    Expr = NewExpr;
+    Expr = SalvagedExpr;
 
     // Some kind of simplification occurred: check whether the operand of the
     // salvaged debug expression can be encoded in this DAG.
@@ -2880,6 +2889,10 @@ void SelectionDAGBuilder::visitInvoke(const InvokeInst &I) {
       llvm_unreachable("Cannot invoke this intrinsic");
     case Intrinsic::donothing:
       // Ignore invokes to @llvm.donothing: jump directly to the next BB.
+    case Intrinsic::seh_try_begin:
+    case Intrinsic::seh_scope_begin:
+    case Intrinsic::seh_try_end:
+    case Intrinsic::seh_scope_end:
       break;
     case Intrinsic::experimental_patchpoint_void:
     case Intrinsic::experimental_patchpoint_i64:
@@ -4798,6 +4811,12 @@ void SelectionDAGBuilder::visitTargetIntrinsic(const CallInst &I,
     ValueVTs.push_back(MVT::Other);
 
   SDVTList VTs = DAG.getVTList(ValueVTs);
+
+  // Propagate fast-math-flags from IR to node(s).
+  SDNodeFlags Flags;
+  if (auto *FPMO = dyn_cast<FPMathOperator>(&I))
+    Flags.copyFMF(*FPMO);
+  SelectionDAG::FlagInserter FlagsInserter(DAG, Flags);
 
   // Create the node.
   SDValue Result;
@@ -6792,6 +6811,10 @@ void SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I,
       lowerCallToExternalSymbol(I, FunctionName);
     return;
   case Intrinsic::donothing:
+  case Intrinsic::seh_try_begin:
+  case Intrinsic::seh_scope_begin:
+  case Intrinsic::seh_try_end:
+  case Intrinsic::seh_scope_end:
     // ignore
     return;
   case Intrinsic::experimental_stackmap:
@@ -9456,7 +9479,7 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
     // FIXME: Split arguments if CLI.IsPostTypeLegalization
     Type *FinalType = Args[i].Ty;
     if (Args[i].IsByVal)
-      FinalType = cast<PointerType>(Args[i].Ty)->getElementType();
+      FinalType = Args[i].IndirectType;
     bool NeedsRegBlock = functionArgumentNeedsConsecutiveRegisters(
         FinalType, CLI.CallConv, CLI.IsVarArg);
     for (unsigned Value = 0, NumValues = ValueVTs.size(); Value != NumValues;
@@ -9529,11 +9552,10 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
       }
       Align MemAlign;
       if (Args[i].IsByVal || Args[i].IsInAlloca || Args[i].IsPreallocated) {
-        PointerType *Ty = cast<PointerType>(Args[i].Ty);
-        Type *ElementTy = Ty->getElementType();
+        Type *ElementTy = Args[i].IndirectType;
+        assert(ElementTy && "Indirect type not set in ArgListEntry");
 
-        unsigned FrameSize = DL.getTypeAllocSize(
-            Args[i].ByValType ? Args[i].ByValType : ElementTy);
+        unsigned FrameSize = DL.getTypeAllocSize(ElementTy);
         Flags.setByValSize(FrameSize);
 
         // info is not there but there are cases it cannot get right.

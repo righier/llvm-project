@@ -511,6 +511,7 @@ void CodeGenModule::Release() {
   EmitGlobalAnnotations();
   EmitStaticExternCAliases();
   EmitDeferredUnusedCoverageMappings();
+  CodeGenPGO(*this).setValueProfilingFlag(getModule());
   if (CoverageMapping)
     CoverageMapping->emit();
   if (CodeGenOpts.SanitizeCfiCrossDso) {
@@ -697,6 +698,9 @@ void CodeGenModule::Release() {
                                   llvm::DenormalMode::IEEE);
   }
 
+  if (LangOpts.EHAsynch)
+    getModule().addModuleFlag(llvm::Module::Warning, "eh-asynch", 1);
+
   // Emit OpenCL specific module metadata: OpenCL/SPIR version.
   if (LangOpts.OpenCL) {
     EmitOpenCLMetadata();
@@ -772,6 +776,15 @@ void CodeGenModule::Release() {
 
   if (!getCodeGenOpts().RecordCommandLine.empty())
     EmitCommandLineMetadata();
+
+  if (!getCodeGenOpts().StackProtectorGuard.empty())
+    getModule().setStackProtectorGuard(getCodeGenOpts().StackProtectorGuard);
+  if (!getCodeGenOpts().StackProtectorGuardReg.empty())
+    getModule().setStackProtectorGuardReg(
+        getCodeGenOpts().StackProtectorGuardReg);
+  if (getCodeGenOpts().StackProtectorGuardOffset != INT_MAX)
+    getModule().setStackProtectorGuardOffset(
+        getCodeGenOpts().StackProtectorGuardOffset);
 
   getTargetCodeGenInfo().emitTargetMetadata(*this, MangledDeclNames);
 
@@ -1004,9 +1017,9 @@ static bool shouldAssumeDSOLocal(const CodeGenModule &CGM,
     // On ELF, if -fno-semantic-interposition is specified and the target
     // supports local aliases, there will be neither CC1
     // -fsemantic-interposition nor -fhalf-no-semantic-interposition. Set
-    // dso_local if using a local alias is preferable (can avoid GOT
-    // indirection).
-    if (!GV->canBenefitFromLocalAlias())
+    // dso_local on the function if using a local alias is preferable (can avoid
+    // PLT indirection).
+    if (!(isa<llvm::Function>(GV) && GV->canBenefitFromLocalAlias()))
       return false;
     return !(CGM.getLangOpts().SemanticInterposition ||
              CGM.getLangOpts().HalfNoSemanticInterposition);
@@ -2364,6 +2377,8 @@ void CodeGenModule::EmitDeferred() {
   }
 
   // Emit CUDA/HIP static device variables referenced by host code only.
+  // Note we should not clear CUDADeviceVarODRUsedByHost since it is still
+  // needed for further handling.
   if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice)
     for (const auto *V : getContext().CUDADeviceVarODRUsedByHost)
       DeferredDeclsToEmit.push_back(V);

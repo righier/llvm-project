@@ -9571,8 +9571,9 @@ Overview:
 
 The '``alloca``' instruction allocates memory on the stack frame of the
 currently executing function, to be automatically released when this
-function returns to its caller. The object is always allocated in the
-address space for allocas indicated in the datalayout.
+function returns to its caller.  If the address space is not explicitly
+specified, the object is allocated in the alloca address space from the
+:ref:`datalayout string<langref_datalayout>`.
 
 Arguments:
 """"""""""
@@ -9602,6 +9603,10 @@ the function returns (either with the ``ret`` or ``resume`` instructions),
 the memory is reclaimed. Allocating zero bytes is legal, but the returned
 pointer may not be unique. The order in which memory is allocated (ie.,
 which way the stack grows) is not specified.
+
+Note that '``alloca``' outside of the alloca address space from the
+:ref:`datalayout string<langref_datalayout>` is meaningful only if the
+target has assigned it a semantics.
 
 If the returned pointer is used by :ref:`llvm.lifetime.start <int_lifestart>`,
 the returned object is initially dead.
@@ -12442,6 +12447,68 @@ child functions can use '``llvm.localrecover``' to access the escaped allocas.
 The '``llvm.localescape``' intrinsic blocks inlining, as inlining changes where
 the escaped allocas are allocated, which would break attempts to use
 '``llvm.localrecover``'.
+
+'``llvm.seh.try.begin``' and '``llvm.seh.try.end``' Intrinsics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.seh.try.begin()
+      declare void @llvm.seh.try.end()
+
+Overview:
+"""""""""
+
+The '``llvm.seh.try.begin``' and '``llvm.seh.try.end``' intrinsics mark
+the boundary of a _try region for Windows SEH Asynchrous Exception Handling.
+
+Semantics:
+""""""""""
+
+When a C-function is compiled with Windows SEH Asynchrous Exception option,
+-feh_asynch (aka MSVC -EHa), these two intrinsics are injected to mark _try
+boundary and to prevent potential exceptions from being moved across boundary.
+Any set of operations can then be confined to the region by reading their leaf
+inputs via volatile loads and writing their root outputs via volatile stores.
+
+'``llvm.seh.scope.begin``' and '``llvm.seh.scope.end``' Intrinsics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.seh.scope.begin()
+      declare void @llvm.seh.scope.end()
+
+Overview:
+"""""""""
+
+The '``llvm.seh.scope.begin``' and '``llvm.seh.scope.end``' intrinsics mark
+the boundary of a CPP object lifetime for Windows SEH Asynchrous Exception
+Handling (MSVC option -EHa).
+
+Semantics:
+""""""""""
+
+LLVM's ordinary exception-handling representation associates EH cleanups and
+handlers only with ``invoke``s, which normally correspond only to call sites.  To
+support arbitrary faulting instructions, it must be possible to recover the current
+EH scope for any instruction.  Turning every operation in LLVM that could fault
+into an ``invoke`` of a new, potentially-throwing intrinsic would require adding a
+large number of intrinsics, impede optimization of those operations, and make
+compilation slower by introducing many extra basic blocks.  These intrinsics can
+be used instead to mark the region protected by a cleanup, such as for a local
+C++ object with a non-trivial destructor.  ``llvm.seh.scope.begin`` is used to mark
+the start of the region; it is always called with ``invoke``, with the unwind block
+being the desired unwind destination for any potentially-throwing instructions
+within the region.  `llvm.seh.scope.end` is used to mark when the scope ends
+and the EH cleanup is no longer required (e.g. because the destructor is being
+called).
 
 .. _int_read_register:
 .. _int_read_volatile_register:

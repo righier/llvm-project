@@ -419,12 +419,21 @@ static bool addExceptionArgs(const ArgList &Args, types::ID InputType,
     Args.ClaimAllArgs(options::OPT_fno_objc_exceptions);
     Args.ClaimAllArgs(options::OPT_fcxx_exceptions);
     Args.ClaimAllArgs(options::OPT_fno_cxx_exceptions);
+    Args.ClaimAllArgs(options::OPT_fasync_exceptions);
+    Args.ClaimAllArgs(options::OPT_fno_async_exceptions);
     return false;
   }
 
   // See if the user explicitly enabled exceptions.
   bool EH = Args.hasFlag(options::OPT_fexceptions, options::OPT_fno_exceptions,
                          false);
+
+  bool EHa = Args.hasFlag(options::OPT_fasync_exceptions,
+                          options::OPT_fno_async_exceptions, false);
+  if (EHa) {
+    CmdArgs.push_back("-fasync-exceptions");
+    EH = true;
+  }
 
   // Obj-C exceptions are enabled by default, regardless of -fexceptions. This
   // is not necessarily sensible, but follows GCC.
@@ -2357,15 +2366,15 @@ void Clang::DumpCompilationDatabaseFragmentToDir(
   DumpCompilationDatabase(C, "", Target, Output, Input, Args);
 }
 
-static bool AddARMImplicitITArgs(const ArgList &Args, ArgStringList &CmdArgs,
+static bool CheckARMImplicitITArg(StringRef Value) {
+  return Value == "always" || Value == "never" || Value == "arm" ||
+         Value == "thumb";
+}
+
+static void AddARMImplicitITArgs(const ArgList &Args, ArgStringList &CmdArgs,
                                  StringRef Value) {
-  if (Value == "always" || Value == "never" || Value == "arm" ||
-      Value == "thumb") {
-    CmdArgs.push_back("-mllvm");
-    CmdArgs.push_back(Args.MakeArgString("-arm-implicit-it=" + Value));
-    return true;
-  }
-  return false;
+  CmdArgs.push_back("-mllvm");
+  CmdArgs.push_back(Args.MakeArgString("-arm-implicit-it=" + Value));
 }
 
 static void CollectArgsForIntegratedAssembler(Compilation &C,
@@ -2384,22 +2393,6 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
                    DefaultIncrementalLinkerCompatible))
     CmdArgs.push_back("-mincremental-linker-compatible");
 
-  switch (C.getDefaultToolChain().getArch()) {
-  case llvm::Triple::arm:
-  case llvm::Triple::armeb:
-  case llvm::Triple::thumb:
-  case llvm::Triple::thumbeb:
-    if (Arg *A = Args.getLastArg(options::OPT_mimplicit_it_EQ)) {
-      StringRef Value = A->getValue();
-      if (!AddARMImplicitITArgs(Args, CmdArgs, Value))
-        D.Diag(diag::err_drv_unsupported_option_argument)
-            << A->getOption().getName() << Value;
-    }
-    break;
-  default:
-    break;
-  }
-
   // If you add more args here, also add them to the block below that
   // starts with "// If CollectArgsForIntegratedAssembler() isn't called below".
 
@@ -2413,8 +2406,27 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
   bool UseRelaxRelocations = C.getDefaultToolChain().useRelaxRelocations();
   bool UseNoExecStack = C.getDefaultToolChain().isNoExecStackDefault();
   const char *MipsTargetFeature = nullptr;
+  StringRef ImplicitIt;
   for (const Arg *A :
-       Args.filtered(options::OPT_Wa_COMMA, options::OPT_Xassembler)) {
+       Args.filtered(options::OPT_Wa_COMMA, options::OPT_Xassembler,
+                     options::OPT_mimplicit_it_EQ)) {
+    if (A->getOption().getID() == options::OPT_mimplicit_it_EQ) {
+      switch (C.getDefaultToolChain().getArch()) {
+      case llvm::Triple::arm:
+      case llvm::Triple::armeb:
+      case llvm::Triple::thumb:
+      case llvm::Triple::thumbeb:
+        // Only store the value; the last value set takes effect.
+        ImplicitIt = A->getValue();
+        if (!CheckARMImplicitITArg(ImplicitIt))
+          D.Diag(diag::err_drv_unsupported_option_argument)
+              << A->getOption().getName() << ImplicitIt;
+        continue;
+      default:
+        break;
+      }
+    }
+
     A->claim();
 
     for (StringRef Value : A->getValues()) {
@@ -2435,9 +2447,12 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
       case llvm::Triple::thumbeb:
       case llvm::Triple::arm:
       case llvm::Triple::armeb:
-        if (Value.startswith("-mimplicit-it=") &&
-            AddARMImplicitITArgs(Args, CmdArgs, Value.split("=").second))
-          continue;
+        if (Value.startswith("-mimplicit-it=")) {
+          // Only store the value; the last value set takes effect.
+          ImplicitIt = Value.split("=").second;
+          if (CheckARMImplicitITArg(ImplicitIt))
+            continue;
+        }
         if (Value == "-mthumb")
           // -mthumb has already been processed in ComputeLLVMTriple()
           // recognize but skip over here.
@@ -2567,6 +2582,8 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
       }
     }
   }
+  if (ImplicitIt.size())
+    AddARMImplicitITArgs(Args, CmdArgs, ImplicitIt);
   if (UseRelaxRelocations)
     CmdArgs.push_back("--mrelax-relocations");
   if (UseNoExecStack)
@@ -4291,8 +4308,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     if (Arg *A = Args.getLastArg(options::OPT_sycl_std_EQ)) {
       A->render(Args, CmdArgs);
     } else {
-      // Ensure the default version in SYCL mode is 1.2.1 (aka 2017)
-      CmdArgs.push_back("-sycl-std=2017");
+      // Ensure the default version in SYCL mode is 2020.
+      CmdArgs.push_back("-sycl-std=2020");
     }
   }
 
@@ -4445,7 +4462,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                                    JA.isDeviceOffloading(Action::OFK_Host));
 
     if (D.isUsingLTO() && !isDeviceOffloadAction) {
-      Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
+      if (Args.hasArg(options::OPT_flto))
+        CmdArgs.push_back("-flto");
+      else {
+        if (D.getLTOMode() == LTOK_Thin)
+          CmdArgs.push_back("-flto=thin");
+        else
+          CmdArgs.push_back("-flto=full");
+      }
       CmdArgs.push_back("-flto-unit");
     }
   }
@@ -4919,6 +4943,20 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fsplit-stack");
 
   RenderFloatingPointOptions(TC, D, OFastEnabled, Args, CmdArgs, JA);
+
+  if (Arg *A = Args.getLastArg(options::OPT_fextend_args_EQ)) {
+    const llvm::Triple::ArchType Arch = TC.getArch();
+    if (Arch == llvm::Triple::x86 || Arch == llvm::Triple::x86_64) {
+      StringRef V = A->getValue();
+      if (V == "64")
+        CmdArgs.push_back("-fextend-arguments=64");
+      else if (V != "32")
+        D.Diag(diag::err_drv_invalid_argument_to_option)
+            << A->getValue() << A->getOption().getName();
+    } else
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << A->getOption().getName() << TripleStr;
+  }
 
   if (Arg *A = Args.getLastArg(options::OPT_mdouble_EQ)) {
     if (TC.getArch() == llvm::Triple::avr)
@@ -7087,6 +7125,8 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
     if (types::isCXX(InputType))
       CmdArgs.push_back("-fcxx-exceptions");
     CmdArgs.push_back("-fexceptions");
+    if (EH.Asynch)
+      CmdArgs.push_back("-fasync-exceptions");
   }
   if (types::isCXX(InputType) && EH.Synch && EH.NoUnwindC)
     CmdArgs.push_back("-fexternc-nounwind");

@@ -840,8 +840,6 @@ void registerPollyPasses(PassBuilder &PB) {
   case POSITION_BEFORE_VECTORIZER:
     PB.registerVectorizerStartEPCallback(buildLatePollyPipeline);
     break;
-  default:
-    llvm_unreachable("Unknown -polly-position option");
   }
 }
 

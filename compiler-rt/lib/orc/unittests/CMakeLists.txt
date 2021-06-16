@@ -80,8 +80,11 @@ macro(add_orc_unittest testname)
 endmacro()
 
 set(UNITTEST_SOURCES
+  adt_test.cpp
+  error_test.cpp
   extensible_rtti_test.cpp
   orc_unit_test_main.cpp
+  stl_extras_test.cpp
   )
 
 if (COMPILER_RT_CAN_EXECUTE_TESTS)

@@ -72,7 +72,6 @@ hostrpc_assign_buffer(hsa_agent_t, hsa_queue_t *, uint32_t device_id) {
 
 int print_kernel_trace;
 
-#undef check // Drop definition from internal.h
 #ifdef OMPTARGET_DEBUG
 #define check(msg, status)                                                     \
   if (status != ATMI_STATUS_SUCCESS) {                                         \
@@ -116,11 +115,8 @@ public:
   ~KernelArgPool() {
     if (kernarg_region) {
       auto r = hsa_amd_memory_pool_free(kernarg_region);
-      assert(r == HSA_STATUS_SUCCESS);
       if (r != HSA_STATUS_SUCCESS) {
-        printf("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
-               "Memory pool free", get_error_string(r));
-        exit(1);
+        DP("hsa_amd_memory_pool_free failed: %s\n", get_error_string(r));
       }
     }
   }
@@ -135,22 +131,33 @@ public:
 
     // atmi uses one pool per kernel for all gpus, with a fixed upper size
     // preserving that exact scheme here, including the queue<int>
-    {
-      hsa_status_t err = hsa_amd_memory_pool_allocate(
-          atl_gpu_kernarg_pools[0],
-          kernarg_size_including_implicit() * MAX_NUM_KERNELS, 0,
-          &kernarg_region);
-      if (err != HSA_STATUS_SUCCESS) {
-        printf("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
-               "Allocating memory for the executable-kernel",
-               get_error_string(err));
-        exit(1);
-      }
-      core::allow_access_to_all_gpu_agents(kernarg_region);
 
-      for (int i = 0; i < MAX_NUM_KERNELS; i++) {
-        free_kernarg_segments.push(i);
+    hsa_status_t err = hsa_amd_memory_pool_allocate(
+        atl_gpu_kernarg_pools[0],
+        kernarg_size_including_implicit() * MAX_NUM_KERNELS, 0,
+        &kernarg_region);
+
+    if (err != HSA_STATUS_SUCCESS) {
+      DP("hsa_amd_memory_pool_allocate failed: %s\n", get_error_string(err));
+      kernarg_region = nullptr; // paranoid
+      return;
+    }
+
+    err = core::allow_access_to_all_gpu_agents(kernarg_region);
+    if (err != HSA_STATUS_SUCCESS) {
+      DP("hsa allow_access_to_all_gpu_agents failed: %s\n",
+         get_error_string(err));
+      auto r = hsa_amd_memory_pool_free(kernarg_region);
+      if (r != HSA_STATUS_SUCCESS) {
+        // if free failed, can't do anything more to resolve it
+        DP("hsa memory poll free failed: %s\n", get_error_string(err));
       }
+      kernarg_region = nullptr;
+      return;
+    }
+
+    for (int i = 0; i < MAX_NUM_KERNELS; i++) {
+      free_kernarg_segments.push(i);
     }
   }
 
@@ -328,6 +335,8 @@ public:
   // Resource pools
   SignalPoolT FreeSignalPool;
 
+  std::vector<hsa_executable_t> HSAExecutables;
+
   struct atmiFreePtrDeletor {
     void operator()(void *p) {
       atmi_free(p); // ignore failure to free
@@ -473,16 +482,17 @@ public:
     deviceStateStore.resize(NumberOfDevices);
 
     for (int i = 0; i < NumberOfDevices; i++) {
+      HSAQueues[i] = nullptr;
+    }
+
+    for (int i = 0; i < NumberOfDevices; i++) {
       uint32_t queue_size = 0;
       {
-        hsa_status_t err;
-        err = hsa_agent_get_info(HSAAgents[i], HSA_AGENT_INFO_QUEUE_MAX_SIZE,
-                                 &queue_size);
+        hsa_status_t err = hsa_agent_get_info(
+            HSAAgents[i], HSA_AGENT_INFO_QUEUE_MAX_SIZE, &queue_size);
         if (err != HSA_STATUS_SUCCESS) {
-          printf("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
-                 "Querying the agent maximum queue size",
-                 get_error_string(err));
-          exit(1);
+          DP("HSA query QUEUE_MAX_SIZE failed for agent %d\n", i);
+          return;
         }
         if (queue_size > core::Runtime::getInstance().getMaxQueueSize()) {
           queue_size = core::Runtime::getInstance().getMaxQueueSize();
@@ -493,7 +503,7 @@ public:
           HSAAgents[i], queue_size, HSA_QUEUE_TYPE_MULTI, callbackQueue, NULL,
           UINT32_MAX, UINT32_MAX, &HSAQueues[i]);
       if (rc != HSA_STATUS_SUCCESS) {
-        DP("Failed to create HSA queues\n");
+        DP("Failed to create HSA queue %d\n", i);
         return;
       }
 
@@ -546,6 +556,15 @@ public:
     KernelArgPoolMap.clear();
     // Terminate hostrpc before finalizing ATMI
     hostrpc_terminate();
+
+    for (uint32_t I = 0; I < HSAExecutables.size(); I++) {
+      hsa_status_t Err = hsa_executable_destroy(HSAExecutables[I]);
+      if (Err != HSA_STATUS_SUCCESS) {
+        DP("[%s:%d] %s failed: %s\n", __FILE__, __LINE__,
+           "Destroying executable", get_error_string(Err));
+      }
+    }
+
     atmi_finalize();
   }
 };
@@ -971,15 +990,16 @@ atmi_status_t interop_get_symbol_info(char *base, size_t img_size,
 }
 
 template <typename C>
-atmi_status_t module_register_from_memory_to_place(void *module_bytes,
-                                                   size_t module_size,
-                                                   atmi_place_t place, C cb) {
+atmi_status_t module_register_from_memory_to_place(
+    void *module_bytes, size_t module_size, atmi_place_t place, C cb,
+    std::vector<hsa_executable_t> &HSAExecutables) {
   auto L = [](void *data, size_t size, void *cb_state) -> atmi_status_t {
     C *unwrapped = static_cast<C *>(cb_state);
     return (*unwrapped)(data, size);
   };
-  return atmi_module_register_from_memory_to_place(
-      module_bytes, module_size, place, L, static_cast<void *>(&cb));
+  return core::Runtime::RegisterModuleFromMemory(
+      module_bytes, module_size, place, L, static_cast<void *>(&cb),
+      HSAExecutables);
 }
 } // namespace
 
@@ -993,9 +1013,8 @@ static uint64_t get_device_State_bytes(char *ImageStart, size_t img_size) {
 
     if (rc == 0) {
       if (size_si.size != sizeof(uint64_t)) {
-        fprintf(stderr,
-                "Found device_State_size variable with wrong size, aborting\n");
-        exit(1);
+        DP("Found device_State_size variable with wrong size\n");
+        return 0;
       }
 
       // Read number of bytes directly from the elf
@@ -1180,9 +1199,8 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
 
     atmi_status_t err = module_register_from_memory_to_place(
         (void *)image->ImageStart, img_size, get_gpu_place(device_id),
-        [&](void *data, size_t size) {
-          return env.before_loading(data, size);
-        });
+        [&](void *data, size_t size) { return env.before_loading(data, size); },
+        DeviceInfo.HSAExecutables);
 
     check("Module registering", err);
     if (err != ATMI_STATUS_SUCCESS) {
@@ -1812,6 +1830,9 @@ int32_t __tgt_rtl_run_target_team_region_locked(
   // Run on the device.
   {
     hsa_queue_t *queue = DeviceInfo.HSAQueues[device_id];
+    if (!queue) {
+      return OFFLOAD_FAIL;
+    }
     uint64_t packet_id = acquire_available_packet_id(queue);
 
     const uint32_t mask = queue->size - 1; // size is a power of 2
@@ -1851,8 +1872,8 @@ int32_t __tgt_rtl_run_target_team_region_locked(
       }
     }
     if (!ArgPool) {
-      fprintf(stderr, "Warning: No ArgPool for %s on device %d\n",
-              KernelInfo->Name, device_id);
+      DP("Warning: No ArgPool for %s on device %d\n", KernelInfo->Name,
+         device_id);
     }
     {
       void *kernarg = nullptr;
@@ -1861,8 +1882,8 @@ int32_t __tgt_rtl_run_target_team_region_locked(
         kernarg = ArgPool->allocate(arg_num);
       }
       if (!kernarg) {
-        printf("Allocate kernarg failed\n");
-        exit(1);
+        DP("Allocate kernarg failed\n");
+        return OFFLOAD_FAIL;
       }
 
       // Copy explicit arguments
@@ -1903,8 +1924,8 @@ int32_t __tgt_rtl_run_target_team_region_locked(
     {
       hsa_signal_t s = DeviceInfo.FreeSignalPool.pop();
       if (s.handle == 0) {
-        printf("Failed to get signal instance\n");
-        exit(1);
+        DP("Failed to get signal instance\n");
+        return OFFLOAD_FAIL;
       }
       packet->completion_signal = s;
       hsa_signal_store_relaxed(packet->completion_signal, 1);
