@@ -3957,6 +3957,9 @@ def warn_attribute_sentinel_named_arguments : Warning<
 def warn_attribute_sentinel_not_variadic : Warning<
   "'sentinel' attribute only supported for variadic %select{functions|blocks}0">,
   InGroup<IgnoredAttributes>;
+def warn_deprecated_ignored_on_using : Warning<
+  "%0 currently has no effect on a using declaration">,
+  InGroup<IgnoredAttributes>;
 def err_attribute_sentinel_less_than_zero : Error<
   "'sentinel' parameter 1 less than zero">;
 def err_attribute_sentinel_not_zero_or_one : Error<
@@ -6352,6 +6355,11 @@ def warn_pointer_arith_null_ptr : Warning<
 def warn_gnu_null_ptr_arith : Warning<
   "arithmetic on a null pointer treated as a cast from integer to pointer is a GNU extension">,
   InGroup<NullPointerArithmetic>, DefaultIgnore;
+def err_kernel_invalidates_sycl_unique_stable_name
+    : Error<"kernel instantiation changes the result of an evaluated "
+            "'__builtin_sycl_unique_stable_name'">;
+def note_sycl_unique_stable_name_evaluated_here
+    : Note<"'__builtin_sycl_unique_stable_name' evaluated here">;
 
 def warn_floatingpoint_eq : Warning<
   "comparing floating point with == or != is unsafe">,

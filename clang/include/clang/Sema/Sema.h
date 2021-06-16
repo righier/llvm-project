@@ -911,6 +911,10 @@ public:
     OpaqueParser = P;
   }
 
+  // Does the work necessary to deal with a SYCL kernel lambda. At the moment,
+  // this just marks the list of lambdas required to name the kernel.
+  void AddSYCLKernelLambda(const FunctionDecl *FD);
+
   class DelayedDiagnostics;
 
   class DelayedDiagnosticsState {
@@ -1881,6 +1885,10 @@ public:
 
   /// Retrieve the current captured region, if any.
   sema::CapturedRegionScopeInfo *getCurCapturedRegion();
+
+  /// Retrieve the current function, if any, that should be analyzed for
+  /// potential availability violations.
+  sema::FunctionScopeInfo *getCurFunctionAvailabilityContext();
 
   /// WeakTopLevelDeclDecls - access to \#pragma weak-generated Decls
   SmallVectorImpl<Decl *> &WeakTopLevelDecls() { return WeakTopLevelDecl; }
@@ -3139,6 +3147,7 @@ public:
   void ActOnStartCXXMemberDeclarations(Scope *S, Decl *TagDecl,
                                        SourceLocation FinalLoc,
                                        bool IsFinalSpelledSealed,
+                                       bool IsAbstract,
                                        SourceLocation LBraceLoc);
 
   /// ActOnTagFinishDefinition - Invoked once we have finished parsing
@@ -5185,6 +5194,15 @@ public:
                                  PredefinedExpr::IdentKind IK);
   ExprResult ActOnPredefinedExpr(SourceLocation Loc, tok::TokenKind Kind);
   ExprResult ActOnIntegerConstant(SourceLocation Loc, uint64_t Val);
+
+  ExprResult BuildSYCLUniqueStableNameExpr(SourceLocation OpLoc,
+                                           SourceLocation LParen,
+                                           SourceLocation RParen,
+                                           TypeSourceInfo *TSI);
+  ExprResult ActOnSYCLUniqueStableNameExpr(SourceLocation OpLoc,
+                                           SourceLocation LParen,
+                                           SourceLocation RParen,
+                                           ParsedType ParsedTy);
 
   bool CheckLoopHintExpr(Expr *E, SourceLocation Loc);
 

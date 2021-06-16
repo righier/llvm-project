@@ -25,6 +25,7 @@ include "TestInterfaces.td"
 def Test_Dialect : Dialect {
   let name = "test";
   let cppNamespace = "::mlir::test";
+  let hasCanonicalizer = 1;
   let hasConstantMaterializer = 1;
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
@@ -337,13 +338,22 @@ def SizedRegionOp : TEST_Op<"sized_region_op", []> {
 // NoTerminator Operation
 //===----------------------------------------------------------------------===//
 
-def SingleNoTerminatorOp : TEST_Op<"single_no_terminator_op", GraphRegionNoTerminator.traits> {
+def SingleNoTerminatorOp : TEST_Op<"single_no_terminator_op",
+                                   GraphRegionNoTerminator.traits> {
   let regions = (region SizedRegion<1>:$my_region);
 
   let assemblyFormat = "attr-dict `:` $my_region";
 }
 
-def VariadicNoTerminatorOp : TEST_Op<"variadic_no_terminator_op", GraphRegionNoTerminator.traits> {
+def SingleNoTerminatorCustomAsmOp : TEST_Op<"single_no_terminator_custom_asm_op",
+                                            [SingleBlock, NoTerminator]> {
+  let regions = (region SizedRegion<1>);
+  let parser = [{ return ::parseSingleNoTerminatorCustomAsmOp(parser, result); }];
+  let printer = [{ return ::print(*this, p); }];
+}
+
+def VariadicNoTerminatorOp : TEST_Op<"variadic_no_terminator_op",
+                                     GraphRegionNoTerminator.traits> {
   let regions = (region VariadicRegion<SizedRegion<1>>:$my_regions);
 
   let assemblyFormat = "attr-dict `:` $my_regions";
@@ -964,6 +974,11 @@ def TestPassthroughFold : TEST_Op<"passthrough_fold"> {
   let arguments = (ins AnyType:$op);
   let results = (outs AnyType);
   let hasFolder = 1;
+}
+
+def TestDialectCanonicalizerOp : TEST_Op<"dialect_canonicalizable"> {
+  let arguments = (ins);
+  let results = (outs I32);
 }
 
 //===----------------------------------------------------------------------===//

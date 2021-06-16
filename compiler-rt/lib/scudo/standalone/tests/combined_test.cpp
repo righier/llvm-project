@@ -68,7 +68,6 @@ void checkMemoryTaggingMaybe(AllocatorT *Allocator, void *P, scudo::uptr Size,
 
 template <typename Config> struct TestAllocator : scudo::Allocator<Config> {
   TestAllocator() {
-    this->reset();
     this->initThreadMaybe();
     if (scudo::archSupportsMemoryTagging() &&
         !scudo::systemDetectsMemoryTagFaultsTestOnly())
@@ -399,20 +398,21 @@ SCUDO_TYPED_TEST(ScudoCombinedTest, DisableMemoryTagging) {
     // Check that disabling memory tagging works correctly.
     void *P = Allocator->allocate(2048, Origin);
     EXPECT_DEATH(reinterpret_cast<char *>(P)[2048] = 0xaa, "");
-    if (scudo::disableMemoryTagChecksTestOnly()) {
-      Allocator->disableMemoryTagging();
-      reinterpret_cast<char *>(P)[2048] = 0xaa;
-      Allocator->deallocate(P, Origin);
+    scudo::disableMemoryTagChecksTestOnly();
+    Allocator->disableMemoryTagging();
+    reinterpret_cast<char *>(P)[2048] = 0xaa;
+    Allocator->deallocate(P, Origin);
 
-      P = Allocator->allocate(2048, Origin);
-      EXPECT_EQ(scudo::untagPointer(P), P);
-      reinterpret_cast<char *>(P)[2048] = 0xaa;
-      Allocator->deallocate(P, Origin);
+    P = Allocator->allocate(2048, Origin);
+    EXPECT_EQ(scudo::untagPointer(P), P);
+    reinterpret_cast<char *>(P)[2048] = 0xaa;
+    Allocator->deallocate(P, Origin);
 
-      // Disabling memory tag checks may interfere with subsequent tests.
-      // Re-enable them now.
-      scudo::enableMemoryTagChecksTestOnly();
-    }
+    Allocator->releaseToOS();
+
+    // Disabling memory tag checks may interfere with subsequent tests.
+    // Re-enable them now.
+    scudo::enableMemoryTagChecksTestOnly();
   }
 }
 
@@ -491,12 +491,6 @@ SCUDO_TYPED_TEST(ScudoCombinedTest, ThreadedCombined) {
   Allocator->releaseToOS();
 }
 
-#if SCUDO_FUCHSIA
-#define SKIP_ON_FUCHSIA(T) DISABLED_##T
-#else
-#define SKIP_ON_FUCHSIA(T) T
-#endif
-
 // Test that multiple instantiations of the allocator have not messed up the
 // process's signal handlers (GWP-ASan used to do this).
 TEST(ScudoCombinedTest, SKIP_ON_FUCHSIA(testSEGV)) {
@@ -515,6 +509,7 @@ struct DeathSizeClassConfig {
   static const scudo::uptr MaxSizeLog = 13;
   static const scudo::u32 MaxNumCachedHint = 4;
   static const scudo::uptr MaxBytesCachedLog = 12;
+  static const scudo::uptr SizeDelta = 0;
 };
 
 static const scudo::uptr DeathRegionSizeLog = 20U;

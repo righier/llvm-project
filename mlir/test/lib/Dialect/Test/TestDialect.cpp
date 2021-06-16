@@ -288,6 +288,23 @@ TestBranchOp::getMutableSuccessorOperands(unsigned index) {
 }
 
 //===----------------------------------------------------------------------===//
+// TestDialectCanonicalizerOp
+//===----------------------------------------------------------------------===//
+
+static LogicalResult
+dialectCanonicalizationPattern(TestDialectCanonicalizerOp op,
+                               PatternRewriter &rewriter) {
+  rewriter.replaceOpWithNewOp<ConstantOp>(op, rewriter.getI32Type(),
+                                          rewriter.getI32IntegerAttr(42));
+  return success();
+}
+
+void TestDialect::getCanonicalizationPatterns(
+    RewritePatternSet &results) const {
+  results.add(&dialectCanonicalizationPattern);
+}
+
+//===----------------------------------------------------------------------===//
 // TestFoldToCallOp
 //===----------------------------------------------------------------------===//
 
@@ -987,6 +1004,27 @@ void RegionIfOp::getSuccessorRegions(
   // The then and else regions are the entry regions of this op.
   regions.push_back(RegionSuccessor(&thenRegion(), getThenArgs()));
   regions.push_back(RegionSuccessor(&elseRegion(), getElseArgs()));
+}
+
+//===----------------------------------------------------------------------===//
+// SingleNoTerminatorCustomAsmOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseSingleNoTerminatorCustomAsmOp(OpAsmParser &parser,
+                                                      OperationState &state) {
+  Region *body = state.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{}))
+    return failure();
+  return success();
+}
+
+static void print(SingleNoTerminatorCustomAsmOp op, OpAsmPrinter &printer) {
+  printer << op.getOperationName();
+  printer.printRegion(
+      op.getRegion(), /*printEntryBlockArgs=*/false,
+      // This op has a single block without terminators. But explicitly mark
+      // as not printing block terminators for testing.
+      /*printBlockTerminators=*/false);
 }
 
 #include "TestOpEnums.cpp.inc"

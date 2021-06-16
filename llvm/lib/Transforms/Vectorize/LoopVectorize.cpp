@@ -331,6 +331,10 @@ static cl::opt<bool>
                            cl::desc("Prefer in-loop vector reductions, "
                                     "overriding the targets preference."));
 
+// FIXME: When loop hints are passed which allow reordering of FP operations,
+// we still choose to use strict reductions with this flag. We should instead
+// use the default behaviour of vectorizing with unordered reductions if
+// reordering is allowed.
 cl::opt<bool> EnableStrictReductions(
     "enable-strict-reductions", cl::init(false), cl::Hidden,
     cl::desc("Enable the vectorisation of loops with in-order (strict) "
@@ -4599,11 +4603,21 @@ void InnerLoopVectorizer::sinkScalarOperands(Instruction *PredInst) {
     while (!Worklist.empty()) {
       auto *I = dyn_cast<Instruction>(Worklist.pop_back_val());
 
-      // We can't sink an instruction if it is a phi node, is already in the
-      // predicated block, is not in the loop, or may have side effects.
-      if (!I || isa<PHINode>(I) || I->getParent() == PredBB ||
-          !VectorLoop->contains(I) || I->mayHaveSideEffects())
+      // We can't sink an instruction if it is a phi node, is not in the loop,
+      // or may have side effects.
+      if (!I || isa<PHINode>(I) || !VectorLoop->contains(I) ||
+          I->mayHaveSideEffects())
         continue;
+
+      // If the instruction is already in PredBB, check if we can sink its
+      // operands. In that case, VPlan's sinkScalarOperands() succeeded in
+      // sinking the scalar instruction I, hence it appears in PredBB; but it
+      // may have failed to sink I's operands (recursively), which we try
+      // (again) here.
+      if (I->getParent() == PredBB) {
+        Worklist.insert(I->op_begin(), I->op_end());
+        continue;
+      }
 
       // It's legal to sink the instruction if all its uses occur in the
       // predicated block. Otherwise, there's nothing to do yet, and we may
@@ -8444,9 +8458,7 @@ EpilogueVectorizerEpilogueLoop::emitMinimumVectorEpilogueIterCountCheck(
 void EpilogueVectorizerEpilogueLoop::printDebugTracesAtStart() {
   LLVM_DEBUG({
     dbgs() << "Create Skeleton for epilogue vectorized loop (second pass)\n"
-           << "Main Loop VF:" << EPI.MainLoopVF.getKnownMinValue()
-           << ", Main Loop UF:" << EPI.MainLoopUF
-           << ", Epilogue Loop VF:" << EPI.EpilogueVF.getKnownMinValue()
+           << "Epilogue Loop VF:" << EPI.EpilogueVF.getKnownMinValue()
            << ", Epilogue Loop UF:" << EPI.EpilogueUF << "\n";
   });
 }
@@ -8982,7 +8994,7 @@ void LoopVectorizationPlanner::buildVPlansWithVPRecipes(ElementCount MinVF,
   auto &ConditionalAssumes = Legal->getConditionalAssumes();
   DeadInstructions.insert(ConditionalAssumes.begin(), ConditionalAssumes.end());
 
-  DenseMap<Instruction *, Instruction *> &SinkAfter = Legal->getSinkAfter();
+  MapVector<Instruction *, Instruction *> &SinkAfter = Legal->getSinkAfter();
   // Dead instructions do not need sinking. Remove them from SinkAfter.
   for (Instruction *I : DeadInstructions)
     SinkAfter.erase(I);
@@ -8998,7 +9010,7 @@ void LoopVectorizationPlanner::buildVPlansWithVPRecipes(ElementCount MinVF,
 
 VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
     VFRange &Range, SmallPtrSetImpl<Instruction *> &DeadInstructions,
-    const DenseMap<Instruction *, Instruction *> &SinkAfter) {
+    const MapVector<Instruction *, Instruction *> &SinkAfter) {
 
   SmallPtrSet<const InterleaveGroup<Instruction> *, 1> InterleaveGroups;
 
@@ -9244,6 +9256,8 @@ VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
       Builder.createNaryOp(Instruction::Select, {Cond, Red, Phi});
     }
   }
+
+  VPlanTransforms::sinkScalarOperands(*Plan);
 
   std::string PlanName;
   raw_string_ostream RSO(PlanName);
@@ -9944,7 +9958,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     return false;
   }
 
-  if (!Requirements.canVectorizeFPMath(Hints)) {
+  if (!LVL.canVectorizeFPMath(EnableStrictReductions)) {
     ORE->emit([&]() {
       auto *ExactFPMathInst = Requirements.getExactFPInst();
       return OptimizationRemarkAnalysisFPCommute(DEBUG_TYPE, "CantReorderFPOps",

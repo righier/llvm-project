@@ -159,16 +159,12 @@ public:
   /// pass name to force the frontend to print the diagnostic.
   const char *vectorizeAnalysisPassName() const;
 
-  bool allowReordering() const {
-    // When enabling loop hints are provided we allow the vectorizer to change
-    // the order of operations that is given by the scalar loop. This is not
-    // enabled by default because can be unsafe or inefficient. For example,
-    // reordering floating-point operations will change the way round-off
-    // error accumulates in the loop.
-    ElementCount EC = getWidth();
-    return getForce() == LoopVectorizeHints::FK_Enabled ||
-           EC.getKnownMinValue() > 1;
-  }
+  /// When enabling loop hints are provided we allow the vectorizer to change
+  /// the order of operations that is given by the scalar loop. This is not
+  /// enabled by default because can be unsafe or inefficient. For example,
+  /// reordering floating-point operations will change the way round-off
+  /// error accumulates in the loop.
+  bool allowReordering() const;
 
   bool isPotentiallyUnsafe() const {
     // Avoid FP vectorization if the target is unsure about proper support.
@@ -219,9 +215,6 @@ public:
 
 
   Instruction *getExactFPInst() { return ExactFPMathInst; }
-  bool canVectorizeFPMath(const LoopVectorizeHints &Hints) const {
-    return !ExactFPMathInst || Hints.allowReordering();
-  }
 
   unsigned getNumRuntimePointerChecks() const {
     return NumRuntimePointerChecks;
@@ -279,6 +272,11 @@ public:
   /// If false, good old LV code.
   bool canVectorize(bool UseVPlanNativePath);
 
+  /// Returns true if it is legal to vectorize the FP math operations in this
+  /// loop. Vectorizing is legal if we allow reordering of FP operations, or if
+  /// we can use in-order reductions.
+  bool canVectorizeFPMath(bool EnableStrictReductions);
+
   /// Return true if we can vectorize this loop while folding its tail by
   /// masking, and mark all respective loads/stores for masking.
   /// This object's state is only modified iff this function returns true.
@@ -297,7 +295,7 @@ public:
   RecurrenceSet &getFirstOrderRecurrences() { return FirstOrderRecurrences; }
 
   /// Return the set of instructions to sink to handle first-order recurrences.
-  DenseMap<Instruction *, Instruction *> &getSinkAfter() { return SinkAfter; }
+  MapVector<Instruction *, Instruction *> &getSinkAfter() { return SinkAfter; }
 
   /// Returns the widest induction type.
   Type *getWidestInductionType() { return WidestIndTy; }
@@ -520,7 +518,7 @@ private:
 
   /// Holds instructions that need to sink past other instructions to handle
   /// first-order recurrences.
-  DenseMap<Instruction *, Instruction *> SinkAfter;
+  MapVector<Instruction *, Instruction *> SinkAfter;
 
   /// Holds the widest induction type encountered.
   Type *WidestIndTy = nullptr;
