@@ -59,7 +59,6 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
-#include "llvm/Transforms/Utils/LoopPeel.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SimplifyIndVar.h"
@@ -259,9 +258,6 @@ void llvm::simplifyLoopAfterUnroll(Loop *L, bool SimplifyIVs, LoopInfo *LI,
 /// runtime-unroll the loop if computing RuntimeTripCount will be expensive and
 /// AllowExpensiveTripCount is false.
 ///
-/// If we want to perform PGO-based loop peeling, PeelCount is set to the
-/// number of iterations we want to peel off.
-///
 /// The LoopInfo Analysis that is passed will be kept consistent.
 ///
 /// This utility preserves LoopInfo. It will also preserve ScalarEvolution and
@@ -305,13 +301,8 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
   if (ULO.TripMultiple != 1)
     LLVM_DEBUG(dbgs() << "  Trip Multiple = " << ULO.TripMultiple << "\n");
 
-  // Effectively "DCE" unrolled iterations that are beyond the tripcount
-  // and will never be executed.
-  if (ULO.TripCount != 0 && ULO.Count > ULO.TripCount)
-    ULO.Count = ULO.TripCount;
-
   // Don't enter the unroll code if there is nothing to do.
-  if (ULO.TripCount == 0 && ULO.Count < 2 && ULO.PeelCount == 0) {
+  if (ULO.TripCount == 0 && ULO.Count < 2) {
     LLVM_DEBUG(dbgs() << "Won't unroll; almost nothing to do\n");
     return LoopUnrollResult::Unmodified;
   }
@@ -319,40 +310,6 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
   assert(ULO.Count > 0);
   assert(ULO.TripMultiple > 0);
   assert(ULO.TripCount == 0 || ULO.TripCount % ULO.TripMultiple == 0);
-
-
-  bool Peeled = false;
-  if (ULO.PeelCount) {
-    Peeled = peelLoop(L, ULO.PeelCount, LI, SE, DT, AC, PreserveLCSSA);
-
-    // Successful peeling may result in a change in the loop preheader/trip
-    // counts. If we later unroll the loop, we want these to be updated.
-    if (Peeled) {
-      // According to our guards and profitability checks the only
-      // meaningful exit should be latch block. Other exits go to deopt,
-      // so we do not worry about them.
-      BasicBlock *ExitingBlock = L->getLoopLatch();
-      assert(ExitingBlock && "Loop without exiting block?");
-      assert(L->isLoopExiting(ExitingBlock) && "Latch is not exiting?");
-      ULO.TripCount = SE->getSmallConstantTripCount(L, ExitingBlock);
-      ULO.TripMultiple = SE->getSmallConstantTripMultiple(L, ExitingBlock);
-    }
-  }
-
-  // Are we eliminating the loop control altogether?  Note that we can know
-  // we're eliminating the backedge without knowing exactly which iteration
-  // of the unrolled body exits.
-  const bool CompletelyUnroll = ULO.Count == ULO.TripCount;
-
-  // We assume a run-time trip count if the compiler cannot
-  // figure out the loop trip count and the unroll-runtime
-  // flag is specified.
-  bool RuntimeTripCount =
-      (ULO.TripCount == 0 && ULO.Count > 0 && ULO.AllowRuntime);
-
-  assert((!RuntimeTripCount || !ULO.PeelCount) &&
-         "Did not expect runtime trip-count unrolling "
-         "and peeling for the same loop");
 
   // All these values should be taken only after peeling because they might have
   // changed.
@@ -362,6 +319,27 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
   SmallVector<BasicBlock *, 4> ExitBlocks;
   L->getExitBlocks(ExitBlocks);
   std::vector<BasicBlock *> OriginalLoopBlocks = L->getBlocks();
+
+  const unsigned MaxTripCount = SE->getSmallConstantMaxTripCount(L);
+  const bool MaxOrZero = SE->isBackedgeTakenCountMaxOrZero(L);
+
+  // Effectively "DCE" unrolled iterations that are beyond the max tripcount
+  // and will never be executed.
+  if (MaxTripCount && ULO.Count > MaxTripCount)
+    ULO.Count = MaxTripCount;
+
+  // Are we eliminating the loop control altogether?  Note that we can know
+  // we're eliminating the backedge without knowing exactly which iteration
+  // of the unrolled body exits.
+  const bool CompletelyUnroll = ULO.Count == MaxTripCount;
+
+  const bool PreserveOnlyFirst = CompletelyUnroll && MaxOrZero;
+
+  // We assume a run-time trip count if the compiler cannot
+  // figure out the loop trip count and the unroll-runtime
+  // flag is specified.
+  bool RuntimeTripCount =
+      !CompletelyUnroll && ULO.TripCount == 0 && ULO.AllowRuntime;
 
   // Go through all exits of L and see if there are any phi-nodes there. We just
   // conservatively assume that they're inserted to preserve LCSSA form, which
@@ -373,11 +351,6 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
       PreserveLCSSA && CompletelyUnroll &&
       any_of(ExitBlocks,
              [](const BasicBlock *BB) { return isa<PHINode>(BB->begin()); });
-
-  const unsigned MaxTripCount = SE->getSmallConstantMaxTripCount(L);
-  const bool MaxOrZero = SE->isBackedgeTakenCountMaxOrZero(L);
-
-  const bool PreserveOnlyFirst = ULO.Count == MaxTripCount && MaxOrZero;
 
   // The current loop unroll pass can unroll loops that have
   // (1) single latch; and
@@ -396,9 +369,6 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
   else if (BasicBlock *ExitingBlock = L->getExitingBlock())
     ExitingBI = dyn_cast<BranchInst>(ExitingBlock->getTerminator());
   if (!LatchBI || (LatchBI->isConditional() && !LatchIsExiting)) {
-    // If the peeling guard is changed this assert may be relaxed or even
-    // deleted.
-    assert(!Peeled && "Peeling guard changed!");
     LLVM_DEBUG(
         dbgs() << "Can't unroll; a conditional latch must exit the loop");
     return LoopUnrollResult::Unmodified;
@@ -472,16 +442,6 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
                                   L->getHeader())
                << "completely unrolled loop with "
                << NV("UnrollCount", ULO.TripCount) << " iterations";
-      });
-  } else if (ULO.PeelCount) {
-    LLVM_DEBUG(dbgs() << "PEELING loop %" << Header->getName()
-                      << " with iteration count " << ULO.PeelCount << "!\n");
-    if (ORE)
-      ORE->emit([&]() {
-        return OptimizationRemark(DEBUG_TYPE, "Peeled", L->getStartLoc(),
-                                  L->getHeader())
-               << " peeled loop by " << NV("PeelCount", ULO.PeelCount)
-               << " iterations";
       });
   } else {
     auto DiagBuilder = [&]() {
@@ -768,8 +728,6 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
         // Complete (but possibly inexact) unrolling
         if (j == 0)
           return true;
-        if (MaxTripCount && j >= MaxTripCount)
-          return false;
         // Warning: ExactTripCount is the trip count of the exiting
         // block which ends in ExitingBI, not neccessarily the loop.
         if (ExactTripCount && j != ExactTripCount)
@@ -835,8 +793,8 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
 
   // At this point, the code is well formed.  We now simplify the unrolled loop,
   // doing constant propagation and dead code elimination as we go.
-  simplifyLoopAfterUnroll(L, !CompletelyUnroll && (ULO.Count > 1 || Peeled), LI,
-                          SE, DT, AC, TTI);
+  simplifyLoopAfterUnroll(L, !CompletelyUnroll && ULO.Count > 1, LI, SE, DT, AC,
+                          TTI);
 
   NumCompletelyUnrolled += CompletelyUnroll;
   ++NumUnrolled;
