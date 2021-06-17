@@ -208,7 +208,7 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   }
   if (isBand(Band))
     return Band; // Has no mark.
-  return nullptr;
+  return {};
 }
 
 // FIXME: What is the difference of returning nullptr vs None?

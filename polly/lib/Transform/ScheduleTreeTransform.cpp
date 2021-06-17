@@ -429,7 +429,7 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   }
   if (isBand(Band))
     return Band; // Has no mark.
-  return nullptr;
+  return {};
 }
 
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand,
