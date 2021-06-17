@@ -569,8 +569,6 @@ static isl::set addExtentConstraints(isl::set Set, int VectorWidth) {
   return Set.add_constraint(ExtConstr);
 }
 
- 
-
 static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
                                    StringRef TransName, StringRef Name = {}) {
   // TODO: Deprecate Name
@@ -897,14 +895,8 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
   return Node.band_set_ast_build_options(isl::union_set(Ctx, "{unroll[x]}"));
 }
 
-
-
-
-isl::schedule polly::applyAutofission(isl::schedule_node BandToFission, const Dependences *D) {
-
-
+isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
+                                      const Dependences *D) {
 
   llvm_unreachable("not implemented");
 }
-
-

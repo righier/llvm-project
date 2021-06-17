@@ -510,19 +510,15 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *NodeArg,
   if (!isTileableBandNode(Node))
     return Node.release();
 
-  if (OAI->Postopts) {
-    if (PMBasedOpts && User) {
-    if (isl::schedule_node PatternOptimizedSchedule = tryOptimizeMatMulPattern(
-            isl::manage_copy(Node), OAI->TTI, OAI->D)) {
+  if (OAI->Postopts && PMBasedOpts && OAI) {
+    if (isl::schedule_node PatternOptimizedSchedule =
+            tryOptimizeMatMulPattern(Node, OAI->TTI, OAI->D)) {
       MatMulOpts++;
-      isl_schedule_node_free(Node);
       return PatternOptimizedSchedule.release();
     }
   }
-    }
 
-    Node = applyTileBandOpt(Node);
-  }
+  Node = applyTileBandOpt(Node);
 
   // FIXME: Prevectorization is conditional to isTileableBandNode; however, it
   // only requires the innermost loop to be coincident.

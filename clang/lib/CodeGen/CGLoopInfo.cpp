@@ -1336,9 +1336,18 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         // Apply on the loop with that name
       }
 
+      SmallVector<uint64_t> SplitAt;
+      for (auto at : LFission->splitAt()) {
+        SplitAt.push_back(at->EvaluateKnownConstInt(Ctx).getZExtValue());
+      }
 
-
-      addTransformation(LoopTransformation::createFission(  LocBegin, LocEnd, ApplyOn, LFission->getAutoFission(),     makeArrayRef(LFission->fissionedIds_begin(), LFission->fissionedIds_end())  ));
+      addTransformation(
+        LoopTransformation::createFission(  LocBegin, LocEnd, ApplyOn, 
+                    LFission->getAutoFission(),  
+          makeArrayRef(LFission->fissionedIds_begin(), LFission->fissionedIds_end()),
+          SplitAt
+          )
+      );
       continue;
     }
 

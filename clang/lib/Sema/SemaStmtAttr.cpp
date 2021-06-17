@@ -321,7 +321,9 @@ static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A, SourceRan
 
 
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return LoopFissionAttr::CreateImplicit(S.Context, ApplyOn,AutofissionLoc,  FissionedId.data(), FissionedId.size(), A.getRange());
+  return LoopFissionAttr::CreateImplicit(S.Context, ApplyOn,
+    SplitAt.data(), SplitAt.size(),
+    AutofissionLoc,  FissionedId.data(), FissionedId.size(), A.getRange());
 }
 
 
