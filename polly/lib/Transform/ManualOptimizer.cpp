@@ -2525,7 +2525,7 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
   if (UnrollMode & TM_Disable)
     return {};
 
-  assert(BandToUnroll);
+  assert(!BandToUnroll.is_null());
   // TODO: Isl's codegen also supports unrolling by isl_ast_build via
   // isl_schedule_node_band_set_ast_build_options({ unroll[x] }) which would be
   // more efficient because the content duplication is delayed. However, the
@@ -2656,7 +2656,7 @@ public:
   void visitBand(const isl::schedule_node &Band) {
     // Transform inner loops first (depth-first search).
     getBase().visitBand(Band);
-    if (Result)
+    if (!Result.is_null())
       return;
 
     auto Mark = moveToBandMark(Band);
@@ -2714,7 +2714,7 @@ public:
                  AttrName == "llvm.loop.unroll.count" ||
                  AttrName == "llvm.loop.unroll.full") {
         Result = applyLoopUnroll(LoopMD, Band);
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
         // TODO: Read argument (0 to disable)
@@ -2790,7 +2790,7 @@ public:
   }
 
   void visitNode(const isl::schedule_node &Other) {
-    if (Result)
+    if (!Result.is_null())
       return;
     return getBase().visitNode(Other);
   }
@@ -2806,7 +2806,7 @@ polly::applyManualTransformations(Scop *S, isl::schedule Sched,
   while (true) {
     isl::schedule Result =
         SearchTransformVisitor::applyOneTransformation(&F, S, &D, ORE, Sched);
-    if (!Result) {
+    if (Result.is_null()) {
       // No (more) transformation has been found.
       break;
     }

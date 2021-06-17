@@ -314,7 +314,7 @@ void ScopArrayInfo::applyAndSetFAD(Value *FAD) {
     return;
   }
 
-  assert(DimensionSizesPw.size() > 0 && !DimensionSizesPw[0]);
+  assert(DimensionSizesPw.size() > 0 && DimensionSizesPw[0].is_null());
   assert(!this->FAD);
   this->FAD = FAD;
 
@@ -1107,7 +1107,7 @@ void MemoryAccess::setAccessRelation(isl::map NewAccess) {
 }
 
 void MemoryAccess::setNewAccessRelation(isl::map NewAccess) {
-  assert(NewAccess);
+  assert(!NewAccess.is_null());
 
 #ifndef NDEBUG
   // Check domain space compatibility.
@@ -1171,7 +1171,7 @@ isl::map ScopStmt::getSchedule() const {
   if (Domain.is_empty())
     return isl::map::from_aff(isl::aff(isl::local_space(getDomainSpace())));
   auto Schedule = getParent()->getSchedule();
-  if (!Schedule)
+  if (Schedule.is_null())
     return {};
   Schedule = Schedule.intersect_domain(isl::union_set(Domain));
   if (Schedule.is_empty())
@@ -1346,14 +1346,14 @@ void ScopStmt::print(raw_ostream &OS, bool PrintInstructions) const {
   OS << "\t" << getBaseName() << "\n";
   OS.indent(12) << "Domain :=\n";
 
-  if (Domain) {
+  if (!Domain.is_null()) {
     OS.indent(16) << getDomainStr() << ";\n";
   } else
     OS.indent(16) << "n/a\n";
 
   OS.indent(12) << "Schedule :=\n";
 
-  if (Domain) {
+  if (!Domain.is_null()) {
     OS.indent(16) << getScheduleStr() << ";\n";
   } else
     OS.indent(16) << "n/a\n";
@@ -1649,7 +1649,7 @@ static std::vector<isl::id> getFortranArrayIds(Scop::array_range Arrays) {
     // TODO: actually need to check if it has a FAD, but for now this works.
     if (Array->getNumberOfDimensions() > 0) {
       isl::pw_aff PwAff = Array->getDimensionSizePw(0);
-      if (!PwAff)
+      if (PwAff.is_null())
         continue;
 
       isl::id Id = PwAff.get_dim_id(isl::dim::param, 0);
@@ -1849,7 +1849,7 @@ void Scop::removeStmts(function_ref<bool(ScopStmt &)> ShouldDelete,
 void Scop::removeStmtNotInDomainMap() {
   removeStmts([this](ScopStmt &Stmt) -> bool {
     isl::set Domain = DomainMap.lookup(Stmt.getEntryBlock());
-    if (!Domain)
+    if (Domain.is_null())
       return true;
     return Domain.is_empty();
   });
@@ -1961,7 +1961,7 @@ ScopArrayInfo *Scop::getScopArrayInfo(Value *BasePtr, MemoryKind Kind) {
 std::string Scop::getContextStr() const { return getContext().to_str(); }
 
 std::string Scop::getAssumedContextStr() const {
-  assert(AssumedContext && "Assumed context not yet built");
+  assert(!AssumedContext.is_null() && "Assumed context not yet built");
   return AssumedContext.to_str();
 }
 
@@ -2016,7 +2016,7 @@ isl::space Scop::getFullParamSpace() const {
 }
 
 isl::set Scop::getAssumedContext() const {
-  assert(AssumedContext && "Assumed context not yet built");
+  assert(!AssumedContext.is_null() && "Assumed context not yet built");
   return AssumedContext;
 }
 
@@ -2200,7 +2200,7 @@ void Scop::addAssumption(AssumptionKind Kind, isl::set Set, DebugLoc Loc,
 }
 
 void Scop::intersectDefinedBehavior(isl::set Set, AssumptionSign Sign) {
-  if (!DefinedBehaviorContext)
+  if (DefinedBehaviorContext.is_null())
     return;
 
   if (Sign == AS_ASSUMPTION)
@@ -2237,7 +2237,7 @@ void Scop::printContext(raw_ostream &OS) const {
   OS.indent(4) << InvalidContext << "\n";
 
   OS.indent(4) << "Defined Behavior Context:\n";
-  if (DefinedBehaviorContext)
+  if (!DefinedBehaviorContext.is_null())
     OS.indent(4) << DefinedBehaviorContext << "\n";
   else
     OS.indent(4) << "<unavailable>\n";
@@ -2350,7 +2350,7 @@ __isl_give PWACtx Scop::getPwAff(const SCEV *E, BasicBlock *BB,
   // the SCoP and return a dummy value. This way we do not need to add error
   // handling code to all users of this function.
   auto PWAC = Affinator.getPwAff(E, BB, RecordedAssumptions);
-  if (PWAC.first) {
+  if (!PWAC.first.is_null()) {
     // TODO: We could use a heuristic and either use:
     //         SCEVAffinator::takeNonNegativeAssumption
     //       or

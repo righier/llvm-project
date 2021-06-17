@@ -560,8 +560,9 @@ bool ScheduleTreeOptimizer::isProfitableSchedule(Scop &S,
   // be profitable.
   auto NewScheduleMap = NewSchedule.get_map();
   auto OldSchedule = S.getSchedule();
-  assert(OldSchedule && "Only IslScheduleOptimizer can insert extension nodes "
-                        "that make Scop::getSchedule() return nullptr.");
+  assert(!OldSchedule.is_null() &&
+         "Only IslScheduleOptimizer can insert extension nodes "
+         "that make Scop::getSchedule() return nullptr.");
   bool changed = !OldSchedule.is_equal(NewScheduleMap);
   return changed;
 }
@@ -619,7 +620,7 @@ static void printSchedule(llvm::raw_ostream &OS, const isl::schedule &Schedule,
 ///                 (tiling, pattern matching)
 static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
   auto Root = Schedule.get_root();
-  if (!Root)
+  if (Root.is_null())
     return;
 
   isl_schedule_node_foreach_descendant_top_down(
@@ -744,7 +745,7 @@ static bool runIslScheduleOptimizer(
 
     isl::union_set Domain = S.getDomains();
 
-    if (!Domain)
+    if (Domain.is_null())
       return false;
 
     ScopsProcessed++;
@@ -837,7 +838,7 @@ static bool runIslScheduleOptimizer(
 
   // In cases the scheduler is not able to optimize the code, we just do not
   // touch the schedule.
-  if (!Schedule)
+  if (Schedule.is_null())
     return false;
 
   // Apply post-rescheduling optimizations (if enabled) and/or prevectorization.
@@ -894,7 +895,7 @@ static void runScheduleOptimizerPrinter(raw_ostream &OS,
 
   OS << "Calculated schedule:\n";
 
-  if (!LastSchedule) {
+  if (LastSchedule.is_null()) {
     OS << "n/a\n";
     return;
   }

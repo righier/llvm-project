@@ -57,7 +57,7 @@ DiffScalarVal<bool, AD_Diff_Scalar_Bool>::print(raw_ostream &OS,
      << ((Val == true) ? "true" : "false") << "\n";
 }
 
-} // end namespace llvm.
+} // end namespace llvm
 
 std::string SymScalar::stringifySymbolKind(MachO::SymbolKind Kind) {
   switch (Kind) {
@@ -440,10 +440,10 @@ T *castValues(const std::unique_ptr<AttributeDiff> &RawAttr) {
 }
 
 template <typename T> void sortTargetValues(std::vector<T> &TargValues) {
-  llvm::sort(TargValues, [](const auto &ValA, const auto &ValB) {
+  llvm::stable_sort(TargValues, [](const auto &ValA, const auto &ValB) {
     return ValA.getOrder() < ValB.getOrder();
   });
-  llvm::sort(TargValues, [](const auto &ValA, const auto &ValB) {
+  llvm::stable_sort(TargValues, [](const auto &ValA, const auto &ValB) {
     return ValA.getOrder() == ValB.getOrder() && ValA.getVal() < ValB.getVal();
   });
 }

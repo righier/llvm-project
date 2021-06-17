@@ -669,7 +669,7 @@ bool Dependences::isValidSchedule(
     assert(!StmtScat.is_null() &&
            "Schedules that contain extension nodes require special handling.");
 
-    if (!ScheduleSpace)
+    if (ScheduleSpace.is_null())
       ScheduleSpace = StmtScat.get_space().range();
 
     Schedule = Schedule.add_map(StmtScat);
