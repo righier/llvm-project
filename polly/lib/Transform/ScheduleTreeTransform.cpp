@@ -424,7 +424,7 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
       return Cur;
 
     auto Parent = Cur.parent();
-    assert(Parent);
+    assert(!Parent.is_null());
     Cur = Parent;
   }
   if (isBand(Band))
@@ -601,7 +601,7 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
 
 isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
                                      int Factor, bool Full) {
-  assert(BandToUnroll);
+  assert(!BandToUnroll.is_null());
   assert(!Full || !(Factor > 0));
 
   isl::ctx Ctx = BandToUnroll.get_ctx();
@@ -699,7 +699,7 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
         Body.insert_partial_schedule(StridedPartialSchedUAff);
 
     isl::id NewBandId = makeTransformLoopId(Ctx, nullptr, "unrolled");
-    if (NewBandId)
+    if (!NewBandId.is_null())
       NewLoop = insertMark(NewLoop, NewBandId);
 
     return NewLoop.get_schedule();

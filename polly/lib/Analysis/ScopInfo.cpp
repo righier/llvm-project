@@ -954,7 +954,7 @@ MemoryAccess::MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
       this->AccessRelation.set_tuple_id(isl::dim::in, Parent->getDomainId());
 
   this->NewAccessRelation = AccToClone->NewAccessRelation;
-  if (this->NewAccessRelation)
+  if (!this->NewAccessRelation.is_null())
     this->NewAccessRelation = this->NewAccessRelation.set_tuple_id(
         isl::dim::in, Parent->getDomainId());
 }
@@ -2509,7 +2509,7 @@ void Scop::addScopStmt(Region *R, StringRef Name, Loop *SurroundingLoop,
 
 ScopStmt *Scop::addClonedStmt(ScopStmt *StmtToClone, isl::set Domain) {
   assert(StmtToClone);
-  assert(Domain);
+  assert(!Domain.is_null());
   assert(StmtToClone->isBlockStmt() &&
          "cloning other statements not supported yet");
 

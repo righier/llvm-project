@@ -179,7 +179,7 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
   isl::schedule_node visitMark(const isl::schedule_node &Mark, Args... args) {
     auto OneRemoved = isl::manage(isl_schedule_node_delete(Mark.copy()));
     auto Result = getDerived().visit(OneRemoved, args...);
-    assert(Result);
+    assert(!Result.is_null());
     return Result;
   }
 };
@@ -203,7 +203,7 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
       return Cur;
 
     auto Parent = Cur.parent();
-    assert(Parent);
+    assert(!Parent.is_null());
     Cur = Parent;
   }
   if (isBand(Band))
@@ -283,7 +283,7 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
 
 static isl::schedule applyLoopReversal(MDNode *LoopMD,
                                        isl::schedule_node BandToReverse) {
-  assert(BandToReverse);
+  assert(!BandToReverse.is_null());
   auto IslCtx = BandToReverse.get_ctx();
 
   auto Followup =
@@ -321,7 +321,7 @@ public:
   Loop *getLoop() const {
     if (ByLoop)
       return ByLoop;
-    if (ByIslId) {
+    if (!ByIslId.is_null()) {
       BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
       return Attr->OriginalLoop;
     }
@@ -335,7 +335,7 @@ public:
 
   isl::id getIslId(isl::ctx &Ctx) const {
     auto Result = ByIslId;
-    if (!Result) {
+    if (Result.is_null()) {
       if (auto L = getLoop())
         Result = getIslLoopAttr(Ctx, L);
     }
@@ -345,7 +345,7 @@ public:
   StringRef getName() const {
     if (!ByName.empty())
       return ByName;
-    if (ByIslId) {
+    if (!ByIslId.is_null()) {
       BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
       return Attr->LoopName;
     }
@@ -365,7 +365,7 @@ public:
     if (auto L = getLoop())
       return L->getLoopID();
 
-    if (ByIslId) {
+    if (!ByIslId.is_null()) {
       BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
       return Attr->Metadata;
     }
@@ -392,7 +392,7 @@ public:
     assert(!Id.is_null());
     LoopIdentification Result;
     Result.ByIslId = Id;
-    if (Id) {
+    if (!Id.is_null()) {
       Result.ByLoop = static_cast<BandAttr *>(Id.get_user())->OriginalLoop;
       Result.ByName = static_cast<BandAttr *>(Id.get_user())->LoopName;
       Result.ByMetadata = static_cast<BandAttr *>(Id.get_user())->Metadata;
@@ -434,7 +434,7 @@ public:
 };
 
 static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
-  assert(Node);
+  assert(!Node.is_null());
   while (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark) {
     assert(Node.n_children() == 1);
     Node = Node.get_child(0);
@@ -470,7 +470,7 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
         isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
     PartialMultiSchedules.push_back(X);
 
-    if (CombinedSchedule) {
+    if (!CombinedSchedule.is_null()) {
       CombinedSchedule = CombinedSchedule.flat_range_product(X);
     } else {
       CombinedSchedule = X;
@@ -1031,9 +1031,9 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
                                     bool Full, MDNode *UnrolledID,
                                     MDNode *JammedID) {
   // BandToJam must be perfectly inside BandToUnroll
-  assert(BandToUnroll);
+  assert(!BandToUnroll.is_null());
   assert(isBand(BandToUnroll));
-  assert(BandToJam);
+  assert(!BandToJam.is_null());
   assert(isBand(BandToJam));
   auto Ctx = BandToUnroll.get_ctx();
 
@@ -1115,7 +1115,7 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     auto NewBandId = makeTransformLoopId(
         Ctx, UnrolledID,
         (JamDepthInBands == 0) ? "unrolled" : "unrolled-and-jam");
-    if (NewBandId)
+    if (!NewBandId.is_null())
       UnrolledLoop = insertMark(UnrolledLoop, NewBandId);
 
     IntermediateLoops = UnrolledLoop;
@@ -1129,7 +1129,7 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     if (JamDepthInBands > 0) {
       auto NewJammedBandId = makeTransformLoopId(Ctx, JammedID, "jammed");
       LoopToJam = removeMark(LoopToJam);
-      if (NewJammedBandId)
+      if (!NewJammedBandId.is_null())
         LoopToJam = insertMark(LoopToJam, NewJammedBandId);
     }
 
@@ -1163,7 +1163,7 @@ static void collectMemAccsDomains(isl::schedule_node Node,
 
           auto AccDom = MemAcc->getLatestAccessRelation().intersect_domain(
               Stmt->getDomain());
-          if (Result)
+          if (!Result.is_null())
             Result = Result.unite(AccDom);
           else
             Result = AccDom;
@@ -1212,7 +1212,7 @@ static void collectStmtDomains(isl::schedule_node Node, isl::union_set &Result,
   case isl_schedule_node_leaf:
     if (Inclusive) {
       auto Dom = Node.get_domain();
-      if (Result)
+      if (!Result.is_null())
         Result = Result.unite(Dom);
       else
         Result = Dom;
@@ -1295,7 +1295,7 @@ static std::vector<unsigned int> sizeBox(isl::pw_aff_list DimSizes) {
     // FIXME: Because of the interfaces of Scop::createScopArrayInfo, array
     // sizes currently need to be constant
     auto SizeBound = polly::getConstant(Len, true, false);
-    assert(SizeBound);
+    assert(!SizeBound.is_null());
     assert(!SizeBound.is_infty());
     assert(!SizeBound.is_nan());
     assert(SizeBound.is_pos());
@@ -1363,7 +1363,7 @@ readPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
           .curry();
 
   std::vector<unsigned int> PackedSizes;
-  if (IslSize) {
+  if (!IslSize.is_null()) {
     auto SizeAff1 = isl::pw_multi_aff::from_map(isl::map::from_range(IslSize));
     auto SizeAff2 = isl::multi_pw_aff(SizeAff1);
     auto Dims = IslSize.dim(isl::dim::set);
@@ -1893,7 +1893,7 @@ collectRedirects(isl::schedule_node Node, isl::map OrigToPackedIndexMap,
         // a packed access for everything that the original access accessed");
         // MemAcc->setNewAccessRelation(PackedAccRel);
         auto &UpdatedRedirect = AccessesToUpdate[MemAcc];
-        if (UpdatedRedirect)
+        if (!UpdatedRedirect.is_null())
           UpdatedRedirect = UpdatedRedirect.unite(PackedAccRel);
         else
           UpdatedRedirect = PackedAccRel;
@@ -1991,7 +1991,7 @@ struct ExtensionNodeRewriter
         (void)BandSched;
       }
 
-      if (NewNode)
+      if (!NewNode.is_null())
         NewNode = isl::manage(
             isl_schedule_sequence(NewNode.release(), NewChildNode.release()));
       else
@@ -2152,9 +2152,9 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   ErrorDesc = StringRef();
   // auto Ctx = S.getIslCtx();
 
-  if (IslSize)
+  if (!IslSize.is_null())
     LLVM_DEBUG(dbgs() << "IslSize: " << IslSize << "\n");
-  if (IslRedirect)
+  if (!IslRedirect.is_null())
     LLVM_DEBUG(dbgs() << "IslRedirect: " << IslRedirect << "\n");
 
   isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
@@ -2221,7 +2221,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   // { PrefixSched[] -> [Data[] -> PackedData[]] }
   isl::map OrigToPackedIndexMap;
   std::vector<unsigned int> PackedSizes;
-  if (IslSize || IslRedirect) {
+  if (!IslSize.is_null() || !IslRedirect.is_null()) {
     std::tie(OrigToPackedIndexMap, PackedSizes) = readPackingLayout(
         InnerSchedules, InnerInstances, Accs, IslSize, IslRedirect);
   } else {
@@ -2334,7 +2334,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 
 static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
                                            isl::schedule_node BandToUnroll) {
-  assert(BandToUnroll);
+  assert(!BandToUnroll.is_null());
   // auto Ctx = BandToUnroll.get_ctx();
 
   auto Factor = findOptionalIntOperand(LoopMD, "llvm.loop.unroll_and_jam.count")
@@ -2405,7 +2405,7 @@ collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
 static isl::schedule
 applyArrayPacking(MDNode *LoopMD, isl::schedule_node LoopToPack, Function *F,
                   Scop *S, OptimizationRemarkEmitter *ORE, Value *CodeRegion) {
-  assert(LoopToPack);
+  assert(!LoopToPack.is_null());
   auto Ctx = LoopToPack.get_ctx();
 
   // TODO: Allow multiple "llvm.data.pack.array"
@@ -2500,7 +2500,7 @@ applyArrayPacking(MDNode *LoopMD, isl::schedule_node LoopToPack, Function *F,
 
 static isl::schedule
 applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
-  assert(BandToParallelize);
+  assert(!BandToParallelize.is_null());
   auto Ctx = BandToParallelize.get_ctx();
 
   BandToParallelize = moveToBandMark(BandToParallelize);
@@ -2660,7 +2660,7 @@ public:
       return;
 
     auto Mark = moveToBandMark(Band);
-    if (!Mark || Mark.get() == Band.get())
+    if (Mark.is_null() || Mark.get() == Band.get())
       return;
 
     auto Attr = static_cast<BandAttr *>(Mark.mark_get_id().get_user());
@@ -2691,7 +2691,7 @@ public:
         checkDependencyViolation(LoopMD, CodeRegion, Band,
                                  "llvm.loop.reverse.loc", "llvm.loop.reverse.",
                                  "FailedRequestedReversal", "loop reversal");
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.tile.enable") {
         // TODO: Read argument (0 to disable)
@@ -2699,7 +2699,7 @@ public:
         checkDependencyViolation(LoopMD, CodeRegion, Band, "llvm.loop.tile.loc",
                                  "llvm.loop.tile.", "FailedRequestedTiling",
                                  "loop tiling");
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.interchange.enable") {
         // TODO: Read argument (0 to disable)
@@ -2708,7 +2708,7 @@ public:
             LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
             "llvm.loop.interchange.", "FailedRequestedInterchange",
             "loop interchange");
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.unroll.enable" ||
                  AttrName == "llvm.loop.unroll.count" ||
@@ -2723,12 +2723,12 @@ public:
             LoopMD, CodeRegion, Band, "llvm.loop.unroll_and_jam.loc",
             "llvm.loop.unroll_and_jam.", "FailedRequestedUnrollAndJam",
             "unroll-and-jam");
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.data.pack.enable") {
         // TODO: When is this transformation illegal? E.g. non-access?
         Result = applyArrayPacking(LoopMD, Band, F, S, ORE, CodeRegion);
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.parallelize_thread.enable") {
         auto IsCoincident = Band.band_member_get_coincident(0);
@@ -2772,16 +2772,16 @@ public:
         }
 
         Result = applyParallelizeThread(LoopMD, Band);
-        if (Result)
+        if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.fission.enable") {
         Result = applyLoopFission(LoopMD, Band, D);
-        if (Result)
+        if (!Result.is_null())
           Result = checkDependencyViolation(
               LoopMD, CodeRegion, Band, "llvm.loop.fission.loc",
               "llvm.loop.fission.", "FailedRequestedFission",
               "loop fission/distribution");
-        if (Result)
+        if (!Result.is_null())
           return;
       }
 

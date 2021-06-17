@@ -681,7 +681,7 @@ static std::vector<std::pair< isl::space, int >> flattenSpace(isl::space Space) 
 #endif
 
 static isl::space rebuildSpaceNest(const SpaceRef *NewNesting) {
-  if (NewNesting->Space)
+  if (!NewNesting->Space.is_null())
     return NewNesting->Space;
   if (NewNesting->Domain && NewNesting->Range)
     return rebuildSpaceNest(NewNesting->Domain)
@@ -693,7 +693,7 @@ static isl::space rebuildSpaceNest(const SpaceRef *NewNesting) {
 }
 
 static isl::ctx getFirstCtx(const SpaceRef *NewNesting) {
-  if (NewNesting->Space)
+  if (!NewNesting->Space.is_null())
     return NewNesting->Space.get_ctx();
   if (NewNesting->Tuple)
     return NewNesting->Tuple->Space.get_ctx();
@@ -711,7 +711,7 @@ recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
                        const DenseMap<const TupleNest *, int> &NestOffsets,
                        int PrevDims) {
   auto NumDims = 0;
-  if (NewNesting->Space) {
+  if (!NewNesting->Space.is_null()) {
     // Universe of space => no constraints, no children
     NumDims += NewNesting->Space.dim(isl::dim::set);
   }
@@ -976,7 +976,7 @@ isl::set polly::subtractParams(isl::set Set, isl::set Params) {
 }
 
 isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
-  if (!PwAff)
+  if (PwAff.is_null())
     return {};
   assert(!Max || !Min); // Cannot return min and max at the same time.
 

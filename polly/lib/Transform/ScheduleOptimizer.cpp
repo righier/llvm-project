@@ -511,8 +511,8 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *NodeArg,
     return Node.release();
 
   if (OAI->Postopts && PMBasedOpts && OAI) {
-    if (isl::schedule_node PatternOptimizedSchedule =
-            tryOptimizeMatMulPattern(Node, OAI->TTI, OAI->D)) {
+    isl::schedule_node PatternOptimizedSchedule = tryOptimizeMatMulPattern(Node, OAI->TTI, OAI->D);
+    if (!PatternOptimizedSchedule.is_null()) {
       MatMulOpts++;
       return PatternOptimizedSchedule.release();
     }
