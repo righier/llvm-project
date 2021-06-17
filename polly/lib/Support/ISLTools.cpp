@@ -197,13 +197,6 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
   return Result;
 }
 
-isl::map polly::makeIdentityMap(const isl::set &Set, bool RestrictDomain) {
-  isl::map IdentityMap = isl::map::identity(Set.get_space().map_from_set());
-  if (RestrictDomain)
-    IdentityMap = IdentityMap.intersect_domain(Set);
-  return IdentityMap;
-}
-
 isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
   assert(Orig.dim(isl::dim::in) == NewSpace.dim(isl::dim::in));
   assert(Orig.dim(isl::dim::out) == NewSpace.dim(isl::dim::out));
