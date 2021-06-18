@@ -3672,7 +3672,7 @@ def LoopFission : Attr {
 				bool First=true;
 				for (auto SplitPos : splitAt()) {
 				  if (!First) { OS << ", "; }
-				  OS << SplitPos;
+				  SplitPos->printPretty(OS, nullptr, Policy);
 				  First = false;
 				}
 				OS << ")";

@@ -62,7 +62,9 @@ class ScopBuilder {
   // The Scop
   std::unique_ptr<Scop> scop;
 
+#if 1
   llvm::json::Array *LoopNest = nullptr;
+#endif
 
   /// Collection to hold taken assumptions.
   ///

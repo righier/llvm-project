@@ -897,6 +897,5 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
 
 isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
                                       const Dependences *D) {
-
   llvm_unreachable("not implemented");
 }

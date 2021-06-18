@@ -170,9 +170,7 @@ static cl::list<std::string> IslArgs("polly-isl-arg",
                                      cl::desc("Option passed to ISL"),
                                      cl::ZeroOrMore, cl::cat(PollyCategory));
 
-static cl::opt<std::string> PollyLoopNestOutputFile("polly-output-loopnest",
-                                                    cl::Optional,
-                                                    cl::cat(PollyCategory));
+
 
 //===----------------------------------------------------------------------===//
 

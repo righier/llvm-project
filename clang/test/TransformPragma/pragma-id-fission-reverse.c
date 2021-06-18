@@ -50,7 +50,7 @@ int main() {
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"i"}
 // IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
-// IR: !6 = !{!"llvm.loop.fission.autofission", i1 true}
+// IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
 // IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !11}
 // IR: !8 = distinct !{!8, !3, !9, !10}
 // IR: !9 = !{!"llvm.loop.id", !"a"}

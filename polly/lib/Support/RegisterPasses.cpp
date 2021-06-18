@@ -37,6 +37,7 @@
 #include "polly/ScopInfo.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
+#include "polly/Support/DumpLoopNestPass.h"
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -201,6 +202,10 @@ static cl::list<std::string> DumpBeforeFile(
     cl::desc("Dump module before Polly transformations to the given file"),
     cl::cat(PollyCategory));
 
+static cl::opt<std::string> PollyLoopNestOutputFile("polly-output-loopnest",
+  cl::Optional,
+  cl::cat(PollyCategory));
+
 static cl::opt<bool>
     DumpAfter("polly-dump-after",
               cl::desc("Dump module after Polly transformations into a file "
@@ -352,6 +357,11 @@ static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
 
   if (FullyIndexedStaticExpansion)
     PM.add(polly::createMaximalStaticExpansionPass());
+
+
+  if (!PollyLoopNestOutputFile.empty()) {
+    PM.add(polly::createDumpLoopnestWrapperPass(PollyLoopNestOutputFile, false));
+  }
 
   if (EnablePruneUnprofitable)
     PM.add(polly::createPruneUnprofitableWrapperPass());
@@ -528,11 +538,19 @@ static void buildCommonPollyPipeline(FunctionPassManager &PM,
     SPM.addPass(DeadCodeElimPass());
 
   if (FullyIndexedStaticExpansion)
-    report_fatal_error("Option -polly-enable-mse not supported with NPM",
-                       false);
+    report_fatal_error("Option -polly-enable-mse not supported with NPM", false);
+
+
+
+  if (!PollyLoopNestOutputFile.empty()) {
+    SPM.addPass(DumpModulePass(PollyLoopNestOutputFile, false ));
+  }
+
 
   if (EnablePruneUnprofitable)
     SPM.addPass(PruneUnprofitablePass());
+
+
 
   if (Target == TARGET_CPU || Target == TARGET_HYBRID) {
     switch (Optimizer) {
