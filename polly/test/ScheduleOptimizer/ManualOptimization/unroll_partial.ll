@@ -1,5 +1,4 @@
-; RUN: opt %loadPolly -polly-opt-isl -polly-pragma-based-opts=1 -analyze < %s | FileCheck %s --match-full-lines
-; RUN: opt %loadPolly -polly-opt-isl -polly-pragma-based-opts=0 -analyze < %s | FileCheck %s --check-prefix=OFF --match-full-lines
+; RUN: opt %loadPolly -polly-opt-isl -analyze < %s | FileCheck %s --match-full-lines
 ;
 ; Partial unroll by a factor of 4.
 ;
@@ -28,7 +27,8 @@ return:
 }
 
 
-!2 = distinct !{!2, !5}
+!2 = distinct !{!2, !4, !5}
+!4 = !{!"llvm.loop.unroll.enable", i1 true}
 !5 = !{!"llvm.loop.unroll.count", i4 4}
 
 
@@ -40,8 +40,3 @@ return:
 ; CHECK-NEXT:      - filter: "[n] -> { Stmt_body[i0] : (-1 + i0) mod 4 = 0 }"
 ; CHECK-NEXT:      - filter: "[n] -> { Stmt_body[i0] : (2 + i0) mod 4 = 0 }"
 ; CHECK-NEXT:      - filter: "[n] -> { Stmt_body[i0] : (1 + i0) mod 4 = 0 }"
-
-
-; OFF-LABEL: Printing analysis 'Polly - Optimize schedule of SCoP' for region: 'for => return' in function 'func':
-; OFF-NEXT:  Calculated schedule:
-; OFF-NEXT:    n/a

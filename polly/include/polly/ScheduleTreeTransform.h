@@ -20,6 +20,7 @@
 
 namespace polly {
 struct BandAttr;
+struct Dependences;
 
 /// This class defines a simple visitor class that may be used for
 /// various schedule tree analysis purposes.
@@ -155,6 +156,9 @@ BandAttr *getBandAttr(isl::schedule_node MarkOrBand);
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
 
+isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
+                              bool Full);
+
 /// Replace the AST band @p BandToUnroll by a sequence of all its iterations.
 ///
 /// The implementation enumerates all points in the partial schedule and creates
@@ -164,6 +168,9 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
+
+isl::schedule applyAutofission(isl::schedule_node BandToFission,
+                               const Dependences *D);
 
 /// Build the desired set of partial tile prefixes.
 ///

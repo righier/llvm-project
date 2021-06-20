@@ -96,6 +96,23 @@ llvm::PreservedAnalyses DumpModulePass::run(llvm::Module &M,
   return PreservedAnalyses::all();
 }
 
+llvm::PreservedAnalyses
+DumpModuleOfFunctionPass::run(llvm::Function &F,
+                              llvm::FunctionAnalysisManager &AM) {
+  Module *M = F.getParent();
+  if (!M)
+    return PreservedAnalyses::all();
+
+  auto It = AlreadyDumped.insert(M);
+  if (!It.second) {
+    // Module has been dumped before.
+    return PreservedAnalyses::all();
+  }
+
+  runDumpModule(*M, Filename, IsSuffix);
+  return PreservedAnalyses::all();
+}
+
 INITIALIZE_PASS_BEGIN(DumpModuleWrapperPass, "polly-dump-module",
                       "Polly - Dump Module", false, false)
 INITIALIZE_PASS_END(DumpModuleWrapperPass, "polly-dump-module",

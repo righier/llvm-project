@@ -90,6 +90,7 @@ public:
 
     /// Flag to mark outermost parallel loops.
     bool IsOutermostParallel = false;
+    bool IsForcedThreadParallel = false;
 
     /// Flag to mark parallel loops which break reductions.
     bool IsReductionParallel = false;
