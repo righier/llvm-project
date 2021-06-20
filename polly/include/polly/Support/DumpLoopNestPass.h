@@ -11,13 +11,21 @@
 
 #include "llvm/IR/PassManager.h"
 #include <string>
+#include "polly/ScopPass.h"
+
+
 
 namespace llvm {
-class ModulePass;
+  class Pass;
+  class PassRegistry;
 } // namespace llvm
 
+
+
+
+
 namespace polly {
-llvm::ModulePass *createDumpLoopnestWrapperPass(std::string Filename,     bool IsSuffix);
+  llvm::Pass  *createDumpLoopnestWrapperPass(std::string Filename ,bool IsSuffix  );
 
 /// A pass that prints the module into a file.
 struct DumpLoopnestPass : llvm::PassInfoMixin<DumpLoopnestPass> {
@@ -26,7 +34,7 @@ struct DumpLoopnestPass : llvm::PassInfoMixin<DumpLoopnestPass> {
 
   DumpLoopnestPass(std::string Filename, bool IsSuffix) : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
 
-  llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &AM);
+  llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM, ScopStandardAnalysisResults &SAR, SPMUpdater &U);
 };
 } // namespace polly
 

@@ -21,16 +21,25 @@ using namespace polly;
 
 namespace {
 
-static void runDumpLoopnest(llvm::Module &M, StringRef Filename, bool IsSuffix) {
+
+  /// Cache to not require reloading file for each SCoP in the same TU.
+  static llvm::json::Array *LoopNests = nullptr;
+
+static void loopToJson(const isl::schedule_node &Node ) {
+
+}
+
+static void runDumpLoopnest(Scop &S, StringRef Filename, bool IsSuffix) {
   std::string Dumpfile;
   if (IsSuffix) {
-    StringRef ModuleName = M.getName();
+    auto *M = S.getFunction().getParent();
+    StringRef ModuleName = M->getName();
     StringRef Stem = sys::path::stem(ModuleName);
-    Dumpfile = (Twine(Stem) + Filename + ".ll").str();
+    Dumpfile = (Twine(Stem) + Filename + ".json").str();
   } else {
     Dumpfile = Filename.str();
   }
-  LLVM_DEBUG(dbgs() << "Dumping module to " << Dumpfile << '\n');
+  LLVM_DEBUG(dbgs() << "Dumping loopnest to " << Dumpfile << '\n');
 
   std::unique_ptr<ToolOutputFile> Out;
   std::error_code EC;
@@ -40,55 +49,58 @@ static void runDumpLoopnest(llvm::Module &M, StringRef Filename, bool IsSuffix) 
     return;
   }
 
-  M.print(Out->os(), nullptr);
+
+  auto& Sched = S.getSchedule();
+
+
+
+
   Out->keep();
 }
 
-class DumpLoopnestWrapperPass : public ModulePass {
+class DumpLoopnestWrapperPass : public ScopPass {
 private:
-  DumpLoopnestWrapperPass(const DumpModuleWrapperPass &) = delete;
+  DumpLoopnestWrapperPass(const DumpLoopnestWrapperPass &) = delete;
   const DumpLoopnestWrapperPass &
   operator=(const DumpLoopnestWrapperPass &) = delete;
 
   std::string Filename;
-  bool IsSuffix;
+
 
 public:
   static char ID;
 
-  /// This constructor is used e.g. if using opt -polly-dump-module.
-  ///
-  /// Provide a default suffix to not overwrite the original file.
+
   explicit DumpLoopnestWrapperPass()
-      : ModulePass(ID), Filename("-dump"), IsSuffix(true) {}
+      : ScopPass(ID), Filename("-dump"){}
 
-  explicit DumpLoopnestWrapperPass(std::string Filename, bool IsSuffix)
-      : ModulePass(ID), Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+  explicit DumpLoopnestWrapperPass(std::string Filename)
+      : ScopPass(ID), Filename(std::move(Filename)) {}
 
-  /// @name ModulePass interface
-  ///@{
+
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override {
     AU.setPreservesAll();
   }
 
-  virtual bool runOnModule(llvm::Module &M) override {
-    runDumpModule(M, Filename, IsSuffix);
+
+  bool runOnScop(Scop &S) override {
+    runDumpLoopnest(S, Filename);
     return false;
   }
-  ///@}
+
 };
 
-char DumpModuleWrapperPass::ID;
+
+char DumpLoopnestWrapperPass::ID;
 } // namespace
 
-ModulePass *polly::createDumpModuleWrapperPass(std::string Filename,
-                                               bool IsSuffix) {
-  return new DumpModuleWrapperPass(std::move(Filename), IsSuffix);
+Pass *polly::createDumpLoopnestWrapperPass(std::string Filename, bool IsSuffix) {
+  return new DumpLoopnestWrapperPass(std::move(Filename),IsSuffix);
 }
 
-llvm::PreservedAnalyses DumpModulePass::run(llvm::Module &M,
-                                            llvm::ModuleAnalysisManager &AM) {
-  runDumpModule(M, Filename, IsSuffix);
+
+llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM, ScopStandardAnalysisResults &SAR, SPMUpdater &U) {
+  runDumpLoopnest(S);
   return PreservedAnalyses::all();
 }
 
