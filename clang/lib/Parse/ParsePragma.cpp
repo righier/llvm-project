@@ -1448,8 +1448,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     i += 1;
     return Kind;
   } break;
-  case TransformClauseKind::Sizes: 
-  case TransformClauseKind::SplitAt:  {
+  case TransformClauseKind::Sizes:
+  case TransformClauseKind::SplitAt: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
 
@@ -1497,8 +1497,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   case TransformClauseKind::FloorIds:
   case TransformClauseKind::TileIds:
   case TransformClauseKind::Permutation:
-  case TransformClauseKind::PermutedIds: 
-  case TransformClauseKind::FissionendIds:{
+  case TransformClauseKind::PermutedIds:
+  case TransformClauseKind::FissionendIds: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
     while (true) {
@@ -1621,14 +1621,15 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     return TransformClauseKind::Factor;
   } break;
 
-  case TransformClauseKind::Full: 
-  case TransformClauseKind::Autofission :{
+  case TransformClauseKind::Full:
+  case TransformClauseKind::Autofission: {
     assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
     auto OptionInfo = Toks[i].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
 
     // Use the keyword itself as "argument".
-    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                         Toks[i].getLocation(), OptionInfo));
 
     i += 1;
     return Kind;
@@ -2071,7 +2072,8 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "fission") {
-    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for loop fission/distribution");
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for loop fission/distribution");
     assert(!ApplyOnFollowing && "fission applies to single loop only");
     if (ApplyOnLocs.empty())
       // Apply to following loop
@@ -2079,10 +2081,9 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     else
       ArgHints.push_back(ApplyOnLocs[0]);
 
-
     ArgsUnion Autofission{(IdentifierLoc *)nullptr}; // Only presence matters
-    SmallVector<ArgsUnion, 4>  SplitAt;
-    SmallVector<ArgsUnion, 4>  FissionedIds;
+    SmallVector<ArgsUnion, 4> SplitAt;
+    SmallVector<ArgsUnion, 4> FissionedIds;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -2120,15 +2121,13 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
       ArgHints.push_back(PitId);
     ArgHints.push_back((IdentifierLoc *)nullptr);
 
-    assert(Toks.size() == i && "must have parsed all clauses"); 
-    PP.Lex(Tok);             
+    assert(Toks.size() == i && "must have parsed all clauses");
+    PP.Lex(Tok);
     return true;
   }
 
   llvm_unreachable("Unrecognized transformation");
 }
-
-
 
 namespace {
 struct PragmaAttributeInfo {

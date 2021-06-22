@@ -1208,7 +1208,6 @@ void ScopBuilder::buildSchedule() {
 #endif
 }
 
-
 /// To generate a schedule for the elements in a Region we traverse the Region
 /// in reverse-post-order and add the contained RegionNodes in traversal order
 /// to the schedule of the loop that is currently at the top of the LoopStack.
@@ -1353,9 +1352,9 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
       auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
                           ? LoopId->getOperand(1).get()
                           : nullptr;
+#if 0
       auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
-#if 0
       json::Object Loop;
       if (Start) {
         Loop["filename"] = Start->getFilename();

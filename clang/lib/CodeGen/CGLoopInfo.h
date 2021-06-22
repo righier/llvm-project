@@ -92,8 +92,6 @@ struct LoopTransformation {
   llvm::SmallVector<uint64_t, 4> FissionSplitAt;
   llvm::SmallVector<llvm::StringRef, 4> FissionFissionedIds;
 
-
-
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
   // CGF->EmitLValue when the array pointer is emited.
@@ -240,14 +238,11 @@ struct LoopTransformation {
     return Result;
   }
 
-
-
-
-  static LoopTransformation createFission(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
-    llvm::StringRef ApplyOn,
-    bool Autofission,
-    llvm::ArrayRef<StringRef> FissionedIds, 
-    llvm::ArrayRef<uint64_t> SplitAt) {
+  static LoopTransformation
+  createFission(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
+                llvm::StringRef ApplyOn, bool Autofission,
+                llvm::ArrayRef<StringRef> FissionedIds,
+                llvm::ArrayRef<uint64_t> SplitAt) {
 
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
@@ -262,7 +257,6 @@ struct LoopTransformation {
 
     return Result;
   }
-
 };
 
 /// Attributes that may be specified on loops.
@@ -452,9 +446,10 @@ public:
 
   void addTransformMD(llvm::Metadata *Node) { Transforms.push_back(Node); }
 
-  void addFollowup(const char* FollowupAttributeName, VirtualLoopInfo* Followup) {  
-   // assert(!Followups.count(FollowupAttributeName));
-    Followups.push_back({ FollowupAttributeName, Followup });
+  void addFollowup(const char *FollowupAttributeName,
+                   VirtualLoopInfo *Followup) {
+    // assert(!Followups.count(FollowupAttributeName));
+    Followups.push_back({FollowupAttributeName, Followup});
   }
 
   void addSubloop(VirtualLoopInfo *Subloop) { Subloops.push_back(Subloop); }
@@ -619,7 +614,8 @@ public:
                              llvm::ArrayRef<VirtualLoopInfo *> On);
   VirtualLoopInfo *applyThreadParallel(const LoopTransformation &Transform,
                                        VirtualLoopInfo *On);
-  VirtualLoopInfo *applyFission(const LoopTransformation &Transform, VirtualLoopInfo *On);
+  VirtualLoopInfo *applyFission(const LoopTransformation &Transform,
+                                VirtualLoopInfo *On);
 
   void finish();
 

@@ -3480,9 +3480,9 @@ def LoopId : Attr {
   let Args = [StringArgument<"LoopName">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop id(" << getLoopName() << ")";
-		}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop id(" << getLoopName() << ")";
+    }
   }];
 
   let Documentation = [];
@@ -3499,17 +3499,17 @@ def LoopReversal : Attr {
   let Args = [StringArgument<"ApplyOn">, StringArgument<"ReversedId">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (!getApplyOn().empty()) {
-						OS << "(" << getApplyOn() << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
+      }
 
-			OS << " reverse";
+      OS << " reverse";
 
-			if (!getReversedId().empty())
-						OS << " reversed_id(" << getReversedId() << ")";
-		}
+      if (!getReversedId().empty())
+        OS << " reversed_id(" << getReversedId() << ")";
+    }
   }];
 
   let Documentation = [];
@@ -3526,70 +3526,70 @@ def LoopTiling : Attr {
   let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">, StringArgument<"Peel">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (applyOn_size()) {
-				OS << "(";
-				bool First = true;
-					for (auto Piece : applyOn()) {
-						if (!First) {
-							OS << ", ";
-						}
-						OS << Piece;
-						First = false;
-					}
-				OS << ")";
-			} else if (getApplyOnDepth()) {
-				OS << "(" ;
-				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
-				OS << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (applyOn_size()) {
+        OS << "(";
+        bool First = true;
+        for (auto Piece : applyOn()) {
+        if (!First) {
+          OS << ", ";
+            }
+            OS << Piece;
+            First = false;
+          }
+        OS << ")";
+      } else if (getApplyOnDepth()) {
+        OS << "(" ;
+        getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+        OS << ")";
+      }
 
-			OS << " tile";
+      OS << " tile";
 
-			if (tileSizes_size()) {
-				OS << " sizes(";
-				bool First=true;
-				for (auto Size : tileSizes()) {
-				  if (!First) {
-					  OS << ", ";
-				  }
-                  Size->printPretty(OS, nullptr, Policy);
-				  First = false;
-				}
-				OS << ")";
-			}
+      if (tileSizes_size()) {
+        OS << " sizes(";
+        bool First = true;
+        for (auto Size : tileSizes()) {
+          if (!First) {
+            OS << ", ";
+          }
+          Size->printPretty(OS, nullptr, Policy);
+          First = false;
+        }
+        OS << ")";
+      }
 
-			if (floorIds_size()) {
-				OS << " floor_ids(";
-				bool First=true;
-				for (auto Id : floorIds()) {
-				  if (!First) {
-					  OS << ", ";
-				  }
-					  OS<<Id;
-				  First = false;
-				}
-				OS << ")";
-			}
+      if (floorIds_size()) {
+        OS << " floor_ids(";
+        bool First = true;
+        for (auto Id : floorIds()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS<<Id;
+          First = false;
+        }
+        OS << ")";
+      }
 
-			if (tileIds_size()) {
-				OS << " tile_ids(";
-				bool First=true;
-				for (auto Id : tileIds()) {
-				  if (!First) {
-					  OS << ", ";
-					}
-					  OS<<Id;
-				  First = false;
-				}
-				OS << ")";
-			}
+      if (tileIds_size()) {
+        OS << " tile_ids(";
+        bool First = true;
+        for (auto Id : tileIds()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS<<Id;
+          First = false;
+        }
+        OS << ")";
+      }
 
-			if (getPeelLength()) {
-					OS << " peel(" << getPeel() << ")";
-			}
-		}
+      if (getPeelLength()) {
+        OS << " peel(" << getPeel() << ")";
+      }
+    }
   }];
 
   let Documentation = [];
@@ -3606,48 +3606,53 @@ def LoopInterchange : Attr {
   let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicStringArgument<"Permutation">, VariadicStringArgument<"PermutedIds">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (applyOn_size()) {
-				OS << "(";
-				bool First = true;
-					for (auto Piece : applyOn()) {
-						if (!First) {
-							OS << ", ";}
-						OS << Piece;
-						First = false;
-					}
-				OS << ")";
-			} else if (getApplyOnDepth() ) {
-				OS << "(" ;
-				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
-				OS << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (applyOn_size()) {
+        OS << "(";
+        bool First = true;
+          for (auto Piece : applyOn()) {
+            if (!First) {
+              OS << ", ";
+            }
+            OS << Piece;
+            First = false;
+          }
+        OS << ")";
+      } else if (getApplyOnDepth() ) {
+        OS << "(" ;
+        getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+        OS << ")";
+      }
 
-			OS << " interchange";
+      OS << " interchange";
 
-			if (permutation_size()) {
-				OS << " permutation(";
-				bool First=true;
-				for (auto PermId : permutation()) {
-				  if (!First) { OS << ", "; }
-				  OS << PermId;
-				  First = false;
-				}
-				OS << ")";
-			}
+      if (permutation_size()) {
+        OS << " permutation(";
+        bool First = true;
+        for (auto PermId : permutation()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS << PermId;
+          First = false;
+        }
+        OS << ")";
+      }
 
       if (permutedIds_size()) {
-				OS << " permutedIds(";
-				bool First=true;
-				for (auto PermId : permutedIds()) {
-				  if (!First) { OS << ", "; }
-				  OS << PermId;
-				  First = false;
-				}
-				OS << ")";
-			}
-		}
+        OS << " permutedIds(";
+        bool First = true;
+        for (auto PermId : permutedIds()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS << PermId;
+          First = false;
+        }
+        OS << ")";
+      }
+    }
   }];
 
   let Documentation = [];
@@ -3666,40 +3671,44 @@ def LoopFission : Attr {
   let Args = [StringArgument<"ApplyOn">, VariadicExprArgument<"SplitAt">, BoolArgument<"AutoFission">,  VariadicStringArgument<"FissionedIds">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (!getApplyOn().empty()) {
-						OS << "(" << getApplyOn() << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
+      }
 
-			OS << " fission";
+      OS << " fission";
 
       if (splitAt_size()) {
-      	OS << " split_at(";
-				bool First=true;
-				for (auto SplitPos : splitAt()) {
-				  if (!First) { OS << ", "; }
-				  SplitPos->printPretty(OS, nullptr, Policy);
-				  First = false;
-				}
-				OS << ")";
+        OS << " split_at(";
+        bool First = true;
+        for (auto SplitPos : splitAt()) {
+          if (!First) {
+            OS << ", ";
+          }
+          SplitPos->printPretty(OS, nullptr, Policy);
+          First = false;
+        }
+        OS << ")";
       }
 
       if (getAutoFission()) {
-					OS << " autofission";
-			}
+        OS << " autofission";
+      }
 
-			if (fissionedIds_size()) {
-				OS << " fissioned_ids(";
-				bool First=true;
-				for (auto FissionId : fissionedIds()) {
-				  if (!First) { OS << ", "; }
-				  OS << FissionId;
-				  First = false;
-				}
-				OS << ")";
-			}
-		}
+      if (fissionedIds_size()) {
+        OS << " fissioned_ids(";
+        bool First = true;
+        for (auto FissionId : fissionedIds()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS << FissionId;
+          First = false;
+        }
+        OS << ")";
+      }
+    }
   }];
 
   let Documentation = [];
@@ -3716,33 +3725,33 @@ def Pack : Attr {
   let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">, StringArgument<"IslSize">, StringArgument<"IslRedirect">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
 
-			if (!getApplyOn().empty()) {
-				OS << "(" << getApplyOn() << ")";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
       }
 
-			OS << " pack";
+      OS << " pack";
 
-			if (getArray()) {
-					OS << " array(";
-					getArray()->printPretty(OS, nullptr, Policy);
-					OS << ")";
-			}
+      if (getArray()) {
+          OS << " array(";
+          getArray()->printPretty(OS, nullptr, Policy);
+          OS << ")";
+      }
 
-			if (getOnHeap()) {
-				OS << " allocate(malloc)";
-			}
+      if (getOnHeap()) {
+        OS << " allocate(malloc)";
+      }
 
-			if (!getIslSize().empty()) {
-				OS << " isl_size(\"" << getIslSize() << "\")";
-			}
+      if (!getIslSize().empty()) {
+        OS << " isl_size(\"" << getIslSize() << "\")";
+      }
 
-			if (!getIslRedirect().empty()) {
-				OS << " isl_redirect(\"" << getIslRedirect() << "\")";
-			}
-		}
+      if (!getIslRedirect().empty()) {
+        OS << " isl_redirect(\"" << getIslRedirect() << "\")";
+      }
+    }
   }];
 
   let Documentation = [];
@@ -3761,24 +3770,24 @@ def LoopUnrolling : Attr {
   let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (!getApplyOn().empty()) {
-						OS << "(" << getApplyOn() << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
+      }
 
-			OS << " unrolling";
+      OS << " unrolling";
 
-			if (getFactor()) {
-				OS << " factor(";
-				getFactor()->printPretty(OS, nullptr, Policy);
-				OS << ")";
-			}
+      if (getFactor()) {
+        OS << " factor(";
+        getFactor()->printPretty(OS, nullptr, Policy);
+        OS << ")";
+      }
 
-			if (getFull()) {
-				OS << " full";
-			}
-		}
+      if (getFull()) {
+        OS << " full";
+      }
+    }
   }];
 
   let Documentation = [];
@@ -3794,31 +3803,30 @@ def LoopUnrollingAndJam : Attr {
   let Spellings = [Pragma<"", "unrollingandjam">];
   let PrettyPrintSpelling = 0;
 
-    let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
-
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (!getApplyOn().empty()) {
-						OS << "(" << getApplyOn() << ")";
-			}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
+      }
 
-			OS << " unrollingandjam";
+      OS << " unrollingandjam";
 
-			if (getFactor()) {
-				OS << " factor(";
-				getFactor()->printPretty(OS, nullptr, Policy);
-				OS << ")";
-			}
+      if (getFactor()) {
+        OS << " factor(";
+        getFactor()->printPretty(OS, nullptr, Policy);
+        OS << ")";
+      }
 
-			if (getFull()) {
-				OS << " full";
-			}
-		}
+      if (getFull()) {
+        OS << " full";
+      }
+    }
   }];
 
-   let Documentation = [];
+  let Documentation = [];
 }
 
 
@@ -3833,13 +3841,13 @@ def LoopParallelizeThread : Attr {
   let Args = [StringArgument<"ApplyOn">];
 
   let AdditionalMembers = [{
-		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
-			OS << "clang loop";
-			if (!getApplyOn().empty()) {
-						OS << "(" << getApplyOn() << ")";
-			}
-			OS << " parallelize_thread";
-		}
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (!getApplyOn().empty()) {
+        OS << "(" << getApplyOn() << ")";
+      }
+      OS << " parallelize_thread";
+    }
   }];
 
   let Documentation = [];

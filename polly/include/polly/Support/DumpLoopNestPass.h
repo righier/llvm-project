@@ -9,26 +9,21 @@
 #ifndef POLLY_SUPPORT_DUMPLOOPNESTPASS_H
 #define POLLY_SUPPORT_DUMPLOOPNESTPASS_H
 
-#include "llvm/IR/PassManager.h"
-#include <string>
 #include "polly/ScopPass.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/Support/JSON.h"
-
+#include <string>
 
 namespace llvm {
-  class Pass;
-  class PassRegistry;
+class Pass;
+class PassRegistry;
 } // namespace llvm
 
-
-
-
-
 namespace polly {
-  using LoopnestCacheTy = llvm::StringMap<SmallVector<llvm::json::Value >  >;
+using LoopnestCacheTy = llvm::StringMap<SmallVector<llvm::json::Value>>;
 
-  llvm::Pass  *createDumpLoopnestWrapperPass(std::string Filename ,bool IsSuffix  );
+llvm::Pass *createDumpLoopnestWrapperPass(std::string Filename, bool IsSuffix);
 
 /// A pass that prints the module into a file.
 struct DumpLoopnestPass : llvm::PassInfoMixin<DumpLoopnestPass> {
@@ -36,22 +31,18 @@ struct DumpLoopnestPass : llvm::PassInfoMixin<DumpLoopnestPass> {
   bool IsSuffix;
   LoopnestCacheTy Cache;
 
-  DumpLoopnestPass(std::string Filename, bool IsSuffix) : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+  DumpLoopnestPass(std::string Filename, bool IsSuffix)
+      : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
   ~DumpLoopnestPass();
 
-  llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM, ScopStandardAnalysisResults &SAR, SPMUpdater &U);
+  llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM,
+                              ScopStandardAnalysisResults &SAR, SPMUpdater &U);
 };
 } // namespace polly
-
-
-
 
 namespace llvm {
 class PassRegistry;
 void initializeDumpLoopnestWrapperPassPass(llvm::PassRegistry &);
 } // namespace llvm
-
-
-
 
 #endif /* POLLY_SUPPORT_DUMPLOOPNESTPASS_H */

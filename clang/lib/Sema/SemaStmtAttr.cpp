@@ -293,7 +293,8 @@ static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,
                                                    A.getRange());
 }
 
-static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A,
+                               SourceRange) {
   auto ApplyOnLoc = A.getArgAsIdent(0);
   auto AutofissionLoc = A.getArgAsIdent(1);
 
@@ -319,13 +320,11 @@ static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A, SourceRan
   }
   assert(A.getNumArgs() == i);
 
-
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return LoopFissionAttr::CreateImplicit(S.Context, ApplyOn,
-    SplitAt.data(), SplitAt.size(),
-    AutofissionLoc,  FissionedId.data(), FissionedId.size(), A.getRange());
+  return LoopFissionAttr::CreateImplicit(
+      S.Context, ApplyOn, SplitAt.data(), SplitAt.size(), AutofissionLoc,
+      FissionedId.data(), FissionedId.size(), A.getRange());
 }
-
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {

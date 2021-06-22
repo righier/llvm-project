@@ -16,8 +16,8 @@
 
 #include "polly/CodeGen/PPCGCodeGeneration.h"
 #include "polly/Config/config.h"
-#include "polly/Support/DumpModulePass.h"
 #include "polly/Support/DumpLoopNestPass.h"
+#include "polly/Support/DumpModulePass.h"
 #include "llvm/ADT/StringRef.h"
 #include <cstdlib>
 

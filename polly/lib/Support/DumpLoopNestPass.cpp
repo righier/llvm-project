@@ -22,12 +22,10 @@ using namespace polly;
 
 namespace {
 
-
-
-
-
-static void loopToJson(  const isl::schedule_node &Node,  BandAttr *ParentAttr, std::vector<json::Value>& Subloops) {
-  bool IsBand = isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
+static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
+                       std::vector<json::Value> &Subloops) {
+  bool IsBand =
+      isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
   if (IsBand) {
     assert(ParentAttr);
 
@@ -35,24 +33,25 @@ static void loopToJson(  const isl::schedule_node &Node,  BandAttr *ParentAttr, 
     assert(L);
     auto Header = L->getHeader();
     auto LoopId = L->getLoopID();
-    auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)      ? LoopId->getOperand(1).get()      : nullptr;
+    auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
+                        ? LoopId->getOperand(1).get()
+                        : nullptr;
     auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
-      
     json::Object Loop;
     if (Start) {
       Loop["filename"] = Start->getFilename();
       Loop["directory"] = Start->getDirectory();
       Loop["path"] = (Twine(Start->getDirectory()) +
-        llvm::sys::path::get_separator() + Start->getFilename())
-        .str();
+                      llvm::sys::path::get_separator() + Start->getFilename())
+                         .str();
       if (Start->getSource())
         Loop["source"] = Start->getSource().getValue().str();
       Loop["line"] = Start->getLine();
       Loop["column"] = Start->getColumn();
     }
 
-    Loop["function"] =  Header->getParent()->getName().str();
+    Loop["function"] = Header->getParent()->getName().str();
     {
       SmallVector<char, 255> Buf;
       raw_svector_ostream OS(Buf);
@@ -84,24 +83,21 @@ static void loopToJson(  const isl::schedule_node &Node,  BandAttr *ParentAttr, 
 
     std::vector<json::Value> Substmts;
     for (auto C = Node.first_child(); !C.is_null(); C = C.next_sibling()) {
-      loopToJson(C,  nullptr, Substmts);
+      loopToJson(C, nullptr, Substmts);
     }
 
     if (Substmts.empty()) {
       Loop["subloops"] = json::Array();
     } else {
       Loop["subloops"] = json::Value(std::move(Substmts));
-      Loop["perfectnest"] = Substmts.size() ==1;
+      Loop["perfectnest"] = Substmts.size() == 1;
     }
-
 
     Subloops.push_back(std::move(Loop));
     return;
-  } 
+  }
 
-
-  
-  if (isBandMark(Node)) {  
+  if (isBandMark(Node)) {
     assert(!ParentAttr);
     ParentAttr = getBandAttr(Node);
   }
@@ -111,10 +107,8 @@ static void loopToJson(  const isl::schedule_node &Node,  BandAttr *ParentAttr, 
   }
 }
 
-
-
-
-static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename, bool IsSuffix) {
+static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename,
+                            bool IsSuffix) {
   std::string Dumpfile;
   if (IsSuffix) {
     auto *M = S.getFunction().getParent();
@@ -126,10 +120,7 @@ static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename,
   }
   LLVM_DEBUG(dbgs() << "Dumping loopnest to " << Dumpfile << '\n');
 
-
-  auto& Loopnests = Cache[Dumpfile];
-
-
+  auto &Loopnests = Cache[Dumpfile];
 
   auto Sched = S.getScheduleTree();
   std::vector<json::Value> ToplevelLoops;
@@ -137,10 +128,7 @@ static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename,
   Loopnests.append(ToplevelLoops.begin(), ToplevelLoops.end());
 }
 
-
-
-
-static void saveLoopnestCache(LoopnestCacheTy& Cache) {
+static void saveLoopnestCache(LoopnestCacheTy &Cache) {
   for (auto &P : Cache) {
     auto Dumpfile = P.first();
     auto Loopnests = P.second;
@@ -154,18 +142,15 @@ static void saveLoopnestCache(LoopnestCacheTy& Cache) {
     Output["loopnests"] = std::move(A);
     json::Value V = json::Value(std::move(Output));
 
-
     errs() << "Writing LoopNest to '" << Dumpfile << "'.\n";
     std::error_code EC;
     ToolOutputFile F(Dumpfile, EC, llvm::sys::fs::OF_TextWithCRLF);
-    auto& OS = F.os();
+    auto &OS = F.os();
     if (EC) {
       errs() << "  error opening file for writing!\n";
       F.os().clear_error();
       return;
     }
-
-
 
     OS << formatv("{0:3}", V);
     OS.close();
@@ -175,11 +160,9 @@ static void saveLoopnestCache(LoopnestCacheTy& Cache) {
       return;
     }
 
-
     F.keep();
   }
 }
-
 
 class DumpLoopnestWrapperPass : public ScopPass {
 private:
@@ -194,48 +177,41 @@ private:
 public:
   static char ID;
 
-
-  explicit DumpLoopnestWrapperPass()
-      : ScopPass(ID){}
+  explicit DumpLoopnestWrapperPass() : ScopPass(ID) {}
 
   explicit DumpLoopnestWrapperPass(std::string Filename, bool IsSuffix)
       : ScopPass(ID), Filename(std::move(Filename)), IsSuffix(false) {}
-
 
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override {
     AU.setPreservesAll();
   }
 
-
   bool runOnScop(Scop &S) override {
-    runDumpLoopnest(S,Cache, Filename, IsSuffix);
+    runDumpLoopnest(S, Cache, Filename, IsSuffix);
     return false;
   }
 
-  ~DumpLoopnestWrapperPass() {
-    saveLoopnestCache(Cache);
-  }
+  ~DumpLoopnestWrapperPass() { saveLoopnestCache(Cache); }
 };
-
 
 char DumpLoopnestWrapperPass::ID;
 } // namespace
 
-Pass *polly::createDumpLoopnestWrapperPass(std::string Filename, bool IsSuffix) {
-  return new DumpLoopnestWrapperPass(std::move(Filename),IsSuffix);
+Pass *polly::createDumpLoopnestWrapperPass(std::string Filename,
+                                           bool IsSuffix) {
+  return new DumpLoopnestWrapperPass(std::move(Filename), IsSuffix);
 }
 
-
-llvm::PreservedAnalyses DumpLoopnestPass::run(Scop &S, ScopAnalysisManager &SAM, ScopStandardAnalysisResults &SAR, SPMUpdater &U) {
-  runDumpLoopnest(S,Cache, Filename,IsSuffix);
+llvm::PreservedAnalyses DumpLoopnestPass::run(Scop &S, ScopAnalysisManager &SAM,
+                                              ScopStandardAnalysisResults &SAR,
+                                              SPMUpdater &U) {
+  runDumpLoopnest(S, Cache, Filename, IsSuffix);
   return PreservedAnalyses::all();
 }
 
+DumpLoopnestPass::~DumpLoopnestPass() { saveLoopnestCache(Cache); }
 
-DumpLoopnestPass::~DumpLoopnestPass() {
-  saveLoopnestCache(Cache);
-}
-
-
-INITIALIZE_PASS_BEGIN(DumpLoopnestWrapperPass, "polly-dump-loopnest", "Polly - Dump Loop Nest", false, false)
-INITIALIZE_PASS_END(DumpLoopnestWrapperPass,   "polly-dump-loopnest", "Polly - Dump Loop Nest", false, false)
+INITIALIZE_PASS_BEGIN(DumpLoopnestWrapperPass, "polly-dump-loopnest",
+                      "Polly - Dump Loop Nest", false, false)
+INITIALIZE_PASS_END(DumpLoopnestWrapperPass, "polly-dump-loopnest",
+                    "Polly - Dump Loop Nest", false, false)

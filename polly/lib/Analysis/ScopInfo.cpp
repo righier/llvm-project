@@ -170,8 +170,6 @@ static cl::list<std::string> IslArgs("polly-isl-arg",
                                      cl::desc("Option passed to ISL"),
                                      cl::ZeroOrMore, cl::cat(PollyCategory));
 
-
-
 //===----------------------------------------------------------------------===//
 
 static isl::set addRangeBoundsToSet(isl::set S, const ConstantRange &Range,
@@ -2917,7 +2915,7 @@ void ScopInfo::recompute() {
     json::Object Root;
     Root["topmost"] = json::Value(std::move(TNest));
     this->LoopNests->emplace_back(std::move(Root));
-#endif 
+#endif
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
     ScopDetection::LoopStats Stats =

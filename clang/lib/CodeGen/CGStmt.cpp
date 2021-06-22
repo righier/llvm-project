@@ -831,10 +831,10 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   bool CondIsConstInt = C != nullptr;
   bool EmitBoolCondBranch = !CondIsConstInt || !C->isOne();
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
-                 WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
-                 SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(CondIsConstInt));
+  LoopStack.push(
+      LoopHeader.getBlock(), CurFn, CGM.getContext(), CGM.getCodeGenOpts(),
+      WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
+      SourceLocToDebugLoc(R.getEnd()), checkIfLoopMustProgress(CondIsConstInt));
 
   // As long as the condition is true, go to the loop body.
   llvm::BasicBlock *LoopBody = createBasicBlock("while.body");
