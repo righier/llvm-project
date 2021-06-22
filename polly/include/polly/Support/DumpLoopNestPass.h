@@ -12,7 +12,8 @@
 #include "llvm/IR/PassManager.h"
 #include <string>
 #include "polly/ScopPass.h"
-
+#include "llvm/ADT/StringMap.h"
+#include "llvm/Support/JSON.h"
 
 
 namespace llvm {
@@ -25,14 +26,18 @@ namespace llvm {
 
 
 namespace polly {
+  using LoopnestCacheTy = llvm::StringMap<SmallVector<llvm::json::Value >  >;
+
   llvm::Pass  *createDumpLoopnestWrapperPass(std::string Filename ,bool IsSuffix  );
 
 /// A pass that prints the module into a file.
 struct DumpLoopnestPass : llvm::PassInfoMixin<DumpLoopnestPass> {
   std::string Filename;
   bool IsSuffix;
+  LoopnestCacheTy Cache;
 
   DumpLoopnestPass(std::string Filename, bool IsSuffix) : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+  ~DumpLoopnestPass();
 
   llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM, ScopStandardAnalysisResults &SAR, SPMUpdater &U);
 };

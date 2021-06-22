@@ -2797,6 +2797,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   ScopBuilder SB(R, AC, AA, DL, DT, LI, SD, SE, ORE);
   S = SB.getScop(); // take ownership of scop object
 
+#if 0
   auto ThisNest = SB.getLoopNest();
   if (ThisNest) {
     auto TNest = *ThisNest;
@@ -2809,6 +2810,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
     Root["topmost"] = json::Value(std::move(TNest));
     this->LoopNests->emplace_back(std::move(Root));
   }
+#endif
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
   if (S) {
@@ -2822,9 +2824,12 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
 }
 
 bool ScopInfoRegionPass::doFinalization(Module &) {
+#if 0
   if (!LoopNests)
     return false;
 
+
+  std::string PollyLoopNestOutputFile;
   if (PollyLoopNestOutputFile.empty())
     return false;
 
@@ -2852,7 +2857,7 @@ bool ScopInfoRegionPass::doFinalization(Module &) {
 
   errs() << "  error opening file for writing!\n";
   F.os().clear_error();
-
+#endif
   return false;
 }
 
@@ -2903,6 +2908,7 @@ void ScopInfo::recompute() {
     if (!S)
       continue;
 
+#if 0
     auto ThisNest = SB.getLoopNest();
     auto TNest = *ThisNest;
     if (!this->LoopNests) {
@@ -2911,6 +2917,7 @@ void ScopInfo::recompute() {
     json::Object Root;
     Root["topmost"] = json::Value(std::move(TNest));
     this->LoopNests->emplace_back(std::move(Root));
+#endif 
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_STATS)
     ScopDetection::LoopStats Stats =
@@ -3001,6 +3008,7 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
 }
 
 bool ScopInfoWrapperPass::doFinalization(Module &) {
+#if 0
   if (!Result)
     return false;
 
@@ -3034,7 +3042,7 @@ bool ScopInfoWrapperPass::doFinalization(Module &) {
 
   errs() << "  error opening file for writing!\n";
   F.os().clear_error();
-
+#endif
   return false;
 }
 

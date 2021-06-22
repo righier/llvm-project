@@ -62,7 +62,7 @@ class ScopBuilder {
   // The Scop
   std::unique_ptr<Scop> scop;
 
-#if 1
+#if 0
   llvm::json::Array *LoopNest = nullptr;
 #endif
 
@@ -783,7 +783,9 @@ class ScopBuilder {
     // The (possibly incomplete) schedule for this loop.
     isl::schedule Schedule;
 
+#if 0
     llvm::json::Array *Nest = nullptr;
+#endif
 
     // The number of basic blocks in the current loop, for which a schedule has
     // already been constructed.
@@ -845,7 +847,9 @@ public:
   ///         for the region
   std::unique_ptr<Scop> getScop() { return std::move(scop); }
 
+#if 0
   auto getLoopNest() { return LoopNest; }
+#endif
 };
 } // end namespace polly
 

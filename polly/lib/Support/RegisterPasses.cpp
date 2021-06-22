@@ -202,9 +202,10 @@ static cl::list<std::string> DumpBeforeFile(
     cl::desc("Dump module before Polly transformations to the given file"),
     cl::cat(PollyCategory));
 
-static cl::opt<std::string> PollyLoopNestOutputFile("polly-output-loopnest",
-  cl::Optional,
-  cl::cat(PollyCategory));
+
+static cl::opt<bool> DumpLoopnest("polly-dump-loopnest", cl::cat(PollyCategory));
+static cl::list<std::string> DumpLoopnestFile("polly-dump-loopnest-file", cl::cat(PollyCategory));
+
 
 static cl::opt<bool>
     DumpAfter("polly-dump-after",
@@ -358,10 +359,12 @@ static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
   if (FullyIndexedStaticExpansion)
     PM.add(polly::createMaximalStaticExpansionPass());
 
+  if (DumpLoopnest)
+    PM.add(polly::createDumpLoopnestWrapperPass("-loopnest", true));
+  for (auto &Filename : DumpLoopnestFile)
+    PM.add(polly::createDumpLoopnestWrapperPass(Filename, false));
 
-  if (!PollyLoopNestOutputFile.empty()) {
-    PM.add(polly::createDumpLoopnestWrapperPass(PollyLoopNestOutputFile, false));
-  }
+
 
   if (EnablePruneUnprofitable)
     PM.add(polly::createPruneUnprofitableWrapperPass());
@@ -542,9 +545,13 @@ static void buildCommonPollyPipeline(FunctionPassManager &PM,
 
 
 
-  if (!PollyLoopNestOutputFile.empty()) {
-    SPM.addPass(DumpModulePass(PollyLoopNestOutputFile, false ));
-  }
+
+  if (DumpLoopnest)
+  SPM.addPass(DumpLoopnestPass("-loopnest",true));
+  for (auto &Filename : DumpLoopnestFile)
+    SPM.addPass(DumpLoopnestPass(Filename, false ));
+
+
 
 
   if (EnablePruneUnprofitable)

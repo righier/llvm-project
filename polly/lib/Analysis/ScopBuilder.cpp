@@ -1198,13 +1198,16 @@ void ScopBuilder::buildSchedule() {
   buildSchedule(scop->getRegion().getNode(), LoopStack);
   assert(LoopStack.size() == 1 && LoopStack.back().L == L);
   scop->setScheduleTree(LoopStack[0].Schedule);
+#if 0
   assert(!this->LoopNest);
   this->LoopNest = LoopStack[0].Nest;
   if (!this->LoopNest) {
     // Ensure member if there is not loop at all (-polly-process-unprofitable)
     this->LoopNest = new json::Array();
   }
+#endif
 }
+
 
 /// To generate a schedule for the elements in a Region we traverse the Region
 /// in reverse-post-order and add the contained RegionNodes in traversal order
@@ -1291,7 +1294,9 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     isl::union_set UDomain{Stmt->getDomain()};
     auto StmtSchedule = isl::schedule::from_domain(UDomain);
     LoopData->Schedule = combineInSequence(LoopData->Schedule, StmtSchedule);
+#if 0
     LoopData->Nest = combineInSequence(LoopData->Nest, nullptr);
+#endif
   }
 
   // Check if we just processed the last node in this loop. If we did, finalize
@@ -1307,7 +1312,9 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
   while (LoopData->L &&
          LoopData->NumBlocksProcessed == getNumBlocksInLoop(LoopData->L)) {
     isl::schedule Schedule = LoopData->Schedule;
+#if 0
     auto Subloopnest = LoopData->Nest;
+#endif
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
@@ -1348,6 +1355,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
                           : nullptr;
       auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
+#if 0
       json::Object Loop;
       if (Start) {
         Loop["filename"] = Start->getFilename();
@@ -1381,6 +1389,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
         Loop["exit"] = Buf;
       }
 
+
       if (Subloopnest) {
         Loop["subloops"] = json::Value(std::move(*Subloopnest));
         Loop["perfectnest"] = IsPerfectNest;
@@ -1388,6 +1397,7 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
         Loop["subloops"] = json::Array();
       auto Nest = new json::Array({std::move(Loop)});
       LoopData->Nest = combineInSequence(LoopData->Nest, Nest);
+#endif
     }
 
     LoopData->NumBlocksProcessed += NumBlocksProcessed;
