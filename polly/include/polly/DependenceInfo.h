@@ -124,6 +124,7 @@ struct Dependences {
   ///         dependences.
   bool isValidSchedule(Scop &S, const StatementToIslMapTy &NewSchedules) const;
 
+
   bool isValidSchedule(Scop &S, isl::schedule NewSched) const;
 
   /// Print the stored dependence information.

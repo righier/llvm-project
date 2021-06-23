@@ -23,8 +23,6 @@ namespace polly {
 class Scop;
 struct Dependences;
 
-class Scop;
-
 /// Apply loop-transformation metadata.
 ///
 /// The loop metadata are taken from mark-nodes in @sched. These nodes have been

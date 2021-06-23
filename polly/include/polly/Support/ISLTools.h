@@ -215,7 +215,6 @@ isl::map reverseDomain(isl::map Map);
 isl::union_map reverseDomain(const isl::union_map &UMap);
 
 isl::map reverseRange(isl::map Map);
-
 isl::union_map reverseRange(const isl::union_map &UMap);
 
 /// Add a constant to one dimension of a set.
@@ -582,8 +581,8 @@ isl::set rebuildNesting(isl::set Set, llvm::StringRef ModelStr,
 isl::map rebuildNesting(isl::map Map, llvm::StringRef ModelStr,
                         llvm::StringRef NewModelStr);
 
-/// @param { Domain[] -> Range[...,Pos,...] }
-/// @param { Domain[] -> [Pos] }
+/// @param (B)Map { Domain[] -> Range[...,Pos,...] }
+/// @return { Domain[] -> [Pos] }
 isl::basic_map isolateDim(isl::basic_map BMap, int Pos);
 isl::map isolateDim(isl::map Map, int Pos);
 
@@ -694,6 +693,7 @@ void dumpExpanded(__isl_keep isl_union_set *USet);
 void dumpExpanded(__isl_keep isl_union_map *UMap);
 /// @}
 
+/// Like dumpPw, but print to OS
 void printSorted(const isl::map &Map, llvm::raw_ostream &OS);
 
 } // namespace polly

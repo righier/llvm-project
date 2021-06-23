@@ -1194,7 +1194,7 @@ public:
 
   /// Create a copy statement.
   ///
-  /// @param Scop       The parent SCoP.
+  /// @param parent     The parent SCoP.
   /// @param SourceRel  The source location.
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would
@@ -1202,7 +1202,7 @@ public:
   ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
            isl::set Domain);
 
-  // Clone a statement with a new domain.
+  /// Clone a statement with a new domain.
   explicit ScopStmt(Scop &parent, ScopStmt *StmtToClone, isl::set Domain);
 
   ScopStmt(const ScopStmt &) = delete;

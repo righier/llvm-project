@@ -194,7 +194,7 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
                                       bool RestrictDomain) {
   isl::union_map Result = isl::union_map::empty(USet.get_space());
   for (isl::set Set : USet.get_set_list()) {
-    auto IdentityMap = makeIdentityMap(Set, RestrictDomain);
+    isl::map IdentityMap = makeIdentityMap(Set, RestrictDomain);
     Result = Result.add_map(IdentityMap);
   }
   return Result;
@@ -929,8 +929,10 @@ static isl::space insertNestedSpace(isl::space OuterSpace, isl::space Insertee,
     switch (Position[0]) {
     case -1:
       Result = Insertee.map_from_domain_and_range(OuterSpace);
+break;
     case 1:
       Result = OuterSpace.map_from_domain_and_range(Insertee);
+break;
     default:
       llvm_unreachable("where to insert???");
     }
@@ -945,10 +947,12 @@ static isl::space insertNestedSpace(isl::space OuterSpace, isl::space Insertee,
       auto NewDomain = insertNestedSpace(Domain, Insertee, Remaining);
       Result = NewDomain.map_from_domain_and_range(Range);
     }
+break;
     case 1: {
       auto NewRange = insertNestedSpace(Range, Insertee, Remaining);
       Result = Domain.map_from_domain_and_range(NewRange);
     }
+break;
     default:
       llvm_unreachable("where to insert???");
     }

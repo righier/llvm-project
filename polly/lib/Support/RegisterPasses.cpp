@@ -45,16 +45,8 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
-#include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "llvm/Transforms/Scalar/EarlyCSE.h"
-#include "llvm/Transforms/Scalar/LoopPassManager.h"
-#include "llvm/Transforms/Scalar/LoopRotation.h"
-#include "llvm/Transforms/Scalar/Reassociate.h"
-#include "llvm/Transforms/Scalar/SimplifyCFG.h"
-#include "llvm/Transforms/Scalar/TailRecursionElimination.h"
-#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
 using namespace polly;
@@ -321,7 +313,6 @@ static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
     PM.add(polly::createDumpModuleWrapperPass(Filename, false));
 
   PM.add(polly::createCodePreparationPass());
-
   PM.add(polly::createScopDetectionWrapperPassPass());
 
   if (PollyDetectOnly)
@@ -857,7 +848,6 @@ void registerPollyPasses(PassBuilder &PB) {
     break;
   }
 }
-
 } // namespace polly
 
 llvm::PassPluginLibraryInfo getPollyPluginInfo() {
