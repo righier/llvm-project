@@ -387,7 +387,6 @@ static bool isBand(const isl::schedule_node &Node) {
 
 /// Is this node a band of a single dimension (i.e. could represent a loop)?
 static bool isBandWithSingleLoop(const isl::schedule_node &Node) {
-
   return isBand(Node) && isl_schedule_node_band_n_member(Node.get()) == 1;
 }
 
@@ -453,19 +452,10 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   return removeMark(MarkOrBand, Attr);
 }
 
-static isl::schedule_node removeMark2(isl::schedule_node MarkOrBand) {
-  MarkOrBand = moveToBandMark(MarkOrBand);
-  while (isl_schedule_node_get_type(MarkOrBand.get()) ==
-         isl_schedule_node_mark) {
-    if (isBandMark(MarkOrBand))
-      MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
-    else
-      MarkOrBand = MarkOrBand.parent();
-  }
-  return MarkOrBand;
-}
+
 
 } // namespace
+
 
 BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
@@ -665,8 +655,7 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
     isl::union_pw_aff StridedPartialSchedUAff =
         isl::union_pw_aff::empty(PartialSchedUAff.get_space());
     isl::val ValFactor{Ctx, Factor};
-    PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,
-                                     &ValFactor](
+    PartialSchedUAff.foreach_pw_aff([&StridedPartialSchedUAff,                                      &ValFactor](
                                         isl::pw_aff PwAff) -> isl::stat {
       isl::space Space = PwAff.get_space();
       isl::set Universe = isl::set::universe(Space.domain());

@@ -476,14 +476,11 @@ struct NoLegacyLoopTransformsPassGate : public llvm::OptPassGate {
   NoLegacyLoopTransformsPassGate() {
     auto UnrollPass = std::unique_ptr<Pass>(createLoopUnrollPass());
     UnrollPassID = UnrollPass->getPassID();
-    //	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
   }
 
   bool isLegacyLoopPass(const Pass *P) const {
     auto ID = P->getPassID();
     auto Result = ID == UnrollPassID;
-    //	if (Result)
-    //		llvm::errs() << "## Matched unroll pass\n";
     return Result;
   }
 

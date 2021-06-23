@@ -1074,8 +1074,7 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
         isl::union_pw_aff::empty(PartialSchedToUnrollUAff.get_space());
     auto ValFactor = isl::val(Ctx, Factor);
     PartialSchedToUnrollUAff.foreach_pw_aff(
-        [Factor, &StridedPartialSchedUAff, Ctx,
-         &ValFactor](isl::pw_aff PwAff) -> isl::stat {
+        [ &StridedPartialSchedUAff,          &ValFactor](isl::pw_aff PwAff) -> isl::stat {
           auto Space = PwAff.get_space();
           auto Universe = isl::set::universe(Space.domain());
           auto AffFactor = isl::manage(

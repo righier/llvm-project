@@ -437,6 +437,11 @@ CODEGENOPT(AAPCSBitfieldWidth, 1, 1)
 /// propagate signaling NaN inputs per IEEE 754-2008 (AMDGPU Only)
 CODEGENOPT(EmitIEEENaNCompliantInsts, 1, 1)
 
+/// Disable the LLVM passes:
+/// - LoopUnroll
+///
+/// Legacy pass manager only
+/// See NoLegacyLoopTransformsPassGate in BackendUtil.cpp
 CODEGENOPT(DisableLegacyLoopTransformation, 1, 0)
 
 #undef CODEGENOPT
