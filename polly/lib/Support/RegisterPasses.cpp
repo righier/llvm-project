@@ -322,7 +322,6 @@ static void registerPollyPasses(llvm::legacy::PassManagerBase &PM,
 
   PM.add(polly::createCodePreparationPass());
 
-  PM.add(polly::createCodePreparationPass());
   PM.add(polly::createScopDetectionWrapperPassPass());
 
   if (PollyDetectOnly)
