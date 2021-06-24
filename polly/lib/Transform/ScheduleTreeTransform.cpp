@@ -907,6 +907,7 @@ static void collectFussionableStmts(isl::schedule_node Node, SmallVectorImpl<isl
 }
 
 
+#if 0
 // FIXME: What is the difference of returning nullptr vs None?
 static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
   StringRef Name) {
@@ -919,6 +920,7 @@ static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
     return None;
   return MD;
 }
+#endif
 
 
 

@@ -59,23 +59,23 @@ int main() {
 // IR: !12 = !{!"llvm.loop.id", !"b"}
 
 
-// AST: if (1
-// AST:   for (int c0 = 0; c0 <= floord(p_0 - 1, 32); c0 += 1) {
-// AST:     for (int c1 = 0; c1 <= floord(p_1 - 1, 16); c1 += 1) {
-// AST:       for (int c2 = 0; c2 <= min(31, p_0 - 32 * c0 - 1); c2 += 1) {
-// AST:         for (int c3 = 0; c3 <= min(15, p_1 - 16 * c1 - 1); c3 += 1)
-// AST:           Stmt4(32 * c0 + c2, 16 * c1 + c3);
-// AST:       }
+// AST: if (1 
+// AST:     {
+// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
+// AST:         Stmt2(-c0);
+// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
+// AST:         Stmt2b(-c0);
 // AST:     }
-// AST:   }
-// AST: else
-// AST:   {  /* original code */ }
+// AST:   else
+// AST:     {  /* original code */ }
 
 
-// TRANS: %polly.indvar{{[0-9]*}} = phi
-// TRANS: %polly.indvar{{[0-9]*}}.us = phi
-// TRANS: %polly.indvar{{[0-9]*}}.us.us = phi
-// TRANS: %polly.indvar{{[0-9]*}}.us.us = phi
+// TRANS: polly.loop_header:
+// TRANS:   %7 = sub nsw i64 0, %polly.indvar
+// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !17, !noalias !19
+// TRANS: polly.loop_header19:
+// TRANS:   %10 = sub nsw i64 0, %polly.indvar23
+// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !20, !noalias !21
 
 
-// RESULT: (3)
+// RESULT: (3 2)
