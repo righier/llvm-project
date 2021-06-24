@@ -486,6 +486,7 @@ isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
   return NewSched;
 }
 
+#if 0
 static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   if (!LoopMD)
     return nullptr;
@@ -499,6 +500,7 @@ static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   }
   return nullptr;
 }
+#endif
 
 /// Return the (one-dimensional) set of numbers that are divisible by @p Factor
 /// with remainder @p Offset.
@@ -885,25 +887,82 @@ isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
 }
 
 
-isl::schedule polly:: applyFission(isl::schedule_node BandToFission, ArrayRef<uint64_t> SplitAtPositions) { 
+
+static void collectFussionableStmts(isl::schedule_node Node, SmallVectorImpl<isl::schedule_node> &ScheduleStmts) {
+  if (isBand(Node) || isLeaf(Node)) {
+    ScheduleStmts.push_back(Node);
+    return;
+  }
+
+ 
+  if (Node.has_children()) {
+    auto C = Node.first_child();
+    while (true) {
+      collectFussionableStmts(C, ScheduleStmts);
+      if (!C.has_next_sibling())
+        break;
+      C = C.next_sibling();
+    }
+  }
+}
+
+
+// FIXME: What is the difference of returning nullptr vs None?
+static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
+  StringRef Name) {
+  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
+  if (!AttrMD)
+    return None;
+
+  auto MD = dyn_cast<MDNode>(AttrMD);
+  if (!MD)
+    return None;
+  return MD;
+}
+
+
+
+isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFission, ArrayRef<uint64_t> SplitAtPositions) { 
+  auto Ctx = BandToFission.get_ctx();
   auto BandBody = BandToFission.child(0);
-  auto N = BandBody.n_children();
+
 
   SmallVector<uint64_t> Sorted(SplitAtPositions.begin(), SplitAtPositions.end());
   llvm::sort(Sorted);
 
+  SmallVector<isl::schedule_node> FissionableStmts;
+  collectFussionableStmts(BandBody, FissionableStmts);
+  auto N = FissionableStmts.size();
+
+  auto Followups = findOptionalMDOperand(LoopMD, "llvm.loop.fission.followup_fissioned");
+  assert(!Followups && "to implement followups");
+
   int i = 0;
+  isl::union_set_list DomList = isl::union_set_list::alloc(Ctx, N);
 
-  for (auto j : Sorted) {
+  auto AddUntil = [&](int n) {
     SmallVector<isl::schedule_node> BodyNodes;
-    for (; i < j; i++) {
-      auto BodyPart = BandBody.child(i);
-      BodyNodes.push_back(BandBody.child(i));
-    auto Dom =  BodyPart.get_domain();
+    auto UDom = isl::union_set::empty(Ctx);
+    for (; i < n; i++) {
+      auto BodyPart = FissionableStmts[i];
+      BodyNodes.push_back(BodyPart);
+      auto Dom = BodyPart.get_domain();
+      UDom = UDom.unite(Dom);
     }
-   // isl_schedule_node_insert_sequence()
-  }
+    DomList = DomList.add(UDom);
+  };
+  for (auto j : Sorted) 
+    AddUntil(j);
+  AddUntil(N);
 
-
-  return {};
+  auto Fissioned = BandToFission.insert_sequence(DomList);
+  return Fissioned.get_schedule();
 }
+
+
+
+
+
+
+
+

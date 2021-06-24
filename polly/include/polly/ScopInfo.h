@@ -2779,7 +2779,11 @@ raw_ostream &operator<<(raw_ostream &OS, const Scop &scop);
 class ScopInfoRegionPass : public RegionPass {
   /// The Scop pointer which is used to construct a Scop.
   std::unique_ptr<Scop> S;
+
+#if 0
   llvm::json::Array *LoopNests = nullptr;
+#endif
+
 
 public:
   static char ID; // Pass identification, replacement for typeid

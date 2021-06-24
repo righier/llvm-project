@@ -18,6 +18,10 @@
 #include "isl/isl-noexceptions.h"
 #include <cassert>
 
+namespace llvm {
+  class MDNode;
+}
+
 namespace polly {
 struct BandAttr;
 struct Dependences;
@@ -174,7 +178,7 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
 
 isl::schedule applyAutofission(isl::schedule_node BandToFission, const Dependences *D);
-isl::schedule applyFission(isl::schedule_node BandToFission,llvm:: ArrayRef<uint64_t> SplitAtPositions );
+isl::schedule applyFission(llvm::MDNode *LoopMD,isl::schedule_node BandToFission,llvm:: ArrayRef<uint64_t> SplitAtPositions );
 
 /// Build the desired set of partial tile prefixes.
 ///

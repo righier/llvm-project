@@ -278,14 +278,12 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   return Band.get_child(0);
 }
 
-static isl::schedule applyLoopReversal(MDNode *LoopMD,
-                                       isl::schedule_node BandToReverse) {
+
+static isl::schedule applyLoopReversal(MDNode *LoopMD, isl::schedule_node BandToReverse) {
   assert(!BandToReverse.is_null());
   auto IslCtx = BandToReverse.get_ctx();
 
-  auto Followup =
-      findOptionalMDOperand(LoopMD, "llvm.loop.reverse.followup_reversed")
-          .getValueOr(nullptr);
+  auto Followup = findOptionalMDOperand(LoopMD, "llvm.loop.reverse.followup_reversed").getValueOr(nullptr);
 
   BandToReverse = moveToBandMark(BandToReverse);
   BandToReverse = removeMark(BandToReverse);
@@ -307,6 +305,7 @@ static isl::schedule applyLoopReversal(MDNode *LoopMD,
 
   return Node.get_schedule();
 }
+
 
 class LoopIdentification {
   Loop *ByLoop = nullptr;
@@ -439,6 +438,7 @@ static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
   return Node;
 }
 
+
 static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
                                         int NumBands) {
   if (NumBands == 1)
@@ -492,6 +492,7 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
 
   return Band;
 }
+
 
 // TODO: Use ScheduleTreeOptimizer::tileNode
 static isl::schedule_node tileBand(isl::schedule_node BandToTile,
@@ -746,7 +747,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     Attrs.push_back(Attr);
 
     auto Size = 0;
-    StringRef FloorId, TileId;
+   // StringRef FloorId, TileId;
     if (Attr) {
       Size = findOptionalIntOperand(Attr->Metadata, "llvm.loop.tile.size")
                  .getValueOr(0);
@@ -2286,7 +2287,6 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
     auto MemAcc = Redirect.getFirst();
     auto NewAccRel = Redirect.getSecond();
     auto Stmt = MemAcc->getStatement();
-
     assert(Stmt->getDomain().is_subset(NewAccRel.domain()) &&
            "Have to copy statement if not transforming all instances");
     simplify(NewAccRel);
@@ -2556,7 +2556,7 @@ static isl::schedule applyLoopFission(MDNode *LoopMD,
    SplitPos.push_back(Pos);
   }
 
- return   applyFission(BandToFission,SplitPos );
+ return   applyFission(LoopMD, BandToFission,SplitPos );
 
   // Assume autofission
 //  return applyAutofission(BandToFission, D);

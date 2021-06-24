@@ -786,8 +786,8 @@ isl::set polly::rebuildNesting(
   auto TranslatorSpace = SourceSpace.map_from_domain_and_range(TargetSpace);
   auto Translator = isl::basic_map::universe(TranslatorSpace);
 
-  auto TotalDims =
-      recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
+  auto TotalDims = recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
+  (void)TotalDims;
   assert(TotalDims == TargetSpace.dim(isl::dim::set));
   auto LS = Translator.get_local_space();
 
@@ -848,13 +848,14 @@ makeSpaceRef(const TupleNest &Nest, isl::space Model,
   return Result;
 }
 
+#if 0
 static SpaceRef *
-makeSpaceRef(const TupleNest &Nest, StringRef ModelStr,
-             llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
+makeSpaceRef(const TupleNest &Nest, StringRef ModelStr, llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
   auto Ctx = Nest.Ref.get_ctx();
   auto Model = isl::set(Ctx, ModelStr.str()).get_space();
   return makeSpaceRef(Nest, ModelStr, ToFree);
 }
+#endif
 
 isl::set polly::rebuildSetNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
