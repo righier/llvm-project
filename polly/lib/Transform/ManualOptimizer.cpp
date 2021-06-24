@@ -186,9 +186,6 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
 
 struct MarkRemoverPlain : public MarkRemover<MarkRemoverPlain> {};
 
-static bool isBand(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
-}
 
 static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   auto Cur = Band;
@@ -2547,12 +2544,24 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
   return {};
 }
 
+
 static isl::schedule applyLoopFission(MDNode *LoopMD,
                                       isl::schedule_node BandToFission,
                                       const Dependences *D) {
+  SmallVector<uint64_t, 4> SplitPos;
+  auto SplitsMD = findOptionMDForLoopID(LoopMD, "llvm.loop.fission.split_at");
+   if (SplitsMD) for (auto& X : drop_begin(SplitsMD->operands(), 1)) {
+    auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
+   auto Pos= cast<ConstantInt>(PosConst)->getZExtValue();
+   SplitPos.push_back(Pos);
+  }
+
+ return   applyFission(BandToFission,SplitPos );
+
   // Assume autofission
-  return applyAutofission(BandToFission, D);
+//  return applyAutofission(BandToFission, D);
 }
+
 
 // Return the properties from a LoopID. Scalar properties are ignored.
 static auto getLoopMDProps(MDNode *LoopMD) {

@@ -21,12 +21,24 @@ using namespace llvm;
 using namespace polly;
 
 namespace {
+  static void loopToJson(const isl::schedule_node& Node, BandAttr* ParentAttr,
+    std::vector<json::Value>& Subloops);
+
+  static void iterateChildren(const isl::schedule_node &Node, BandAttr *ParentAttr,    std::vector<json::Value> &Subloops) {
+    if (Node.has_children()) {
+      auto C = Node.first_child();
+      while (true) {
+        loopToJson(C, ParentAttr, Subloops);
+        if (!C.has_next_sibling())
+          break;
+        C = C.next_sibling();
+      }
+    }
+  }
 
 static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
                        std::vector<json::Value> &Subloops) {
-  bool IsBand =
-      isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
-  if (IsBand) {
+  if (isBand(Node)) {
     assert(ParentAttr);
 
     auto *L = ParentAttr->OriginalLoop;
@@ -82,28 +94,30 @@ static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
 #endif
 
     std::vector<json::Value> Substmts;
-    for (auto C = Node.first_child(); !C.is_null(); C = C.next_sibling()) {
-      loopToJson(C, nullptr, Substmts);
-    }
+    iterateChildren(Node,nullptr,Substmts);
 
+
+  
     if (Substmts.empty()) {
-      Loop["subloops"] = json::Array();
+      //Loop["subloops"] = json::Array();
     } else {
       Loop["subloops"] = json::Value(std::move(Substmts));
       Loop["perfectnest"] = Substmts.size() == 1;
     }
 
     Subloops.push_back(std::move(Loop));
-    return;
-  }
-
-  if (isBandMark(Node)) {
+  } else if (isBandMark(Node)) {
     assert(!ParentAttr);
     ParentAttr = getBandAttr(Node);
+    iterateChildren(Node,ParentAttr,Subloops);
   }
-
-  for (auto C = Node.first_child(); !C.is_null(); C = C.next_sibling()) {
-    loopToJson(C, ParentAttr, Subloops);
+  else if (isLeaf(Node)) {
+    assert(Node.n_children()==0);
+    json::Value Stmt{"Stmt"};
+    Subloops.push_back(std::move(Stmt));
+  } else {
+    // Has to insert something
+    iterateChildren(Node,ParentAttr,Subloops);
   }
 }
 
@@ -118,20 +132,31 @@ static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename,
   } else {
     Dumpfile = Filename.str();
   }
-  LLVM_DEBUG(dbgs() << "Dumping loopnest to " << Dumpfile << '\n');
-
+ 
+  if (Cache.count(Dumpfile)) {
+    LLVM_DEBUG(dbgs() << "Adding loopnest to " << Dumpfile << '\n');
+  }
+  else {
+    LLVM_DEBUG(dbgs() << "Dumping loopnest to " << Dumpfile << '\n');
+  }
   auto &Loopnests = Cache[Dumpfile];
+
 
   auto Sched = S.getScheduleTree();
   std::vector<json::Value> ToplevelLoops;
   loopToJson(Sched.get_root(), nullptr, ToplevelLoops);
-  Loopnests.append(ToplevelLoops.begin(), ToplevelLoops.end());
+
+  json::Array TL(std::move(ToplevelLoops));
+  json::Object Scop;
+  Scop["toplevel"] =  json::Value(std::move(TL));
+  Loopnests.push_back(std::move(Scop));
 }
 
 static void saveLoopnestCache(LoopnestCacheTy &Cache) {
   for (auto &P : Cache) {
     auto Dumpfile = P.first();
     auto Loopnests = P.second;
+    LLVM_DEBUG(dbgs() << "Writing loopnest to " << Dumpfile << '\n');
 
     json::Array A;
     for (auto X : Loopnests) {

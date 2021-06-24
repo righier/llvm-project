@@ -748,6 +748,10 @@ bool polly::isMark(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
 }
 
+bool polly::isLeaf(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf;
+}
+
 isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   // Root of loop tree
   if (!L)

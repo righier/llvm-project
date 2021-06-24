@@ -142,6 +142,8 @@ struct RecursiveScheduleTreeVisitor
   }
 };
 
+bool isBand(const isl::schedule_node& Node);
+
 /// Is this node the marker for its parent band?
 bool isBandMark(const isl::schedule_node &Node);
 
@@ -149,6 +151,8 @@ bool isBandMark(const isl::schedule_node &Node);
 /// itself and this methods will try to find its wrapping mark. Returns nullptr
 /// if the band has not BandAttr.
 BandAttr *getBandAttr(isl::schedule_node MarkOrBand);
+
+
 
 /// Hoist all domains from extension into the root domain node, such that there
 /// are no more extension nodes (which isl does not support for some
@@ -169,8 +173,8 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
 
-isl::schedule applyAutofission(isl::schedule_node BandToFission,
-                               const Dependences *D);
+isl::schedule applyAutofission(isl::schedule_node BandToFission, const Dependences *D);
+isl::schedule applyFission(isl::schedule_node BandToFission,llvm:: ArrayRef<uint64_t> SplitAtPositions );
 
 /// Build the desired set of partial tile prefixes.
 ///

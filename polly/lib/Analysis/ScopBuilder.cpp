@@ -1144,6 +1144,7 @@ static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
   return Prev.sequence(Succ);
 }
 
+#if 0
 static json::Array *combineInSequence(json::Array *Prev, json::Array *Succ) {
   if (!Prev)
     return Succ;
@@ -1157,6 +1158,7 @@ static json::Array *combineInSequence(json::Array *Prev, json::Array *Succ) {
     Result->emplace_back(X);
   return Result;
 }
+#endif
 
 // Create an isl_multi_union_aff that defines an identity mapping from the
 // elements of USet to their N-th dimension.
@@ -1322,8 +1324,10 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     --Dimension;
 
     if (!Schedule.is_null()) {
+#if 0
       bool IsPerfectNest = Schedule.get_root().get_child(0).n_children() ==
                            1; // Root is a domain node
+#endif
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
@@ -1347,12 +1351,12 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
                        .get_schedule();
 
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
-
+#if 0
       auto LoopId = L->getLoopID();
       auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
                           ? LoopId->getOperand(1).get()
                           : nullptr;
-#if 0
+
       auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
       json::Object Loop;

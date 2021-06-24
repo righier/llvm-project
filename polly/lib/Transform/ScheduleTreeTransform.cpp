@@ -375,15 +375,7 @@ static MDNode *findOptionalNodeOperand(MDNode *LoopMD, StringRef Name) {
       findMetadataOperand(LoopMD, Name).getValueOr(nullptr));
 }
 
-/// Is this node of type mark?
-static bool isMark(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
-}
 
-/// Is this node of type band?
-static bool isBand(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
-}
 
 /// Is this node a band of a single dimension (i.e. could represent a loop)?
 static bool isBandWithSingleLoop(const isl::schedule_node &Node) {
@@ -455,6 +447,11 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
 
 
 } // namespace
+
+ bool polly:: isBand(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
+}
+
 
 
 BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
@@ -885,4 +882,28 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
 isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
                                       const Dependences *D) {
   llvm_unreachable("not implemented");
+}
+
+
+isl::schedule polly:: applyFission(isl::schedule_node BandToFission, ArrayRef<uint64_t> SplitAtPositions) { 
+  auto BandBody = BandToFission.child(0);
+  auto N = BandBody.n_children();
+
+  SmallVector<uint64_t> Sorted(SplitAtPositions.begin(), SplitAtPositions.end());
+  llvm::sort(Sorted);
+
+  int i = 0;
+
+  for (auto j : Sorted) {
+    SmallVector<isl::schedule_node> BodyNodes;
+    for (; i < j; i++) {
+      auto BodyPart = BandBody.child(i);
+      BodyNodes.push_back(BandBody.child(i));
+    auto Dom =  BodyPart.get_domain();
+    }
+   // isl_schedule_node_insert_sequence()
+  }
+
+
+  return {};
 }

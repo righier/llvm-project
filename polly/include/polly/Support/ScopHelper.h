@@ -552,6 +552,8 @@ bool isBandMark(const isl::schedule_node &Node);
 
 bool isMark(const isl::schedule_node &Node);
 
+bool isLeaf(const isl::schedule_node& Node);
+
 /// Find a property value in a LoopID.
 ///
 /// Generally, a property MDNode has the format
