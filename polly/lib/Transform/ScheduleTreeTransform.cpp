@@ -923,7 +923,7 @@ static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
 
 
 isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFission, ArrayRef<uint64_t> SplitAtPositions) { 
-  auto Ctx = BandToFission.get_ctx();
+  auto Ctx = BandToFission.get_ctx(); BandToFission = removeMark(BandToFission);
   auto BandBody = BandToFission.child(0);
 
 
@@ -934,8 +934,8 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
   collectFussionableStmts(BandBody, FissionableStmts);
   auto N = FissionableStmts.size();
 
-  auto Followups = findOptionalMDOperand(LoopMD, "llvm.loop.fission.followup_fissioned");
-  assert(!Followups && "to implement followups");
+
+
 
   int i = 0;
   isl::union_set_list DomList = isl::union_set_list::alloc(Ctx, N);
@@ -956,6 +956,41 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
   AddUntil(N);
 
   auto Fissioned = BandToFission.insert_sequence(DomList);
+ // Fissioned = Fissioned.parent();
+
+  MDNode *FissionedMD = findNamedMetadataNode(LoopMD, "llvm.loop.fission.followup_fissioned");
+
+  if (FissionedMD) {
+    SmallVector<MDNode*> FissiondMDs;
+    for (auto& X : drop_begin(FissionedMD->operands(), 1)) {
+      auto OpNode = cast<MDNode>(X.get());
+      FissiondMDs.push_back(OpNode);
+    }
+    assert(N == FissiondMDs.size());
+    int i = 0;
+
+    if (Fissioned.has_children()) {
+      auto C = Fissioned.first_child();
+      while (true) {
+        auto NewBandId = makeTransformLoopId(Ctx, FissiondMDs[i++], "fissioned");
+        bool IsFilter = !isBand(C);
+        if (IsFilter)
+          C = C.child(0);
+        if (!NewBandId.is_null()) {
+          C = insertMark(C, NewBandId);
+          C = C.parent();
+        }
+   if (IsFilter)
+     C = C.parent();
+        if (!C.has_next_sibling())
+          break;
+        C = C.next_sibling();
+      }
+      Fissioned = C.parent();
+    }
+  }
+
+
   return Fissioned.get_schedule();
 }
 

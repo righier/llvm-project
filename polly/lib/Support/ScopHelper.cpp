@@ -782,8 +782,8 @@ isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   return getIslLoopAttr(Ctx, Attr);
 }
 
-/// Find a property in a LoopID.
-static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
+
+ MDNode *polly::findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
   if (!LoopMD)
     return nullptr;
   for (const MDOperand &X : drop_begin(LoopMD->operands(), 1)) {

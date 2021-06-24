@@ -554,6 +554,10 @@ bool isMark(const isl::schedule_node &Node);
 
 bool isLeaf(const isl::schedule_node& Node);
 
+/// Find a property in a LoopID.
+llvm::MDNode* findNamedMetadataNode(llvm::MDNode* LoopMD,llvm:: StringRef Name);
+
+
 /// Find a property value in a LoopID.
 ///
 /// Generally, a property MDNode has the format
