@@ -21,23 +21,42 @@ using namespace llvm;
 using namespace polly;
 
 namespace {
-  static void loopToJson(const isl::schedule_node& Node, BandAttr* ParentAttr,
-    std::vector<json::Value>& Subloops);
+  static void loopToJson(const isl::schedule_node& Node, BandAttr* ParentAttr,    std::vector<json::Value>& Subloops, bool &SingleLoop);
 
-  static void iterateChildren(const isl::schedule_node &Node, BandAttr *ParentAttr,    std::vector<json::Value> &Subloops) {
+  static void iterateChildren(const isl::schedule_node &Node, BandAttr *ParentAttr,    std::vector<json::Value> &Subloops, bool &SingleLoop) { 
+    SingleLoop = false;
     if (Node.has_children()) {
       auto C = Node.first_child();
-      while (true) {
-        loopToJson(C, ParentAttr, Subloops);
-        if (!C.has_next_sibling())
-          break;
+      loopToJson(C, ParentAttr, Subloops, SingleLoop);
+      while (C.has_next_sibling()) {
         C = C.next_sibling();
+        SingleLoop = false; 
+        bool Dummy = false;
+        loopToJson(C, ParentAttr, Subloops, Dummy);
       }
     }
   }
 
+  static void assignFromLoc(json::Object &Obj, DebugLoc Loc, Function *Func) {
+    if (Func)
+     Obj["function"] = Func->getName().str();
+
+    if (!Loc)
+      return;
+
+    Obj["filename"] = Loc->getFilename();
+    Obj["directory"] = Loc->getDirectory();
+    Obj["path"] = (Twine(Loc->getDirectory()) +
+      llvm::sys::path::get_separator() + Loc->getFilename())
+      .str();
+    if (Loc->getSource())
+      Obj["source"] = Loc->getSource().getValue().str();
+    Obj["line"] = Loc->getLine();
+    Obj["column"] = Loc->getColumn();
+  }
+
 static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
-                       std::vector<json::Value> &Subloops) {
+                       std::vector<json::Value> &Subloops,bool &SingleLoop) {
   if (isBand(Node)) {
     assert(ParentAttr);
 
@@ -48,22 +67,12 @@ static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
     auto BeginLoc = (LoopId && LoopId->getNumOperands() > 1)
                         ? LoopId->getOperand(1).get()
                         : nullptr;
-    auto Start = dyn_cast_or_null<DILocation>(BeginLoc);
+    DebugLoc Start = dyn_cast_or_null<DILocation>(BeginLoc);
 
     json::Object Loop;
-    if (Start) {
-      Loop["filename"] = Start->getFilename();
-      Loop["directory"] = Start->getDirectory();
-      Loop["path"] = (Twine(Start->getDirectory()) +
-                      llvm::sys::path::get_separator() + Start->getFilename())
-                         .str();
-      if (Start->getSource())
-        Loop["source"] = Start->getSource().getValue().str();
-      Loop["line"] = Start->getLine();
-      Loop["column"] = Start->getColumn();
-    }
+    Loop["kind"] = "loop";
+    assignFromLoc(Loop, Start,Header->getParent() );
 
-    Loop["function"] = Header->getParent()->getName().str();
     {
       SmallVector<char, 255> Buf;
       raw_svector_ostream OS(Buf);
@@ -94,30 +103,60 @@ static void loopToJson(const isl::schedule_node &Node, BandAttr *ParentAttr,
 #endif
 
     std::vector<json::Value> Substmts;
-    iterateChildren(Node,nullptr,Substmts);
+    bool SubSingleLoop = false;
+    iterateChildren(Node,nullptr,Substmts,SubSingleLoop);
 
 
   
     if (Substmts.empty()) {
       //Loop["subloops"] = json::Array();
     } else {
-      Loop["subloops"] = json::Value(std::move(Substmts));
-      Loop["perfectnest"] = Substmts.size() == 1;
+      Loop["children"] = json::Value(std::move(Substmts));
+      Loop["perfectnest"] = SubSingleLoop;
     }
 
     Subloops.push_back(std::move(Loop));
+    SingleLoop = true;
   } else if (isBandMark(Node)) {
     assert(!ParentAttr);
     ParentAttr = getBandAttr(Node);
-    iterateChildren(Node,ParentAttr,Subloops);
-  }
-  else if (isLeaf(Node)) {
+    iterateChildren(Node,ParentAttr,Subloops,SingleLoop);
+  } else if (isLeaf(Node)) {
     assert(Node.n_children()==0);
-    json::Value Stmt{"Stmt"};
-    Subloops.push_back(std::move(Stmt));
+
+    json::Object JStmt;
+    JStmt["kind"] = "stmt";
+
+    auto Dom = Node.get_domain();
+
+      
+     DebugLoc Loc;
+     ScopStmt* Stmt=nullptr;
+     Dom.foreach_set([&](isl::set Set) -> isl::stat {
+       Stmt = reinterpret_cast<ScopStmt*>(Set.get_tuple_id().get_user());
+       for (auto I : Stmt->getInstructions()) {
+         Loc = I->getDebugLoc();
+         if (Loc)
+           return isl::stat::error();
+       }
+
+       auto BB = Stmt->getBasicBlock();
+       for (auto& I : *BB) {
+         Loc = I.getDebugLoc();
+         if (Loc)
+           return isl::stat::error();
+       }
+
+       return isl::stat::ok();
+    });
+    assignFromLoc(JStmt, Loc,Stmt ? &Stmt->getParent()->getFunction(): nullptr);
+
+
+    Subloops.push_back(std::move(JStmt));
+    SingleLoop = false;
   } else {
     // Has to insert something
-    iterateChildren(Node,ParentAttr,Subloops);
+    iterateChildren(Node,ParentAttr,Subloops,SingleLoop);
   }
 }
 
@@ -143,12 +182,15 @@ static void runDumpLoopnest(Scop &S, LoopnestCacheTy &Cache, StringRef Filename,
 
 
   auto Sched = S.getScheduleTree();
+  bool Dummy;
   std::vector<json::Value> ToplevelLoops;
-  loopToJson(Sched.get_root(), nullptr, ToplevelLoops);
+  loopToJson(Sched.get_root(), nullptr, ToplevelLoops, Dummy);
 
   json::Array TL(std::move(ToplevelLoops));
   json::Object Scop;
-  Scop["toplevel"] =  json::Value(std::move(TL));
+  Scop["kind"] = "scop";
+  Scop["function"] = S.getFunction().getName(); 
+  Scop["children"] =  json::Value(std::move(TL));
   Loopnests.push_back(std::move(Scop));
 }
 
@@ -164,7 +206,7 @@ static void saveLoopnestCache(LoopnestCacheTy &Cache) {
     }
 
     json::Object Output;
-    Output["loopnests"] = std::move(A);
+    Output["scops"] = std::move(A);
     json::Value V = json::Value(std::move(Output));
 
     errs() << "Writing LoopNest to '" << Dumpfile << "'.\n";
@@ -180,7 +222,7 @@ static void saveLoopnestCache(LoopnestCacheTy &Cache) {
     OS << formatv("{0:3}", V);
     OS.close();
     if (OS.has_error()) {
-      errs() << "  error opening file for writing!\n";
+      errs() << "  error closing file after writing!\n";
       OS.clear_error();
       return;
     }
@@ -196,18 +238,19 @@ private:
   operator=(const DumpLoopnestWrapperPass &) = delete;
 
   std::string Filename;
-  bool IsSuffix = false;
+  bool IsSuffix ;
   LoopnestCacheTy Cache;
 
 public:
   static char ID;
 
-  explicit DumpLoopnestWrapperPass() : ScopPass(ID) {}
-
+  explicit DumpLoopnestWrapperPass() : ScopPass(ID), IsSuffix(true) {}
+  
   explicit DumpLoopnestWrapperPass(std::string Filename, bool IsSuffix)
-      : ScopPass(ID), Filename(std::move(Filename)), IsSuffix(false) {}
+      : ScopPass(ID), Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
 
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override {
+    AU.addRequired<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
 
@@ -222,8 +265,7 @@ public:
 char DumpLoopnestWrapperPass::ID;
 } // namespace
 
-Pass *polly::createDumpLoopnestWrapperPass(std::string Filename,
-                                           bool IsSuffix) {
+Pass *polly::createDumpLoopnestWrapperPass(std::string Filename, bool IsSuffix) {
   return new DumpLoopnestWrapperPass(std::move(Filename), IsSuffix);
 }
 
@@ -236,7 +278,7 @@ llvm::PreservedAnalyses DumpLoopnestPass::run(Scop &S, ScopAnalysisManager &SAM,
 
 DumpLoopnestPass::~DumpLoopnestPass() { saveLoopnestCache(Cache); }
 
-INITIALIZE_PASS_BEGIN(DumpLoopnestWrapperPass, "polly-dump-loopnest",
+INITIALIZE_PASS_BEGIN(DumpLoopnestWrapperPass, "polly-loopnest-dumper",
                       "Polly - Dump Loop Nest", false, false)
-INITIALIZE_PASS_END(DumpLoopnestWrapperPass, "polly-dump-loopnest",
+INITIALIZE_PASS_END(DumpLoopnestWrapperPass, "polly-loopnest-dumper",
                     "Polly - Dump Loop Nest", false, false)

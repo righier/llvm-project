@@ -1133,6 +1133,9 @@ AC_SUBST([am__tar])
 AC_SUBST([am__untar])
 ]) # _AM_PROG_TAR
 
+m4_include([../m4/ax_cxx_compile_stdcxx.m4])
+m4_include([../m4/ax_cxx_compile_stdcxx_11.m4])
+m4_include([../m4/ax_cxx_compile_stdcxx_11_no_override.m4])
 m4_include([../m4/ax_detect_clang.m4])
 m4_include([../m4/ax_prog_cc_for_build.m4])
 m4_include([../m4/ax_prog_cxx_for_build.m4])

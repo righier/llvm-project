@@ -276,6 +276,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeDeLICMWrapperPassPass(Registry);
   initializeSimplifyWrapperPassPass(Registry);
   initializeDumpModuleWrapperPassPass(Registry);
+  initializeDumpLoopnestWrapperPassPass(Registry);
   initializePruneUnprofitableWrapperPassPass(Registry);
 }
 
