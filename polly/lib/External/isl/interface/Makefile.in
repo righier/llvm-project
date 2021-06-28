@@ -91,10 +91,7 @@ host_triplet = @host@
 noinst_PROGRAMS = extract_interface$(EXEEXT)
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/../m4/ax_cxx_compile_stdcxx.m4 \
-	$(top_srcdir)/../m4/ax_cxx_compile_stdcxx_11.m4 \
-	$(top_srcdir)/../m4/ax_cxx_compile_stdcxx_11_no_override.m4 \
-	$(top_srcdir)/../m4/ax_detect_clang.m4 \
+am__aclocal_m4_deps = $(top_srcdir)/../m4/ax_detect_clang.m4 \
 	$(top_srcdir)/../m4/ax_prog_cc_for_build.m4 \
 	$(top_srcdir)/../m4/ax_prog_cxx_for_build.m4 \
 	$(top_srcdir)/../m4/libtool.m4 \
@@ -117,8 +114,6 @@ am_extract_interface_OBJECTS = extract_interface-generator.$(OBJEXT) \
 	extract_interface-python.$(OBJEXT) \
 	extract_interface-cpp.$(OBJEXT) \
 	extract_interface-cpp_conversion.$(OBJEXT) \
-	extract_interface-plain_cpp.$(OBJEXT) \
-	extract_interface-template_cpp.$(OBJEXT) \
 	extract_interface-extract_interface.$(OBJEXT)
 extract_interface_OBJECTS = $(am_extract_interface_OBJECTS)
 am__DEPENDENCIES_1 =
@@ -151,9 +146,7 @@ am__depfiles_remade = ./$(DEPDIR)/extract_interface-cpp.Po \
 	./$(DEPDIR)/extract_interface-cpp_conversion.Po \
 	./$(DEPDIR)/extract_interface-extract_interface.Po \
 	./$(DEPDIR)/extract_interface-generator.Po \
-	./$(DEPDIR)/extract_interface-plain_cpp.Po \
-	./$(DEPDIR)/extract_interface-python.Po \
-	./$(DEPDIR)/extract_interface-template_cpp.Po
+	./$(DEPDIR)/extract_interface-python.Po
 am__mv = mv -f
 CXXCOMPILE = $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
 	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS)
@@ -285,7 +278,6 @@ EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
 GREP = @GREP@
-HAVE_CXX11 = @HAVE_CXX11@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -398,11 +390,6 @@ extract_interface_SOURCES = \
 	cpp.cc \
 	cpp_conversion.h \
 	cpp_conversion.cc \
-	plain_cpp.h \
-	plain_cpp.cc \
-	set_lang_defaults_arg4.h \
-	template_cpp.h \
-	template_cpp.cc \
 	extract_interface.h \
 	extract_interface.cc
 
@@ -485,9 +472,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-cpp_conversion.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-extract_interface.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-generator.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-plain_cpp.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-python.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/extract_interface-template_cpp.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -571,34 +556,6 @@ extract_interface-cpp_conversion.obj: cpp_conversion.cc
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='cpp_conversion.cc' object='extract_interface-cpp_conversion.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -c -o extract_interface-cpp_conversion.obj `if test -f 'cpp_conversion.cc'; then $(CYGPATH_W) 'cpp_conversion.cc'; else $(CYGPATH_W) '$(srcdir)/cpp_conversion.cc'; fi`
-
-extract_interface-plain_cpp.o: plain_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -MT extract_interface-plain_cpp.o -MD -MP -MF $(DEPDIR)/extract_interface-plain_cpp.Tpo -c -o extract_interface-plain_cpp.o `test -f 'plain_cpp.cc' || echo '$(srcdir)/'`plain_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/extract_interface-plain_cpp.Tpo $(DEPDIR)/extract_interface-plain_cpp.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='plain_cpp.cc' object='extract_interface-plain_cpp.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -c -o extract_interface-plain_cpp.o `test -f 'plain_cpp.cc' || echo '$(srcdir)/'`plain_cpp.cc
-
-extract_interface-plain_cpp.obj: plain_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -MT extract_interface-plain_cpp.obj -MD -MP -MF $(DEPDIR)/extract_interface-plain_cpp.Tpo -c -o extract_interface-plain_cpp.obj `if test -f 'plain_cpp.cc'; then $(CYGPATH_W) 'plain_cpp.cc'; else $(CYGPATH_W) '$(srcdir)/plain_cpp.cc'; fi`
-@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/extract_interface-plain_cpp.Tpo $(DEPDIR)/extract_interface-plain_cpp.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='plain_cpp.cc' object='extract_interface-plain_cpp.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -c -o extract_interface-plain_cpp.obj `if test -f 'plain_cpp.cc'; then $(CYGPATH_W) 'plain_cpp.cc'; else $(CYGPATH_W) '$(srcdir)/plain_cpp.cc'; fi`
-
-extract_interface-template_cpp.o: template_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -MT extract_interface-template_cpp.o -MD -MP -MF $(DEPDIR)/extract_interface-template_cpp.Tpo -c -o extract_interface-template_cpp.o `test -f 'template_cpp.cc' || echo '$(srcdir)/'`template_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/extract_interface-template_cpp.Tpo $(DEPDIR)/extract_interface-template_cpp.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='template_cpp.cc' object='extract_interface-template_cpp.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -c -o extract_interface-template_cpp.o `test -f 'template_cpp.cc' || echo '$(srcdir)/'`template_cpp.cc
-
-extract_interface-template_cpp.obj: template_cpp.cc
-@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -MT extract_interface-template_cpp.obj -MD -MP -MF $(DEPDIR)/extract_interface-template_cpp.Tpo -c -o extract_interface-template_cpp.obj `if test -f 'template_cpp.cc'; then $(CYGPATH_W) 'template_cpp.cc'; else $(CYGPATH_W) '$(srcdir)/template_cpp.cc'; fi`
-@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/extract_interface-template_cpp.Tpo $(DEPDIR)/extract_interface-template_cpp.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='template_cpp.cc' object='extract_interface-template_cpp.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -c -o extract_interface-template_cpp.obj `if test -f 'template_cpp.cc'; then $(CYGPATH_W) 'template_cpp.cc'; else $(CYGPATH_W) '$(srcdir)/template_cpp.cc'; fi`
 
 extract_interface-extract_interface.o: extract_interface.cc
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(extract_interface_CPPFLAGS) $(CPPFLAGS) $(extract_interface_CXXFLAGS) $(CXXFLAGS) -MT extract_interface-extract_interface.o -MD -MP -MF $(DEPDIR)/extract_interface-extract_interface.Tpo -c -o extract_interface-extract_interface.o `test -f 'extract_interface.cc' || echo '$(srcdir)/'`extract_interface.cc
@@ -893,9 +850,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/extract_interface-cpp_conversion.Po
 	-rm -f ./$(DEPDIR)/extract_interface-extract_interface.Po
 	-rm -f ./$(DEPDIR)/extract_interface-generator.Po
-	-rm -f ./$(DEPDIR)/extract_interface-plain_cpp.Po
 	-rm -f ./$(DEPDIR)/extract_interface-python.Po
-	-rm -f ./$(DEPDIR)/extract_interface-template_cpp.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -947,9 +902,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/extract_interface-cpp_conversion.Po
 	-rm -f ./$(DEPDIR)/extract_interface-extract_interface.Po
 	-rm -f ./$(DEPDIR)/extract_interface-generator.Po
-	-rm -f ./$(DEPDIR)/extract_interface-plain_cpp.Po
 	-rm -f ./$(DEPDIR)/extract_interface-python.Po
-	-rm -f ./$(DEPDIR)/extract_interface-template_cpp.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
