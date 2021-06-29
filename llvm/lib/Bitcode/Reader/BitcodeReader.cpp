@@ -1439,6 +1439,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NoSync;
   case bitc::ATTR_KIND_NOCF_CHECK:
     return Attribute::NoCfCheck;
+  case bitc::ATTR_KIND_NO_PROFILE:
+    return Attribute::NoProfile;
   case bitc::ATTR_KIND_NO_UNWIND:
     return Attribute::NoUnwind;
   case bitc::ATTR_KIND_NO_SANITIZE_COVERAGE:
@@ -3407,9 +3409,12 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
 
   // Record[16] is the address space number.
 
-  // Check whether we have enough values to read a partition name.
-  if (Record.size() > 18)
+  // Check whether we have enough values to read a partition name. Also make
+  // sure Strtab has enough values.
+  if (Record.size() > 18 && Strtab.data() &&
+      Record[17] + Record[18] <= Strtab.size()) {
     Func->setPartition(StringRef(Strtab.data() + Record[17], Record[18]));
+  }
 
   ValueList.push_back(Func);
 
@@ -4635,7 +4640,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
             cast<PointerType>(Callee->getType())->getElementType());
         if (!FTy)
           return error("Callee is not of pointer to function type");
-      } else if (cast<PointerType>(Callee->getType())->getElementType() != FTy)
+      } else if (!CalleeTy->isOpaqueOrPointeeTypeMatches(FTy))
         return error("Explicit invoke type does not match pointee type of "
                      "callee operand");
       if (Record.size() < FTy->getNumParams() + OpNum)
@@ -5263,7 +5268,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
             cast<PointerType>(Callee->getType())->getElementType());
         if (!FTy)
           return error("Callee is not of pointer to function type");
-      } else if (cast<PointerType>(Callee->getType())->getElementType() != FTy)
+      } else if (!OpTy->isOpaqueOrPointeeTypeMatches(FTy))
         return error("Explicit call type does not match pointee type of "
                      "callee operand");
       if (Record.size() < FTy->getNumParams() + OpNum)

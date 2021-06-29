@@ -13,9 +13,9 @@
 #include "llvm/Support/Errc.h"
 #include <memory>
 
-namespace llvm {
-namespace objcopy {
-namespace macho {
+using namespace llvm;
+using namespace llvm::objcopy;
+using namespace llvm::objcopy::macho;
 
 void MachOReader::readHeader(Object &O) const {
   O.Header.Magic = MachOObj.getHeader().magic;
@@ -28,7 +28,7 @@ void MachOReader::readHeader(Object &O) const {
 }
 
 template <typename SectionType>
-Section constructSectionCommon(SectionType Sec, uint32_t Index) {
+static Section constructSectionCommon(SectionType Sec, uint32_t Index) {
   StringRef SegName(Sec.segname, strnlen(Sec.segname, sizeof(Sec.segname)));
   StringRef SectName(Sec.sectname, strnlen(Sec.sectname, sizeof(Sec.sectname)));
   Section S(SegName, SectName);
@@ -60,10 +60,9 @@ template <> Section constructSection(MachO::section_64 Sec, uint32_t Index) {
 }
 
 template <typename SectionType, typename SegmentType>
-Expected<std::vector<std::unique_ptr<Section>>>
-extractSections(const object::MachOObjectFile::LoadCommandInfo &LoadCmd,
-                const object::MachOObjectFile &MachOObj,
-                uint32_t &NextSectionIndex) {
+Expected<std::vector<std::unique_ptr<Section>>> static extractSections(
+    const object::MachOObjectFile::LoadCommandInfo &LoadCmd,
+    const object::MachOObjectFile &MachOObj, uint32_t &NextSectionIndex) {
   auto End = LoadCmd.Ptr + LoadCmd.C.cmdsize;
   const SectionType *Curr =
       reinterpret_cast<const SectionType *>(LoadCmd.Ptr + sizeof(SegmentType));
@@ -95,6 +94,7 @@ extractSections(const object::MachOObjectFile::LoadCommandInfo &LoadCmd,
     S.Content =
         StringRef(reinterpret_cast<const char *>(Data->data()), Data->size());
 
+    const uint32_t CPUType = MachOObj.getHeader().cputype;
     S.Relocations.reserve(S.NReloc);
     for (auto RI = MachOObj.section_rel_begin(SecRef->getRawDataRefImpl()),
               RE = MachOObj.section_rel_end(SecRef->getRawDataRefImpl());
@@ -103,6 +103,10 @@ extractSections(const object::MachOObjectFile::LoadCommandInfo &LoadCmd,
       R.Symbol = nullptr; // We'll fill this field later.
       R.Info = MachOObj.getRelocation(RI->getRawDataRefImpl());
       R.Scattered = MachOObj.isRelocationScattered(R.Info);
+      unsigned Type = MachOObj.getAnyRelocationType(R.Info);
+      // TODO Support CPU_TYPE_ARM.
+      R.IsAddend = !R.Scattered && (CPUType == MachO::CPU_TYPE_ARM64 &&
+                                    Type == MachO::ARM64_RELOC_ADDEND);
       R.Extern = !R.Scattered && MachOObj.getPlainRelocationExternal(R.Info);
       S.Relocations.push_back(R);
     }
@@ -223,7 +227,7 @@ void MachOReader::setSymbolInRelocationInfo(Object &O) const {
   for (LoadCommand &LC : O.LoadCommands)
     for (std::unique_ptr<Section> &Sec : LC.Sections)
       for (auto &Reloc : Sec->Relocations)
-        if (!Reloc.Scattered) {
+        if (!Reloc.Scattered && !Reloc.IsAddend) {
           const uint32_t SymbolNum =
               Reloc.getPlainRelocationSymbolNum(MachOObj.isLittleEndian());
           if (Reloc.Extern) {
@@ -335,7 +339,3 @@ Expected<std::unique_ptr<Object>> MachOReader::create() const {
   readSwiftVersion(*Obj);
   return std::move(Obj);
 }
-
-} // end namespace macho
-} // end namespace objcopy
-} // end namespace llvm

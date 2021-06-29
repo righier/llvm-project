@@ -1440,7 +1440,7 @@ Instruction *InstCombinerImpl::foldICmpWithConstant(ICmpInst &Cmp) {
 
   // icmp(phi(C1, C2, ...), C) -> phi(icmp(C1, C), icmp(C2, C), ...).
   Constant *C = dyn_cast<Constant>(Op1);
-  if (!C)
+  if (!C || C->canTrap())
     return nullptr;
 
   if (auto *Phi = dyn_cast<PHINode>(Op0))
@@ -1501,7 +1501,7 @@ Instruction *InstCombinerImpl::foldICmpWithDominatingICmp(ICmpInst &Cmp) {
     //   br DomCond, CmpBB, FalseBB
     // CmpBB:
     //   Cmp = icmp Pred X, C
-    ConstantRange CR = ConstantRange::makeAllowedICmpRegion(Pred, *C);
+    ConstantRange CR = ConstantRange::makeExactICmpRegion(Pred, *C);
     ConstantRange DominatingCR =
         (CmpBB == TrueBB) ? ConstantRange::makeExactICmpRegion(DomPred, *DomC)
                           : ConstantRange::makeExactICmpRegion(

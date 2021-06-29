@@ -205,10 +205,6 @@ static LinalgOp fuse(OpBuilder &b, LinalgOp producer,
                                       getTiledOperands(b, producer), ivs,
                                       tileSizes, sizeBounds));
 
-  // Append the other operands.
-  auto operands = producer.getAssumedNonShapedOperands();
-  clonedShapes.append(operands.begin(), operands.end());
-
   // Iterate over the results in order.
   // Extract the subtensor type from the linearized range.
   // Since we do not enforce any canonicalizations on the fly, this is always
@@ -648,7 +644,7 @@ static bool doesTransposeAccess(AffineMap map,
 /// parallel loops and appear in the result of the map
 ///
 /// Example 1:
-///   linalg.fill(%c, %cst)
+///   linalg.fill(%cst, %c)
 ///   linalg.matmul ins(%a, %b) outs(%c)
 ///     Number of parallel loops : 2
 ///     producerIndexMap = affine_map<(i, j) ->(i , j)>

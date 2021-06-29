@@ -190,8 +190,6 @@ static LogicalResult rewriteAsPaddedOp(PatternRewriter &rewriter,
   // Clone `opToPad` to operate on the statically padded shapes.
   auto resultTensorTypes =
       ValueRange(newOperands).take_back(opToPad.getNumOutputs()).getTypes();
-  ValueRange otherOperands = opToPad.getAssumedNonShapedOperands();
-  newOperands.append(otherOperands.begin(), otherOperands.end());
   linalg::LinalgOp paddedOp =
       opToPad.clone(rewriter, loc, resultTensorTypes, newOperands);
 
@@ -676,7 +674,7 @@ LogicalResult PadTensorOpTransformationPattern::matchAndRewrite(
 
   // Initialize tensor with the pad value
   Value tmpTensor =
-      rewriter.create<linalg::FillOp>(loc, initTensor, padValue).result();
+      rewriter.create<linalg::FillOp>(loc, padValue, initTensor).result();
 
   // Copy original contents into new tensor
   // Uses linalg.generic, but could be done with tensor.insert_slice

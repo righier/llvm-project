@@ -16,9 +16,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <memory>
 
-namespace llvm {
-namespace objcopy {
-namespace macho {
+using namespace llvm;
+using namespace llvm::objcopy::macho;
 
 size_t MachOWriter::headerSize() const {
   return Is64Bit ? sizeof(MachO::mach_header_64) : sizeof(MachO::mach_header);
@@ -262,7 +261,7 @@ void MachOWriter::writeSections() {
              Sec->Content.size());
       for (size_t Index = 0; Index < Sec->Relocations.size(); ++Index) {
         RelocationInfo RelocInfo = Sec->Relocations[Index];
-        if (!RelocInfo.Scattered) {
+        if (!RelocInfo.Scattered && !RelocInfo.IsAddend) {
           const uint32_t SymbolNum = RelocInfo.Extern
                                          ? (*RelocInfo.Symbol)->Index
                                          : (*RelocInfo.Sec)->Index;
@@ -529,7 +528,3 @@ Error MachOWriter::write() {
   Out.write(Buf->getBufferStart(), Buf->getBufferSize());
   return Error::success();
 }
-
-} // end namespace macho
-} // end namespace objcopy
-} // end namespace llvm
