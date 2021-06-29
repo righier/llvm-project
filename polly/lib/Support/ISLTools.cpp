@@ -786,7 +786,8 @@ isl::set polly::rebuildNesting(
   auto TranslatorSpace = SourceSpace.map_from_domain_and_range(TargetSpace);
   auto Translator = isl::basic_map::universe(TranslatorSpace);
 
-  auto TotalDims = recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
+  auto TotalDims =
+      recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
   (void)TotalDims;
   assert(TotalDims == TargetSpace.dim(isl::dim::set));
   auto LS = Translator.get_local_space();
@@ -930,10 +931,10 @@ static isl::space insertNestedSpace(isl::space OuterSpace, isl::space Insertee,
     switch (Position[0]) {
     case -1:
       Result = Insertee.map_from_domain_and_range(OuterSpace);
-break;
+      break;
     case 1:
       Result = OuterSpace.map_from_domain_and_range(Insertee);
-break;
+      break;
     default:
       llvm_unreachable("where to insert???");
     }
@@ -947,13 +948,11 @@ break;
     case -1: {
       auto NewDomain = insertNestedSpace(Domain, Insertee, Remaining);
       Result = NewDomain.map_from_domain_and_range(Range);
-    }
-break;
+    } break;
     case 1: {
       auto NewRange = insertNestedSpace(Range, Insertee, Remaining);
       Result = Domain.map_from_domain_and_range(NewRange);
-    }
-break;
+    } break;
     default:
       llvm_unreachable("where to insert???");
     }

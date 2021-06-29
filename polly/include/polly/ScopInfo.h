@@ -2784,7 +2784,6 @@ class ScopInfoRegionPass : public RegionPass {
   llvm::json::Array *LoopNests = nullptr;
 #endif
 
-
 public:
   static char ID; // Pass identification, replacement for typeid
 

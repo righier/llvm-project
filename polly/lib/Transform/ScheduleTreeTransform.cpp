@@ -375,8 +375,6 @@ static MDNode *findOptionalNodeOperand(MDNode *LoopMD, StringRef Name) {
       findMetadataOperand(LoopMD, Name).getValueOr(nullptr));
 }
 
-
-
 /// Is this node a band of a single dimension (i.e. could represent a loop)?
 static bool isBandWithSingleLoop(const isl::schedule_node &Node) {
   return isBand(Node) && isl_schedule_node_band_n_member(Node.get()) == 1;
@@ -444,15 +442,11 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   return removeMark(MarkOrBand, Attr);
 }
 
-
-
 } // namespace
 
- bool polly:: isBand(const isl::schedule_node &Node) {
+bool polly::isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
 }
-
-
 
 BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
@@ -654,7 +648,7 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
     isl::union_pw_aff StridedPartialSchedUAff =
         isl::union_pw_aff::empty(PartialSchedUAff.get_space());
     isl::val ValFactor{Ctx, Factor};
-    PartialSchedUAff.foreach_pw_aff([&StridedPartialSchedUAff,                                      &ValFactor](
+    PartialSchedUAff.foreach_pw_aff([&StridedPartialSchedUAff, &ValFactor](
                                         isl::pw_aff PwAff) -> isl::stat {
       isl::space Space = PwAff.get_space();
       isl::set Universe = isl::set::universe(Space.domain());
@@ -886,15 +880,14 @@ isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
   llvm_unreachable("not implemented");
 }
 
-
-
-static void collectFussionableStmts(isl::schedule_node Node, SmallVectorImpl<isl::schedule_node> &ScheduleStmts) {
+static void
+collectFussionableStmts(isl::schedule_node Node,
+                        SmallVectorImpl<isl::schedule_node> &ScheduleStmts) {
   if (isBand(Node) || isLeaf(Node)) {
     ScheduleStmts.push_back(Node);
     return;
   }
 
- 
   if (Node.has_children()) {
     auto C = Node.first_child();
     while (true) {
@@ -905,7 +898,6 @@ static void collectFussionableStmts(isl::schedule_node Node, SmallVectorImpl<isl
     }
   }
 }
-
 
 #if 0
 // FIXME: What is the difference of returning nullptr vs None?
@@ -922,22 +914,20 @@ static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
 }
 #endif
 
-
-
-isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFission, ArrayRef<uint64_t> SplitAtPositions) { 
-  auto Ctx = BandToFission.get_ctx(); BandToFission = removeMark(BandToFission);
+isl::schedule polly::applyFission(MDNode *LoopMD,
+                                  isl::schedule_node BandToFission,
+                                  ArrayRef<uint64_t> SplitAtPositions) {
+  auto Ctx = BandToFission.get_ctx();
+  BandToFission = removeMark(BandToFission);
   auto BandBody = BandToFission.child(0);
 
-
-  SmallVector<uint64_t> Sorted(SplitAtPositions.begin(), SplitAtPositions.end());
+  SmallVector<uint64_t> Sorted(SplitAtPositions.begin(),
+                               SplitAtPositions.end());
   llvm::sort(Sorted);
 
   SmallVector<isl::schedule_node> FissionableStmts;
   collectFussionableStmts(BandBody, FissionableStmts);
   auto N = FissionableStmts.size();
-
-
-
 
   int i = 0;
   isl::union_set_list DomList = isl::union_set_list::alloc(Ctx, N);
@@ -953,18 +943,19 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
     }
     DomList = DomList.add(UDom);
   };
-  for (auto j : Sorted) 
+  for (auto j : Sorted)
     AddUntil(j);
   AddUntil(N);
 
   auto Fissioned = BandToFission.insert_sequence(DomList);
- // Fissioned = Fissioned.parent();
+  // Fissioned = Fissioned.parent();
 
-  MDNode *FissionedMD = findNamedMetadataNode(LoopMD, "llvm.loop.fission.followup_fissioned");
+  MDNode *FissionedMD =
+      findNamedMetadataNode(LoopMD, "llvm.loop.fission.followup_fissioned");
 
   if (FissionedMD) {
-    SmallVector<MDNode*> FissiondMDs;
-    for (auto& X : drop_begin(FissionedMD->operands(), 1)) {
+    SmallVector<MDNode *> FissiondMDs;
+    for (auto &X : drop_begin(FissionedMD->operands(), 1)) {
       auto OpNode = cast<MDNode>(X.get());
       FissiondMDs.push_back(OpNode);
     }
@@ -974,7 +965,8 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
     if (Fissioned.has_children()) {
       auto C = Fissioned.first_child();
       while (true) {
-        auto NewBandId = makeTransformLoopId(Ctx, FissiondMDs[i++], "fissioned");
+        auto NewBandId =
+            makeTransformLoopId(Ctx, FissiondMDs[i++], "fissioned");
         bool IsFilter = !isBand(C);
         if (IsFilter)
           C = C.child(0);
@@ -982,8 +974,8 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
           C = insertMark(C, NewBandId);
           C = C.parent();
         }
-   if (IsFilter)
-     C = C.parent();
+        if (IsFilter)
+          C = C.parent();
         if (!C.has_next_sibling())
           break;
         C = C.next_sibling();
@@ -992,14 +984,5 @@ isl::schedule polly:: applyFission(MDNode *LoopMD,isl::schedule_node BandToFissi
     }
   }
 
-
   return Fissioned.get_schedule();
 }
-
-
-
-
-
-
-
-

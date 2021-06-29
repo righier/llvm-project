@@ -91,7 +91,7 @@ public:
     /// Flag to mark outermost parallel loops.
     bool IsOutermostParallel = false;
 
-   /// Force by user directive.
+    /// Force by user directive.
     bool IsForcedThreadParallel = false;
 
     /// Flag to mark parallel loops which break reductions.

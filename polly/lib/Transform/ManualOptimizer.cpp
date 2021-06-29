@@ -186,7 +186,6 @@ struct MarkRemover : public ScheduleNodeRewriteVisitor<Derived, Args...> {
 
 struct MarkRemoverPlain : public MarkRemover<MarkRemoverPlain> {};
 
-
 static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
   auto Cur = Band;
   if (isBand(Band))
@@ -278,12 +277,14 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   return Band.get_child(0);
 }
 
-
-static isl::schedule applyLoopReversal(MDNode *LoopMD, isl::schedule_node BandToReverse) {
+static isl::schedule applyLoopReversal(MDNode *LoopMD,
+                                       isl::schedule_node BandToReverse) {
   assert(!BandToReverse.is_null());
   auto IslCtx = BandToReverse.get_ctx();
 
-  auto Followup = findOptionalMDOperand(LoopMD, "llvm.loop.reverse.followup_reversed").getValueOr(nullptr);
+  auto Followup =
+      findOptionalMDOperand(LoopMD, "llvm.loop.reverse.followup_reversed")
+          .getValueOr(nullptr);
 
   BandToReverse = moveToBandMark(BandToReverse);
   BandToReverse = removeMark(BandToReverse);
@@ -305,7 +306,6 @@ static isl::schedule applyLoopReversal(MDNode *LoopMD, isl::schedule_node BandTo
 
   return Node.get_schedule();
 }
-
 
 class LoopIdentification {
   Loop *ByLoop = nullptr;
@@ -438,7 +438,6 @@ static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
   return Node;
 }
 
-
 static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
                                         int NumBands) {
   if (NumBands == 1)
@@ -492,7 +491,6 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
 
   return Band;
 }
-
 
 // TODO: Use ScheduleTreeOptimizer::tileNode
 static isl::schedule_node tileBand(isl::schedule_node BandToTile,
@@ -747,7 +745,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     Attrs.push_back(Attr);
 
     auto Size = 0;
-   // StringRef FloorId, TileId;
+    // StringRef FloorId, TileId;
     if (Attr) {
       Size = findOptionalIntOperand(Attr->Metadata, "llvm.loop.tile.size")
                  .getValueOr(0);
@@ -1072,7 +1070,7 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
         isl::union_pw_aff::empty(PartialSchedToUnrollUAff.get_space());
     auto ValFactor = isl::val(Ctx, Factor);
     PartialSchedToUnrollUAff.foreach_pw_aff(
-        [ &StridedPartialSchedUAff,          &ValFactor](isl::pw_aff PwAff) -> isl::stat {
+        [&StridedPartialSchedUAff, &ValFactor](isl::pw_aff PwAff) -> isl::stat {
           auto Space = PwAff.get_space();
           auto Universe = isl::set::universe(Space.domain());
           auto AffFactor = isl::manage(
@@ -2544,24 +2542,23 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
   return {};
 }
 
-
 static isl::schedule applyLoopFission(MDNode *LoopMD,
                                       isl::schedule_node BandToFission,
                                       const Dependences *D) {
   SmallVector<uint64_t, 4> SplitPos;
   auto SplitsMD = findOptionMDForLoopID(LoopMD, "llvm.loop.fission.split_at");
-   if (SplitsMD) for (auto& X : drop_begin(SplitsMD->operands(), 1)) {
-    auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
-   auto Pos= cast<ConstantInt>(PosConst)->getZExtValue();
-   SplitPos.push_back(Pos);
-  }
+  if (SplitsMD)
+    for (auto &X : drop_begin(SplitsMD->operands(), 1)) {
+      auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
+      auto Pos = cast<ConstantInt>(PosConst)->getZExtValue();
+      SplitPos.push_back(Pos);
+    }
 
- return   applyFission(LoopMD, BandToFission,SplitPos );
+  return applyFission(LoopMD, BandToFission, SplitPos);
 
   // Assume autofission
-//  return applyAutofission(BandToFission, D);
+  //  return applyAutofission(BandToFission, D);
 }
-
 
 // Return the properties from a LoopID. Scalar properties are ignored.
 static auto getLoopMDProps(MDNode *LoopMD) {
