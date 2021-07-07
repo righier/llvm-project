@@ -1398,6 +1398,7 @@ enum class TransformClauseKind {
   Autofission,   // fission
   SplitAt,       // fission
   FissionendIds, // fission
+  FusedId,       // fusion
 };
 
 // TODO: Introduce enum for clause names
@@ -1429,10 +1430,12 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("autofission", TransformClauseKind::Autofission)
                   .Case("split_at", TransformClauseKind::SplitAt)
                   .Case("fissioned_ids", TransformClauseKind::FissionendIds)
+                  .Case("fused_id", TransformClauseKind::FusedId)
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
-  case TransformClauseKind::ReversedId: {
+  case TransformClauseKind::ReversedId:
+  case TransformClauseKind::FusedId:  {
     i += 1;
 
     assert(Toks[i].is(tok::l_paren));
@@ -2056,10 +2059,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
       if (Kind == TransformClauseKind::None)
         break;
-      switch (Kind) {
-      default:
         llvm_unreachable("unsupported clause for thread-parallelism");
-      }
     }
 
     auto &EofTok = Toks[i];
@@ -2125,6 +2125,47 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     PP.Lex(Tok);
     return true;
   }
+
+
+
+
+  if (IdTok.getIdentifierInfo()->getName() == "fuse") {
+    assert(ApplyOnLocs.size() > 1 && "must fuse at least two loops");
+    assert(!ApplyOnFollowing && "fusion requires loop ids");
+    for (auto NameLoc : ApplyOnLocs)
+      ArgHints.push_back(NameLoc);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+ 
+
+
+    ArgsUnion FusedId{(IdentifierLoc *)nullptr}; 
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      case TransformClauseKind::FusedId:
+        assert(ClauseArgs.size() == 1);
+        assert(!FusedId);
+        FusedId = ClauseArgs[0];
+        break;
+      default:
+        llvm_unreachable("unsupported clause for fuse");
+      }
+    }
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    ArgHints.push_back(FusedId);
+
+    assert(Toks.size() == i && "must have parsed all clauses");
+    PP.Lex(Tok);
+    return true;
+  }
+
+
 
   llvm_unreachable("Unrecognized transformation");
 }

@@ -115,16 +115,16 @@ STATISTIC(NumSingletonWrites, "Number of singleton writes after ScopInfo");
 STATISTIC(NumSingletonWritesInLoops,
           "Number of singleton writes nested in affine loops after ScopInfo");
 
-int const polly::MaxDisjunctsInDomain = 20;
+int const polly::MaxDisjunctsInDomain = INT_MAX;
 
 // The number of disjunct in the context after which we stop to add more
 // disjuncts. This parameter is there to avoid exponential growth in the
 // number of disjunct when adding non-convex sets to the context.
-static int const MaxDisjunctsInContext = 4;
+static int const MaxDisjunctsInContext = INT_MAX;
 
 // Be a bit more generous for the defined behavior context which is used less
 // often.
-static int const MaxDisjunktsInDefinedBehaviourContext = 8;
+static int const MaxDisjunktsInDefinedBehaviourContext =  INT_MAX;
 
 static cl::opt<bool> PollyRemarksMinimal(
     "polly-remarks-minimal",

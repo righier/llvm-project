@@ -2543,8 +2543,7 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 }
 
 static isl::schedule applyLoopFission(MDNode *LoopMD,
-                                      isl::schedule_node BandToFission,
-                                      const Dependences *D) {
+                                      isl::schedule_node BandToFission) {
   SmallVector<uint64_t, 4> SplitPos;
   auto SplitsMD = findOptionMDForLoopID(LoopMD, "llvm.loop.fission.split_at");
   if (SplitsMD)
@@ -2559,6 +2558,33 @@ static isl::schedule applyLoopFission(MDNode *LoopMD,
   // Assume autofission
   //  return applyAutofission(BandToFission, D);
 }
+
+
+
+static isl::schedule applyLoopFusion(MDNode *LoopMD,
+  isl::schedule_node BandToFuse) {
+ auto FusedID = findOptionalStringOperand(LoopMD, "llvm.loop.fuse.fused_id" );
+
+
+
+
+#if 0
+ auto FusedID = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fused_id");
+
+  if (FusedID)
+    for (auto &X : drop_begin(SplitsMD->operands(), 1)) {
+      auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
+      auto Pos = cast<ConstantInt>(PosConst)->getZExtValue();
+      SplitPos.push_back(Pos);
+    }
+
+  return applyFusion(LoopMD, BandToFission, SplitPos);
+#endif
+
+  return{};
+}
+
+
 
 // Return the properties from a LoopID. Scalar properties are ignored.
 static auto getLoopMDProps(MDNode *LoopMD) {
@@ -2780,12 +2806,21 @@ public:
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.fission.enable") {
-        Result = applyLoopFission(LoopMD, Band, D);
+        Result = applyLoopFission(LoopMD, Band);
         if (!Result.is_null())
           Result = checkDependencyViolation(
               LoopMD, CodeRegion, Band, "llvm.loop.fission.loc",
               "llvm.loop.fission.", "FailedRequestedFission",
               "loop fission/distribution");
+        if (!Result.is_null())
+          return;
+      } else if (AttrName == "llvm.loop.fuse.enable") {
+        Result = applyLoopFusion(LoopMD, Band);
+        if (!Result.is_null())
+          Result = checkDependencyViolation(
+            LoopMD, CodeRegion, Band, "llvm.loop.fuse.loc",
+            "llvm.loop.fuse.", "FailedRequestedFusion",
+            "loop fusion");
         if (!Result.is_null())
           return;
       }

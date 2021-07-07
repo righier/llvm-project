@@ -986,3 +986,38 @@ isl::schedule polly::applyFission(MDNode *LoopMD,
 
   return Fissioned.get_schedule();
 }
+
+
+
+isl::schedule polly::applyFusion(llvm::MDNode *LoopMD,
+  llvm::ArrayRef<isl::schedule_node> BandsToFuse){
+  assert(BandsToFuse.size() >=2);
+  auto Ctx = BandsToFuse[0].get_ctx();
+  auto N = BandsToFuse.size();
+
+  // Assuming BandsToFuse it in right order
+  isl::schedule_node Parent;
+  isl::union_set_list DomainList = isl::union_set_list::alloc(Ctx, N);
+  for (auto Band : BandsToFuse) {
+    if (Parent.is_null())
+      Parent = Band.parent();
+    else
+      assert(Parent.is_equal( Band.parent()));
+ 
+    DomainList = DomainList.add(Parent.get_domain());
+  }
+
+  auto InnerSeq = isl::manage( isl_schedule_node_insert_sequence( BandsToFuse[0].copy(), DomainList.copy() ));
+
+
+#if 0
+  isl_schedule_node_order_after
+    isl_schedule_node_delete
+
+    isl_schedule_node_sequence_splice_child
+    isl_schedule_node_cut
+    isl_schedule_node_delete
+#endif
+
+    return {};
+}

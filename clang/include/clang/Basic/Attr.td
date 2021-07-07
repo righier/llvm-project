@@ -3661,9 +3661,8 @@ def LoopInterchange : Attr {
 
 
 def LoopFission : Attr {
-  // #pragma clang fission
+  // #pragma clang loop fission
   // #pragma clang loop(loopname) fission
-  // #pragma clang loop(depth) fission
 
   let Spellings = [Pragma<"", "fission">];
   let PrettyPrintSpelling = 0;
@@ -3707,6 +3706,43 @@ def LoopFission : Attr {
           First = false;
         }
         OS << ")";
+      }
+    }
+  }];
+
+  let Documentation = [];
+}
+
+
+def LoopFusion : Attr {
+  // #pragma clang loop fuse
+  // #pragma clang loop(loopname,loopname,...) fuse
+
+  let Spellings = [Pragma<"", "fuse">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, StringArgument<"FusedId">];
+
+  let AdditionalMembers = [{
+    void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+      OS << "clang loop";
+      if (applyOn_size()) {
+        OS << "(";
+        bool First = true;
+        for (auto On : applyOn()) {
+          if (!First) {
+            OS << ", ";
+          }
+          OS << On;
+          First = false;
+        }
+        OS << ")";
+      }
+
+      OS << " fuse";
+
+      if (!getFusedId().empty()) {
+        OS << " fused_id(" << getFusedId() << ")";
       }
     }
   }];

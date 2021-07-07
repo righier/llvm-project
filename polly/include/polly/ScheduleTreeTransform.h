@@ -181,6 +181,9 @@ isl::schedule applyFission(llvm::MDNode *LoopMD,
                            isl::schedule_node BandToFission,
                            llvm::ArrayRef<uint64_t> SplitAtPositions);
 
+isl::schedule applyFusion(llvm::MDNode *LoopMD,
+  llvm::ArrayRef< isl::schedule_node> BandsToFuse);
+
 /// Build the desired set of partial tile prefixes.
 ///
 /// We build a set of partial tile prefixes, which are prefixes of the vector

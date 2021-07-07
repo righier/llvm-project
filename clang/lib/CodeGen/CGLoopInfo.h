@@ -48,7 +48,8 @@ struct LoopTransformation {
     Unrolling,
     UnrollingAndJam,
     ThreadParallel,
-    Fission
+    Fission,
+    Fusion
   };
   TransformKind Kind;
 
@@ -91,6 +92,9 @@ struct LoopTransformation {
   bool Autofission = false;
   llvm::SmallVector<uint64_t, 4> FissionSplitAt;
   llvm::SmallVector<llvm::StringRef, 4> FissionFissionedIds;
+
+  // Fusion
+  llvm::StringRef FusedId;
 
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
@@ -254,6 +258,24 @@ struct LoopTransformation {
     Result.Autofission = Autofission;
     llvm::append_range(Result.FissionSplitAt, SplitAt);
     llvm::append_range(Result.FissionFissionedIds, FissionedIds);
+
+    return Result;
+  }
+
+
+  static LoopTransformation
+    createFusion(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
+      llvm::ArrayRef<StringRef> ApplyOns, 
+      StringRef FusedId) {
+
+    LoopTransformation Result;
+    Result.BeginLoc = BeginLoc;
+    Result.EndLoc = EndLoc;
+    Result.Kind = Fusion;
+
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
+    Result.FusedId = FusedId;
 
     return Result;
   }
@@ -436,23 +458,25 @@ private:
 
 class VirtualLoopInfo {
 public:
-  VirtualLoopInfo();
-  VirtualLoopInfo(llvm::StringRef Name);
+  VirtualLoopInfo(llvm::LLVMContext &Ctx);
+  VirtualLoopInfo(llvm::LLVMContext &Ctx, llvm::StringRef Name);
 
-  void markNondefault() { IsDefault = false; }
-  void markDisableHeuristic() { DisableHeuristic = true; }
+  void markNondefault() {
+    assert(!_LoopID && "LoopID already created");
+    IsDefault = false; }
+  void markDisableHeuristic() {     assert(!_LoopID && "LoopID already created");DisableHeuristic = true; }
 
-  void addAttribute(llvm::Metadata *Node) { Attributes.push_back(Node); }
+  void addAttribute(llvm::Metadata *Node) {     assert(!_LoopID && "LoopID already created");Attributes.push_back(Node); }
 
-  void addTransformMD(llvm::Metadata *Node) { Transforms.push_back(Node); }
+  void addTransformMD(llvm::Metadata *Node) {     assert(!_LoopID && "LoopID already created");Transforms.push_back(Node); }
 
   void addFollowup(const char *FollowupAttributeName,
-                   VirtualLoopInfo *Followup) {
+                   VirtualLoopInfo *Followup) {    assert(!_LoopID && "LoopID already created");
     // assert(!Followups.count(FollowupAttributeName));
     Followups.push_back({FollowupAttributeName, Followup});
   }
 
-  void addSubloop(VirtualLoopInfo *Subloop) { Subloops.push_back(Subloop); }
+  void addSubloop(VirtualLoopInfo *Subloop) {   Subloops.push_back(Subloop); }
 
 #if 0
 	void addOriginal(VirtualLoopInfo* VInfo) {
@@ -465,7 +489,8 @@ public:
 			X->trackArray(ArrayPtr);
 	}
 #endif
-
+  llvm::TempMDTuple TmpLoopID;
+  llvm::MDNode* _LoopID = nullptr;
   llvm::MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
   // private:
@@ -616,6 +641,7 @@ public:
                                        VirtualLoopInfo *On);
   VirtualLoopInfo *applyFission(const LoopTransformation &Transform,
                                 VirtualLoopInfo *On);
+  VirtualLoopInfo* applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<VirtualLoopInfo*> On);
 
   void finish();
 

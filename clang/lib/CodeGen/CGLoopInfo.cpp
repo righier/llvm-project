@@ -480,10 +480,10 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
                    LoopInfo *Parent)
     : Header(Header), Attrs(Attrs), StartLoc(StartLoc), EndLoc(EndLoc),
       Parent(Parent), CGF(CGF) {
+  LLVMContext &Ctx = Header->getContext();
 
   if (Attrs.IsParallel) {
     // Create an access group for this loop.
-    LLVMContext &Ctx = Header->getContext();
     AccGroup = MDNode::getDistinct(Ctx, {});
   }
 
@@ -496,7 +496,7 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
   bool AncestorHasOrderedTransformation = Parent && Parent->InTransformation;
   if (HasLegacyTransformation || HasOrderedTransformation ||
       AncestorHasOrderedTransformation) {
-    VInfo = new VirtualLoopInfo();
+    VInfo = new VirtualLoopInfo(Ctx);
     if (Parent && Parent->VInfo)
       Parent->VInfo->addSubloop(VInfo);
     if (HasLegacyTransformation)
@@ -539,7 +539,7 @@ VirtualLoopInfo *
 LoopInfoStack::applyReversal(const LoopTransformation &TheTransform,
                              VirtualLoopInfo *On) {
   assert(On);
-  auto Result = new VirtualLoopInfo();
+  auto Result = new VirtualLoopInfo(Ctx);
 
   // Inherit all attributes.
   for (auto X : On->Attributes)
@@ -597,7 +597,7 @@ LoopInfoStack::applyTiling(const LoopTransformation &Transform,
     auto TileId = (i < Transform.TileTileIds.size()) ? Transform.TileTileIds[i]
                                                      : StringRef();
 
-    auto Outer = new VirtualLoopInfo(FloorId);
+    auto Outer = new VirtualLoopInfo(Ctx,  FloorId);
     OuterLoops.push_back(Outer);
     if (!FloorId.empty()) {
       // Outer->Name = FloorId;
@@ -608,7 +608,7 @@ LoopInfoStack::applyTiling(const LoopTransformation &Transform,
       Outer->markNondefault();
     }
 
-    auto Inner = new VirtualLoopInfo(TileId);
+    auto Inner = new VirtualLoopInfo(Ctx, TileId);
     InnerLoops.push_back(Inner);
     if (!TileId.empty()) {
       // Inner->Name = TileId;
@@ -698,7 +698,7 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
   for (int i = 0; i < N; i += 1) {
     auto Orig = On[i];
     auto PermutedId = NewId[i].empty() ? Orig->Name : NewId[i];
-    auto Permuted = new VirtualLoopInfo(PermutedId);
+    auto Permuted = new VirtualLoopInfo(Ctx, PermutedId);
     LoopsToPermute.push_back(Permuted);
 
     // Inherit all attributes.
@@ -762,7 +762,7 @@ LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,
   assert(On.size() == 1);
   auto Orig = On[0];
 
-  auto Result = new VirtualLoopInfo();
+  auto Result = new VirtualLoopInfo(Ctx);
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -833,8 +833,8 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   assert(OrigIntermediateLoops.front() == Orig);
   assert(OrigIntermediateLoops.back() == OrigInner);
 
-  auto Result = new VirtualLoopInfo(Orig->Name);
-  auto ResultInner = new VirtualLoopInfo(OrigInner->Name);
+  auto Result = new VirtualLoopInfo(Ctx, Orig->Name);
+  auto ResultInner = new VirtualLoopInfo(Ctx,OrigInner->Name);
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -888,7 +888,7 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   NewIntermediateLoops.push_back(Result);
   for (int i = 1; i < OrigIntermediateLoops.size() - 1; i += 1) {
     NewIntermediateLoops.push_back(
-        new VirtualLoopInfo(OrigIntermediateLoops[i]->Name));
+        new VirtualLoopInfo(Ctx, OrigIntermediateLoops[i]->Name));
   }
   NewIntermediateLoops.push_back(ResultInner);
 
@@ -924,7 +924,7 @@ LoopInfoStack::applyPack(const LoopTransformation &Transform,
     ArrayId = MDNode::getDistinct(Ctx, MDString::get(Ctx, ArrayName));
   AccessesToTrack.push_back({Addr, ArrayId});
 
-  auto Result = new VirtualLoopInfo(Orig->Name);
+  auto Result = new VirtualLoopInfo(Ctx, Orig->Name);
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -972,7 +972,7 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
   assert(On);
   auto Orig = On;
 
-  auto Result = new VirtualLoopInfo();
+  auto Result = new VirtualLoopInfo(Ctx);
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -989,6 +989,7 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
   return Result;
 }
 
+
 VirtualLoopInfo *
 LoopInfoStack::applyFission(const LoopTransformation &Transform,
                             VirtualLoopInfo *On) {
@@ -1000,6 +1001,7 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
   auto &SplitAt = Transform.FissionSplitAt;
 
   Orig->markDisableHeuristic();
+  Orig->markNondefault();
   Orig->addTransformMD(MDNode::get(
       Ctx, {MDString::get(Ctx, "llvm.loop.fission.enable"),
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
@@ -1021,10 +1023,12 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
     Orig->addTransformMD(MDNode::get(Ctx, SplitAtInfo));
   }
 
+
   SmallVector<VirtualLoopInfo *, 4> FissionedLoops;
   FissionedLoops.reserve(FissionIds.size());
   for (auto FissionedId : FissionIds) {
-    auto Fissioned = new VirtualLoopInfo(FissionedId);
+    auto Fissioned = new VirtualLoopInfo(Ctx, FissionedId);
+
 
     Fissioned->addTransformMD(
         MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
@@ -1034,17 +1038,79 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
     NamedLoopMap[FissionedId] = Fissioned;
 
     // Inherit attributes (debug loc, etc).
-    Fissioned->markNondefault();
     for (auto X : Orig->Attributes) {
       Fissioned->addAttribute(X);
     }
 
     Orig->addFollowup("llvm.loop.fission.followup_fissioned", Fissioned);
-    Orig->addSubloop(Fissioned);
+
+    // TODO: Need make copy of parent loop because its subloops have changed?
+    //Orig->addSubloop(Fissioned);
   }
 
-  return Orig;
+  return FissionedLoops[0];
 }
+
+
+
+
+
+VirtualLoopInfo*
+LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<VirtualLoopInfo*> On) {
+  assert(On.size() >= 2);
+  auto Orig = On;
+  auto FusedId = Transform.FusedId;
+
+  SmallVector  <Metadata*> FuseWithMD;
+  FuseWithMD.push_back(MDString::get(Ctx, "llvm.loop.fuse.fuse_with") );
+  for (auto OrigL : Orig) {
+    // TmpLoopID is later replaced with the real LoopID
+    FuseWithMD.push_back(OrigL->TmpLoopID.get());
+  }
+
+  for (auto OrigL : Orig) {
+    OrigL->markDisableHeuristic();  
+    OrigL->addTransformMD(MDNode::get(Ctx, { 
+      MDString::get(Ctx, "llvm.loop.fuse.enable"),
+      ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
+    addDebugLoc(Ctx, "llvm.loop.fuse.loc", Transform, OrigL);
+    OrigL->addTransformMD(MDNode::get(Ctx, FuseWithMD));
+  }
+
+  VirtualLoopInfo* FusedLoop = new VirtualLoopInfo(Ctx, FusedId);
+  FusedLoop->markNondefault();
+
+  // Inherit attributes (debug loc, etc) that are common to all fused loops
+  SetVector<Metadata*> CommonAttrs;
+  for (auto X : Orig[0]->Attributes) 
+    CommonAttrs.insert(X);
+  
+  SmallSet<Metadata*,4> ThisAttrs;
+  for (auto Y : llvm::drop_begin(On,1)) {
+    ThisAttrs.clear();
+    //ThisAttrs.reserve(Y->Attributes.size());
+    for (Metadata* X : Y->Attributes) {
+      ThisAttrs.insert(X);
+    }  
+    CommonAttrs.remove_if([&](Metadata* MD) { return !ThisAttrs.contains(MD); });
+  }
+  for (auto X : CommonAttrs) 
+    FusedLoop->addAttribute(X);
+
+
+  // Just one followup info should be enough
+  Orig[0]->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
+  
+
+  assert(!NamedLoopMap.count(FusedId));
+  NamedLoopMap[FusedId] = FusedLoop;
+
+  return FusedLoop;
+}
+
+
+
+
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
   //	LLVMContext &Ctx = Header->getContext();
@@ -1144,7 +1210,12 @@ void LoopInfo::finish(LoopInfoStack &LIS) {
   TempLoopID->replaceAllUsesWith(LoopID);
 }
 
-MDNode *VirtualLoopInfo ::makeLoopID(llvm::LLVMContext &Ctx) {
+
+
+MDNode *VirtualLoopInfo::makeLoopID(llvm::LLVMContext &Ctx) { 
+  if (_LoopID)
+    return _LoopID;
+
   SmallVector<Metadata *, 4> Args;
   // Reserve operand 0 for loop id self reference.
   auto TempNode = MDNode::getTemporary(Ctx, None);
@@ -1196,8 +1267,14 @@ MDNode *VirtualLoopInfo ::makeLoopID(llvm::LLVMContext &Ctx) {
   // Set the first operand to itself.
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
+
+
+  TmpLoopID->replaceAllUsesWith(LoopID);
+  _LoopID = LoopID;
   return LoopID;
 }
+
+
 
 LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
                               const llvm::DebugLoc &StartLoc,
@@ -1216,9 +1293,11 @@ LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
   return NewLoop;
 }
 
-VirtualLoopInfo::VirtualLoopInfo() {}
+VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext& Ctx) : TmpLoopID(MDNode::getTemporary(Ctx, {nullptr})) {}
 
-VirtualLoopInfo::VirtualLoopInfo(StringRef Name) : Name(Name) {}
+VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext &Ctx, StringRef Name) : VirtualLoopInfo(Ctx) {
+  this->Name = Name;
+}
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
                          clang::ASTContext &Ctx,
@@ -1346,6 +1425,25 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           SplitAt));
       continue;
     }
+
+
+
+    if (auto LFusion = dyn_cast<LoopFusionAttr>(Attr)) {
+      auto ApplyOns = LFusion->applyOn();
+      auto FusedId=LFusion->getFusedId();
+
+
+
+      addTransformation(LoopTransformation::createFusion(
+        LocBegin, LocEnd, 
+        makeArrayRef(LFusion->applyOn_begin(), LFusion->applyOn_end()) ,
+        FusedId
+        ));
+      continue;
+    }
+
+
+
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
@@ -1710,6 +1808,9 @@ LoopInfoStack::applyTransformation(const LoopTransformation &Transform,
   case LoopTransformation::Fission:
     assert(ApplyTo.size() == 1);
     return applyFission(Transform, ApplyTo[0]);
+  case LoopTransformation::Fusion:
+    assert(ApplyTo.size() >= 2);
+    return applyFusion(Transform, ApplyTo);
   }
 }
 
