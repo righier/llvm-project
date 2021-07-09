@@ -1044,11 +1044,11 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
 
     Orig->addFollowup("llvm.loop.fission.followup_fissioned", Fissioned);
 
-    // TODO: Need make copy of parent loop because its subloops have changed?
+    // FIXME: If identifying loops by nesting (instead of loop ids), need to update subloop structure
     //Orig->addSubloop(Fissioned);
   }
 
-  invalidateVirtualLoop(On);
+   invalidateVirtualLoop(On);
   return FissionedLoops[0];
 }
 
@@ -1062,7 +1062,7 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
   auto Orig = On;
   auto FusedId = Transform.FusedId;
 
- auto FuseGroup = MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
+  auto FuseGroup = MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
 
   for (auto OrigL : Orig) {
     OrigL->markDisableHeuristic();  
@@ -1095,8 +1095,6 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
   for (auto X : CommonAttrs) 
     FusedLoop->addAttribute(X);
 
-
-
   for (auto OrigL : Orig) 
     OrigL->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
   
@@ -1108,6 +1106,7 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
     NamedLoopMap[FusedId] = FusedLoop;
   }
 
+  // FIXME: If identifying loops by nesting (instead of loop ids), need to update subloop structure
   return FusedLoop;
 }
 
@@ -1884,8 +1883,7 @@ void LoopInfoStack::finish() {
         if (auto LI = dyn_cast<LoadInst>(Op))
           continue;
 
-        // Don't know wheter a return by a function is relatated to the memory
-        // address.
+        // Don't know whether a return by a function is related to the memory address.
         if (auto CB = dyn_cast<CallBase>(Op)) {
           switch (CB->getIntrinsicID()) {
             // TODO: more whitelisted functions.
