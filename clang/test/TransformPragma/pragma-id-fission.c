@@ -41,11 +41,14 @@ int main() {
 // IR-LABEL: @pragma_id_fission(
 // IR:         br label %for.cond, !llvm.loop !2
 //
-// IR: !2 = distinct !{!2, !3, !4, !5, !6}
+// IR: !2 = distinct !{!2, !3, !4, !5, !6, !7}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"i"}
 // IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
 // IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
+// IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !9}
+// IR: !8 = distinct !{!8, !3}
+// IR: !9 = distinct !{!9, !3}
 
 
 // AST: if (1 
@@ -59,10 +62,11 @@ int main() {
 // AST:     {  /* original code */ }
 
 
+// TRANS: polly.start:
 // TRANS: polly.loop_header:
-// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !11, !noalias !13
+// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !14, !noalias !16
 // TRANS: polly.loop_header19:
-// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !14, !noalias !15
+// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !17, !noalias !18
 
 
 // RESULT: (3 2)

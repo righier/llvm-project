@@ -995,6 +995,7 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
                             VirtualLoopInfo *On) {
   assert(On);
   auto Orig = On;
+  invalidateVirtualLoop(On);
 
   auto Autofission = Transform.Autofission;
   auto &FissionIds = Transform.FissionFissionedIds;
@@ -1012,7 +1013,9 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
               ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
   }
 
-  if (SplitAt.size()) {
+
+ 
+  if (SplitAt.size()) {  
     SmallVector<Metadata *> SplitAtInfo;
     SplitAtInfo.reserve(SplitAt.size() + 1);
     SplitAtInfo.push_back(MDString::get(Ctx, "llvm.loop.fission.split_at"));
@@ -1024,18 +1027,21 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
   }
 
 
+
   SmallVector<VirtualLoopInfo *, 4> FissionedLoops;
-  FissionedLoops.reserve(FissionIds.size());
-  for (auto FissionedId : FissionIds) {
+  auto AddFissionedLoop = [&](int i, int Start, int Stop) {
+     StringRef FissionedId;
+     if (i < FissionIds.size())
+       FissionedId = FissionIds[i];
     auto Fissioned = new VirtualLoopInfo(Ctx, FissionedId);
-
-
-    Fissioned->addTransformMD(
-        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
-                          MDString::get(Ctx, FissionedId)}));
     Fissioned->markNondefault();
-    assert(!NamedLoopMap.count(FissionedId));
-    NamedLoopMap[FissionedId] = Fissioned;
+    Fissioned->markDisableHeuristic();
+    FissionedLoops.push_back(Fissioned);
+
+
+ 
+
+
 
     // Inherit attributes (debug loc, etc).
     for (auto X : Orig->Attributes) {
@@ -1044,11 +1050,32 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
 
     Orig->addFollowup("llvm.loop.fission.followup_fissioned", Fissioned);
 
+    if (!FissionedId.empty()) {
+      Fissioned->addTransformMD(
+        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
+          MDString::get(Ctx, FissionedId)}));
+
+      assert(!NamedLoopMap.count(FissionedId));
+      NamedLoopMap[FissionedId] = Fissioned;
+    }
+
     // FIXME: If identifying loops by nesting (instead of loop ids), need to update subloop structure
     //Orig->addSubloop(Fissioned);
-  }
+  };
 
-   invalidateVirtualLoop(On);
+  int NextStart = 0;
+  FissionedLoops.reserve(SplitAt.size()+1);
+  for (int i = 0; i < SplitAt.size(); i += 1) {
+    AddFissionedLoop(i, NextStart, SplitAt[i]);
+    NextStart = SplitAt[i] + 1;
+  }
+  AddFissionedLoop(SplitAt.size(),NextStart, -1);
+ 
+  
+
+  
+
+  
   return FissionedLoops[0];
 }
 
