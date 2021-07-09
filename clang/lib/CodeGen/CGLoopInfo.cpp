@@ -1061,12 +1061,16 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
   auto Orig = On;
   auto FusedId = Transform.FusedId;
 
+ auto FuseGroup = MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
+
+#if 0
   SmallVector  <Metadata*> FuseWithMD;
   FuseWithMD.push_back(MDString::get(Ctx, "llvm.loop.fuse.fuse_with") );
   for (auto OrigL : Orig) {
     // TmpLoopID is later replaced with the real LoopID
     FuseWithMD.push_back(OrigL->TmpLoopID.get());
   }
+#endif
 
   for (auto OrigL : Orig) {
     OrigL->markDisableHeuristic();  
@@ -1074,7 +1078,7 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
       MDString::get(Ctx, "llvm.loop.fuse.enable"),
       ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
     addDebugLoc(Ctx, "llvm.loop.fuse.loc", Transform, OrigL);
-    OrigL->addTransformMD(MDNode::get(Ctx, FuseWithMD));
+    OrigL->addTransformMD(MDNode::get(Ctx, { MDString::get(Ctx, "llvm.loop.fuse.fuse_group"), FuseGroup }));
   }
 
   VirtualLoopInfo* FusedLoop = new VirtualLoopInfo(Ctx, FusedId);
@@ -1098,8 +1102,8 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
     FusedLoop->addAttribute(X);
 
 
-  // Just one followup info should be enough
-  Orig[0]->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
+  for (auto OrigL : Orig) 
+  OrigL->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
   
 
   assert(!NamedLoopMap.count(FusedId));

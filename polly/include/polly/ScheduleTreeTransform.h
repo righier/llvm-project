@@ -177,12 +177,12 @@ isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
 
 isl::schedule applyAutofission(isl::schedule_node BandToFission,
                                const Dependences *D);
+
 isl::schedule applyFission(llvm::MDNode *LoopMD,
                            isl::schedule_node BandToFission,
                            llvm::ArrayRef<uint64_t> SplitAtPositions);
 
-isl::schedule applyFusion(llvm::MDNode *LoopMD,
-  llvm::ArrayRef< isl::schedule_node> BandsToFuse);
+isl::schedule applyFusion(llvm::ArrayRef< isl::schedule_node> BandsToFuse, llvm::MDNode *FusedMD );
 
 /// Build the desired set of partial tile prefixes.
 ///

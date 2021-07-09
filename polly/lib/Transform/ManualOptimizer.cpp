@@ -2560,10 +2560,86 @@ static isl::schedule applyLoopFission(MDNode *LoopMD,
 }
 
 
+static void
+foreachScheduleTreeChild(isl::schedule_node Parent,
+  llvm::function_ref<void(const isl::schedule_node& Child)> Callback) {
+  if (Parent.has_children()) {
+    auto C = Parent.first_child();
+    while (true) {
+      Callback(C);
+      if (!C.has_next_sibling())
+        break;
+      C = C.next_sibling();
+    }
+  }
+}
 
-static isl::schedule applyLoopFusion(MDNode *LoopMD,
-  isl::schedule_node BandToFuse) {
- auto FusedID = findOptionalStringOperand(LoopMD, "llvm.loop.fuse.fused_id" );
+static  bool isFilter(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;
+}
+
+static  bool isSequence(const isl::schedule_node &Node) {
+  auto Kind = isl_schedule_node_get_type(Node.get());
+  return Kind== isl_schedule_node_sequence;
+}
+
+
+
+static isl::schedule applyLoopFuseGroup(isl::schedule_node FuseParent, MDNode* FuseGroup) {
+  assert(FuseGroup);
+  assert(isSequence(FuseParent));
+
+  MDNode* FollowupFusedId=nullptr;
+  SmallVector<isl::schedule_node> ToBeFused;
+  foreachScheduleTreeChild(FuseParent,[&] (const isl::schedule_node& Child) {
+    auto ChildBand = Child;
+    if (isFilter(ChildBand))
+      ChildBand = ChildBand.first_child();
+  
+    auto BandAttr = getBandAttr(ChildBand);
+    if (!BandAttr)
+      return;
+   auto LoopMD = BandAttr->Metadata;
+   if (!LoopMD)
+     return;
+
+    auto ThisFuseGroup = findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group").getValueOr(nullptr);
+    if (ThisFuseGroup && ThisFuseGroup == FuseGroup) {
+      // This loop is fused
+      ToBeFused.push_back(ChildBand);
+      if (!FollowupFusedId)
+        FollowupFusedId = cast_or_null<MDNode>( findMetadataOperand(LoopMD, "llvm.loop.fuse.followup_fused" ).getValueOr(nullptr));
+    }
+  });
+
+  assert(ToBeFused.size() >= 2);
+  return applyFusion(ToBeFused, FollowupFusedId);
+}
+
+
+
+
+
+
+
+static isl::schedule applyLoopFusion(MDNode *LoopMD, isl::schedule_node BandToFuse) {
+
+ // auto FuseWith = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fuse_with");
+  auto FuseGroup = cast<MDNode> (findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group").getValue());
+  assert(FuseGroup);
+
+  isl::schedule_node ParentBand = BandToFuse.parent();
+  
+  while (!isSequence(ParentBand)) {
+    ParentBand = ParentBand.parent();
+  }
+
+  return applyLoopFuseGroup(ParentBand, FuseGroup);
+
+
+
+  // Find the other bands to fuse with
+ 
 
 
 

@@ -898,7 +898,7 @@ collectFussionableStmts(isl::schedule_node Node,
     }
   }
 }
-
+static  bool isFilter(const isl::schedule_node &Node) {  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;}
 #if 0
 // FIXME: What is the difference of returning nullptr vs None?
 static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
@@ -988,26 +988,176 @@ isl::schedule polly::applyFission(MDNode *LoopMD,
 }
 
 
+static void
+foreachScheduleTreeChild(isl::schedule_node Parent,
+  llvm::function_ref<void(const isl::schedule_node& Child)> Callback) {
+  if (Parent.has_children()) {
+    auto C = Parent.first_child();
+    while (true) {
+      Callback(C);
+      if (!C.has_next_sibling())
+        break;
+      C = C.next_sibling();
+    }
+  }
+}
 
-isl::schedule polly::applyFusion(llvm::MDNode *LoopMD,
-  llvm::ArrayRef<isl::schedule_node> BandsToFuse){
-  assert(BandsToFuse.size() >=2);
+static  bool isSequence(const isl::schedule_node &Node) {
+  auto Kind = isl_schedule_node_get_type(Node.get());
+  return Kind== isl_schedule_node_sequence;
+}
+
+
+isl::schedule polly::applyFusion(
+  llvm::ArrayRef<isl::schedule_node> BandsToFuse, MDNode* FusedMD) {
+  assert(BandsToFuse.size() >= 2);
   auto Ctx = BandsToFuse[0].get_ctx();
   auto N = BandsToFuse.size();
 
-  // Assuming BandsToFuse it in right order
+
   isl::schedule_node Parent;
   isl::union_set_list DomainList = isl::union_set_list::alloc(Ctx, N);
+ // DenseSet<isl::schedule_node> DirectChildren;
+  DenseSet<isl_size> ParentPos;
   for (auto Band : BandsToFuse) {
+    auto DirectChild = Band;
+    auto SequenceParent = DirectChild.parent();
+    while (!isSequence(SequenceParent)) {
+      DirectChild = SequenceParent;
+      SequenceParent = SequenceParent.parent();
+    }
+   auto ChildPos = DirectChild.get_child_position();
+   ParentPos.insert(ChildPos);
+
+   // DirectChildren.insert(DirectChild);
+
     if (Parent.is_null())
-      Parent = Band.parent();
+      Parent = SequenceParent;
     else
-      assert(Parent.is_equal( Band.parent()));
- 
-    DomainList = DomainList.add(Parent.get_domain());
+      assert(Parent.is_equal(SequenceParent));
+
+    // DomainList = DomainList.add(Parent.get_domain());
   }
 
-  auto InnerSeq = isl::manage( isl_schedule_node_insert_sequence( BandsToFuse[0].copy(), DomainList.copy() ));
+
+  auto NChildren = Parent.n_children();
+
+  bool Prolog = true;
+  SmallVector<isl::union_set> Before;
+//  isl::union_set Before = isl::union_set::empty(Ctx); 
+  //bool HasBefore = false; 
+  isl::union_set Inside = isl::union_set::empty(Ctx); 
+  isl::union_map PartialScheds = isl::union_map::empty(Ctx);
+//  isl::union_set After = Before; 
+  SmallVector<isl::union_set> After;
+ // bool HasAfter  = false;
+
+  int i = 0;
+  auto Node = Parent;
+  assert(isSequence(Node));
+  Node = Node.first_child();
+  while (true) {
+    //auto DirectChild = Node;
+    assert(isFilter(Node));
+    Node = Node.first_child(); // skip the filter
+
+    auto Domain = Node.get_domain();
+
+    if (ParentPos.count(i)) {   
+      // Child is fused
+
+      Prolog = false; 
+      Inside = Inside.unite(Domain);
+
+      int InbetweenCount = 0;
+      while (!isBand(Node)) {
+        Node = Node.first_child();
+        InbetweenCount += 1;
+      }
+  //  auto Body = Node.first_child();
+
+    isl::multi_union_pw_aff Sched = isl::manage(isl_schedule_node_band_get_partial_schedule(Node.get()));
+    //assert(Sched.dim(isl::dim::out) == 1 && "Supporting just one loop per band");
+    //auto PSched = Sched.get_union_pw_aff(0);
+    isl::union_map USched = isl::union_map::from( Sched);
+
+    // Combine the schedules of the bands; the partial schedule relative value defines the relative order
+    // FIXME: The partial schedule is usually zero-based, incrementing by one; this makes the fused loops aligned by the first iteration, allow to configure
+    PartialScheds = PartialScheds.unite(USched); 
+
+    // Remove the old bands
+    for (auto j : llvm::seq<int>(0, InbetweenCount)) {
+      Node = isl::manage(isl_schedule_node_delete(Node.release()));
+      Node = Node.parent();
+    }
+    Node = isl::manage(isl_schedule_node_delete(Node.release()));
+
+    } else if (Prolog) {  
+        Before.push_back(Domain);
+      }  else {      
+        After.push_back(Domain);
+      }
+    
+
+
+    Node = Node.parent();
+
+     if (!Node.has_next_sibling())
+     break;
+    Node = Node.next_sibling();
+    i += 1;
+  }
+  Node = Node.parent();
+
+
+  isl::union_set_list OuterDomainList = isl::union_set_list::alloc(Ctx, Before.size() + 1 + After.size() ); 
+  int InsideIndex = Before.size() ;
+ for (auto S : Before) 
+    OuterDomainList = OuterDomainList.add(S); 
+  
+    OuterDomainList=    OuterDomainList.add(Inside);
+    for (auto S : After) 
+    OuterDomainList=  OuterDomainList.add(S);
+
+    isl::union_set_list InnerDomainList = isl::union_set_list::alloc(Ctx, 1);
+    InnerDomainList=    InnerDomainList.add(Inside);
+
+    // Insert new sequence
+    Node = Node.insert_sequence(OuterDomainList);
+     Node = Node.child(InsideIndex);
+    assert(isFilter(Node));
+      Node = Node.first_child(); // skip the filter
+
+#if 0
+    assert(isSequence(Node));
+    Node = Node.first_child();
+    while (true) {
+      assert(isFilter(Node));
+      Node = Node.first_child(); // skip the filter
+
+      // Remove the previous loop
+      if (isBandMark(Node))
+        Node = isl::manage( isl_schedule_node_delete(Node.release()));
+      if (isBand(Node))
+        Node = isl::manage( isl_schedule_node_delete(Node.release()));
+  
+       Node = Node.parent();
+
+      assert(isFilter(Node)); if (!Node.has_next_sibling())
+        break;
+      Node = Node.next_sibling();
+    }
+    Node = Node.parent();
+#endif
+
+    // Insert the new fused loop
+    isl::multi_union_pw_aff InnerSched = isl::multi_union_pw_aff::from_union_map(PartialScheds);
+ Node = Node.insert_partial_schedule(InnerSched);
+
+
+
+
+ // auto InnerSeq = isl::manage( isl_schedule_node_insert_sequence( BandsToFuse[0].copy(), DomainList.copy() ));
 
 
 #if 0
@@ -1019,5 +1169,5 @@ isl::schedule polly::applyFusion(llvm::MDNode *LoopMD,
     isl_schedule_node_delete
 #endif
 
-    return {};
+    return Node.get_schedule();
 }
