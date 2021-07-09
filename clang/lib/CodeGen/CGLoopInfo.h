@@ -461,9 +461,16 @@ public:
   VirtualLoopInfo(llvm::LLVMContext &Ctx);
   VirtualLoopInfo(llvm::LLVMContext &Ctx, llvm::StringRef Name);
 
+  /// Mark follow-up loop to require an explicit LoopID; otherwise, the LoopID will be derived by the loop transformation pass.
+  /// TODO: Do the loop transformation pass have to add disable_heuristics themselves?
   void markNondefault() {
     assert(!_LoopID && "LoopID already created");
     IsDefault = false; }
+
+  /// Mark a loop to be not processed by heursitics.
+  /// MUST be added to any transformed loop to avoid that loop optimization pass other than the intended processed them.
+  /// TODO: Add to followup-loops as well? If a loop has a user-transformation, the user may not want additional transformations to be applied which may just revert their user-directed transformation. 
+  /// TODO: Should this imply markNondefault()?
   void markDisableHeuristic() {     assert(!_LoopID && "LoopID already created");DisableHeuristic = true; }
 
   void addAttribute(llvm::Metadata *Node) {     assert(!_LoopID && "LoopID already created");Attributes.push_back(Node); }

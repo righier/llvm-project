@@ -65,7 +65,7 @@ int main() {
 // IR: !6 = !{!"llvm.loop.fuse.fuse_group", !7}
 // IR: !7 = distinct !{!"Loop Fuse Group"}
 // IR: !8 = !{!"llvm.loop.fuse.followup_fused", !9}
-// IR: !9 = distinct !{!9}
+// IR: !9 = distinct !{!9, !3}
 // IR: !10 = distinct !{!10, !3, !11, !5, !6, !8}
 // IR: !11 = !{!"llvm.loop.id", !"j"}
 
@@ -88,6 +88,7 @@ int main() {
 // AST:     {  /* original code */ }
 
 
+// TRANS: polly.start:
 // TRANS: polly.loop_header133: ; preds = %polly.loop_exit126, %polly.stmt.for.body31
 // TRANS:   br i1 %.not, label %polly.stmt.for.body31, label %polly.stmt.for.body19
 // TRANS: polly.stmt.for.body31: ; preds = %polly.loop_header133, %polly.stmt.for.body19

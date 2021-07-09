@@ -899,20 +899,7 @@ collectFussionableStmts(isl::schedule_node Node,
   }
 }
 static  bool isFilter(const isl::schedule_node &Node) {  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;}
-#if 0
-// FIXME: What is the difference of returning nullptr vs None?
-static llvm::Optional<MDNode *> findOptionalMDOperand(MDNode *LoopMD,
-  StringRef Name) {
-  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
-  if (!AttrMD)
-    return None;
 
-  auto MD = dyn_cast<MDNode>(AttrMD);
-  if (!MD)
-    return None;
-  return MD;
-}
-#endif
 
 isl::schedule polly::applyFission(MDNode *LoopMD,
                                   isl::schedule_node BandToFission,
@@ -1017,7 +1004,6 @@ isl::schedule polly::applyFusion(
 
   isl::schedule_node Parent;
   isl::union_set_list DomainList = isl::union_set_list::alloc(Ctx, N);
- // DenseSet<isl::schedule_node> DirectChildren;
   DenseSet<isl_size> ParentPos;
   for (auto Band : BandsToFuse) {
     auto DirectChild = Band;
@@ -1035,8 +1021,6 @@ isl::schedule polly::applyFusion(
       Parent = SequenceParent;
     else
       assert(Parent.is_equal(SequenceParent));
-
-    // DomainList = DomainList.add(Parent.get_domain());
   }
 
 
@@ -1044,13 +1028,9 @@ isl::schedule polly::applyFusion(
 
   bool Prolog = true;
   SmallVector<isl::union_set> Before;
-//  isl::union_set Before = isl::union_set::empty(Ctx); 
-  //bool HasBefore = false; 
   isl::union_set Inside = isl::union_set::empty(Ctx); 
   isl::union_map PartialScheds = isl::union_map::empty(Ctx);
-//  isl::union_set After = Before; 
   SmallVector<isl::union_set> After;
- // bool HasAfter  = false;
 
   int i = 0;
   auto Node = Parent;
@@ -1119,36 +1099,19 @@ isl::schedule polly::applyFusion(
     for (auto S : After) 
     OuterDomainList=  OuterDomainList.add(S);
 
-    isl::union_set_list InnerDomainList = isl::union_set_list::alloc(Ctx, 1);
-    InnerDomainList=    InnerDomainList.add(Inside);
+    //isl::union_set_list InnerDomainList = isl::union_set_list::alloc(Ctx, 1);
+    //InnerDomainList=    InnerDomainList.add(Inside);
 
     // Insert new sequence
-    Node = Node.insert_sequence(OuterDomainList);
-     Node = Node.child(InsideIndex);
-    assert(isFilter(Node));
-      Node = Node.first_child(); // skip the filter
-
-#if 0
-    assert(isSequence(Node));
-    Node = Node.first_child();
-    while (true) {
+    if (OuterDomainList.size() > 1) {
+      Node = Node.insert_sequence(OuterDomainList);
+      Node = Node.child(InsideIndex);
       assert(isFilter(Node));
       Node = Node.first_child(); // skip the filter
-
-      // Remove the previous loop
-      if (isBandMark(Node))
-        Node = isl::manage( isl_schedule_node_delete(Node.release()));
-      if (isBand(Node))
-        Node = isl::manage( isl_schedule_node_delete(Node.release()));
-  
-       Node = Node.parent();
-
-      assert(isFilter(Node)); if (!Node.has_next_sibling())
-        break;
-      Node = Node.next_sibling();
+    } else {
+      // No sibling of fused loop; don't add a sequence node to be able to form a perfect loop nest with parent loop
     }
-    Node = Node.parent();
-#endif
+
 
     // Insert the new fused loop
     isl::multi_union_pw_aff InnerSched = isl::multi_union_pw_aff::from_union_map(PartialScheds);
@@ -1157,17 +1120,14 @@ isl::schedule polly::applyFusion(
 
 
 
- // auto InnerSeq = isl::manage( isl_schedule_node_insert_sequence( BandsToFuse[0].copy(), DomainList.copy() ));
+ isl::id NewBandId = createGeneratedLoopAttr(Ctx, FusedMD);
+ if (!NewBandId.is_null())
+   Node = insertMark(Node, NewBandId);
 
-
-#if 0
-  isl_schedule_node_order_after
-    isl_schedule_node_delete
-
-    isl_schedule_node_sequence_splice_child
-    isl_schedule_node_cut
-    isl_schedule_node_delete
-#endif
 
     return Node.get_schedule();
 }
+
+
+
+

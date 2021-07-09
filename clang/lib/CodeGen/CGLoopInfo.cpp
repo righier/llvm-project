@@ -1048,6 +1048,7 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
     //Orig->addSubloop(Fissioned);
   }
 
+  invalidateVirtualLoop(On);
   return FissionedLoops[0];
 }
 
@@ -1063,15 +1064,6 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
 
  auto FuseGroup = MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
 
-#if 0
-  SmallVector  <Metadata*> FuseWithMD;
-  FuseWithMD.push_back(MDString::get(Ctx, "llvm.loop.fuse.fuse_with") );
-  for (auto OrigL : Orig) {
-    // TmpLoopID is later replaced with the real LoopID
-    FuseWithMD.push_back(OrigL->TmpLoopID.get());
-  }
-#endif
-
   for (auto OrigL : Orig) {
     OrigL->markDisableHeuristic();  
     OrigL->addTransformMD(MDNode::get(Ctx, { 
@@ -1079,9 +1071,11 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
       ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
     addDebugLoc(Ctx, "llvm.loop.fuse.loc", Transform, OrigL);
     OrigL->addTransformMD(MDNode::get(Ctx, { MDString::get(Ctx, "llvm.loop.fuse.fuse_group"), FuseGroup }));
+    invalidateVirtualLoop(OrigL);
   }
 
   VirtualLoopInfo* FusedLoop = new VirtualLoopInfo(Ctx, FusedId);
+  FusedLoop->markDisableHeuristic();
   FusedLoop->markNondefault();
 
   // Inherit attributes (debug loc, etc) that are common to all fused loops
@@ -1102,12 +1096,17 @@ LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<V
     FusedLoop->addAttribute(X);
 
 
-  for (auto OrigL : Orig) 
-  OrigL->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
-  
 
-  assert(!NamedLoopMap.count(FusedId));
-  NamedLoopMap[FusedId] = FusedLoop;
+  for (auto OrigL : Orig) 
+    OrigL->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
+  
+  if (!FusedId.empty()) {
+    FusedLoop->addTransformMD(MDNode::get(
+      Ctx, {MDString::get(Ctx, "llvm.loop.id"), MDString::get(Ctx, FusedId)}));
+
+    assert(!NamedLoopMap.count(FusedId));
+    NamedLoopMap[FusedId] = FusedLoop;
+  }
 
   return FusedLoop;
 }

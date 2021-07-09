@@ -1,7 +1,7 @@
 // RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
 // RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
+// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
 // RUN: %clang                           -DMAIN                                   -std=c99            -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
@@ -43,39 +43,38 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: @pragma_id_fission_reverse(
+// IR-LABEL: @pragma_id_fuse_reverse(
 // IR:         br label %for.cond, !llvm.loop !2
+// IR:         br label %for.cond1, !llvm.loop !12
 //
-// IR: !2 = distinct !{!2, !3, !4, !5, !6, !7}
+// IR: !2 = distinct !{!2, !3, !4, !5, !6, !8}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"i"}
-// IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
-// IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
-// IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !11}
-// IR: !8 = distinct !{!8, !3, !9, !10}
-// IR: !9 = !{!"llvm.loop.id", !"a"}
-// IR: !10 = !{!"llvm.loop.reverse.enable", i1 true}
-// IR: !11 = distinct !{!11, !3, !12, !10}
-// IR: !12 = !{!"llvm.loop.id", !"b"}
+// IR: !5 = !{!"llvm.loop.fuse.enable", i1 true}
+// IR: !6 = !{!"llvm.loop.fuse.fuse_group", !7}
+// IR: !7 = distinct !{!"Loop Fuse Group"}
+// IR: !8 = !{!"llvm.loop.fuse.followup_fused", !9}
+// IR: !9 = distinct !{!9, !3, !10, !11}
+// IR: !10 = !{!"llvm.loop.id", !"k"}
+// IR: !11 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !12 = distinct !{!12, !3, !13, !5, !6, !8}
+// IR: !13 = !{!"llvm.loop.id", !"j"}
 
 
 // AST: if (1 
-// AST:     {
-// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
-// AST:         Stmt2(-c0);
-// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
-// AST:         Stmt2b(-c0);
+// AST:     for (int c0 = -n + 1; c0 <= 0; c0 += 1) {
+// AST:         Stmt_for_body(-c0);
+// AST:         Stmt_for_body5(-c0);
 // AST:     }
 // AST:   else
 // AST:     {  /* original code */ }
 
 
+// TRANS: polly.start:
 // TRANS: polly.loop_header:
-// TRANS:   %7 = sub nsw i64 0, %polly.indvar
-// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !17, !noalias !19
-// TRANS: polly.loop_header19:
-// TRANS:   %10 = sub nsw i64 0, %polly.indvar23
-// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !20, !noalias !21
+// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !18, !noalias !20
+// TRANS:   store double %p_conv7, double* %scevgep35, align 8, !alias.scope !21, !noalias !22
+// TRANS:   br i1 %exitcond.not38, label %for.cond.cleanup4, label %polly.loop_header
 
 
 // RESULT: (3 2)
