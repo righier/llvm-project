@@ -688,7 +688,6 @@ static bool runIslScheduleOptimizer(
 
   // Schedule without optimizations.
   isl::schedule Schedule = S.getScheduleTree();
-
   walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
   LLVM_DEBUG(printSchedule(dbgs(), Schedule, "Original schedule tree"));
 
@@ -801,7 +800,6 @@ static bool runIslScheduleOptimizer(
     }
 
     int IslOuterCoincidence;
-
     if (OuterCoincidence == "yes") {
       IslOuterCoincidence = 1;
     } else if (OuterCoincidence == "no") {
@@ -821,7 +819,7 @@ static bool runIslScheduleOptimizer(
     isl_options_set_schedule_max_coefficient(Ctx, MaxCoefficient);
     // isl_options_set_tile_scale_tile_loops(Ctx, 0);
 
-    int OnErrorStatus = isl_options_get_on_error(Ctx);
+    auto OnErrorStatus = isl_options_get_on_error(Ctx);
     isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
 
     isl::schedule_constraints SC = isl::schedule_constraints::on_domain(Domain);

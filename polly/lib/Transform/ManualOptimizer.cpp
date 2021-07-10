@@ -2633,23 +2633,6 @@ static isl::schedule applyLoopFusion(MDNode *LoopMD,
   }
 
   return applyLoopFuseGroup(ParentBand, FuseGroup);
-
-  // Find the other bands to fuse with
-
-#if 0
- auto FusedID = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fused_id");
-
-  if (FusedID)
-    for (auto &X : drop_begin(SplitsMD->operands(), 1)) {
-      auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
-      auto Pos = cast<ConstantInt>(PosConst)->getZExtValue();
-      SplitPos.push_back(Pos);
-    }
-
-  return applyFusion(LoopMD, BandToFission, SplitPos);
-#endif
-
-  return {};
 }
 
 // Return the properties from a LoopID. Scalar properties are ignored.
@@ -2890,6 +2873,7 @@ public:
           return;
       }
 
+      // not a loop transformation; look for next property
       continue;
     }
   }

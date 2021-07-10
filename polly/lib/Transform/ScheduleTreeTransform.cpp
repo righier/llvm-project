@@ -480,22 +480,6 @@ isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
   return NewSched;
 }
 
-#if 0
-static MDNode *findNamedMetadataNode(MDNode *LoopMD, StringRef Name) {
-  if (!LoopMD)
-    return nullptr;
-  for (auto &X : drop_begin(LoopMD->operands(), 1)) {
-    auto OpNode = cast<MDNode>(X.get());
-    auto OpName = dyn_cast<MDString>(OpNode->getOperand(0));
-    if (!OpName)
-      continue;
-    if (OpName->getString() == Name)
-      return OpNode;
-  }
-  return nullptr;
-}
-#endif
-
 /// Return the (one-dimensional) set of numbers that are divisible by @p Factor
 /// with remainder @p Offset.
 ///
