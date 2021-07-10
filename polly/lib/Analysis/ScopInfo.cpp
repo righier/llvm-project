@@ -124,7 +124,7 @@ static int const MaxDisjunctsInContext = INT_MAX;
 
 // Be a bit more generous for the defined behavior context which is used less
 // often.
-static int const MaxDisjunktsInDefinedBehaviourContext =  INT_MAX;
+static int const MaxDisjunktsInDefinedBehaviourContext = INT_MAX;
 
 static cl::opt<bool> PollyRemarksMinimal(
     "polly-remarks-minimal",

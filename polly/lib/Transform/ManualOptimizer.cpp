@@ -2559,10 +2559,9 @@ static isl::schedule applyLoopFission(MDNode *LoopMD,
   //  return applyAutofission(BandToFission, D);
 }
 
-
-static void
-foreachScheduleTreeChild(isl::schedule_node Parent,
-  llvm::function_ref<void(const isl::schedule_node& Child)> Callback) {
+static void foreachScheduleTreeChild(
+    isl::schedule_node Parent,
+    llvm::function_ref<void(const isl::schedule_node &Child)> Callback) {
   if (Parent.has_children()) {
     auto C = Parent.first_child();
     while (true) {
@@ -2574,41 +2573,44 @@ foreachScheduleTreeChild(isl::schedule_node Parent,
   }
 }
 
-static  bool isFilter(const isl::schedule_node &Node) {
+static bool isFilter(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;
 }
 
-static  bool isSequence(const isl::schedule_node &Node) {
+static bool isSequence(const isl::schedule_node &Node) {
   auto Kind = isl_schedule_node_get_type(Node.get());
-  return Kind== isl_schedule_node_sequence;
+  return Kind == isl_schedule_node_sequence;
 }
 
-
-
-static isl::schedule applyLoopFuseGroup(isl::schedule_node FuseParent, MDNode* FuseGroup) {
+static isl::schedule applyLoopFuseGroup(isl::schedule_node FuseParent,
+                                        MDNode *FuseGroup) {
   assert(FuseGroup);
   assert(isSequence(FuseParent));
 
-  MDNode* FollowupFusedId=nullptr;
+  MDNode *FollowupFusedId = nullptr;
   SmallVector<isl::schedule_node> ToBeFused;
-  foreachScheduleTreeChild(FuseParent,[&] (const isl::schedule_node& Child) {
+  foreachScheduleTreeChild(FuseParent, [&](const isl::schedule_node &Child) {
     auto ChildBand = Child;
     if (isFilter(ChildBand))
       ChildBand = ChildBand.first_child();
-  
+
     auto BandAttr = getBandAttr(ChildBand);
     if (!BandAttr)
       return;
-   auto LoopMD = BandAttr->Metadata;
-   if (!LoopMD)
-     return;
+    auto LoopMD = BandAttr->Metadata;
+    if (!LoopMD)
+      return;
 
-    auto ThisFuseGroup = findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group").getValueOr(nullptr);
+    auto ThisFuseGroup =
+        findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group")
+            .getValueOr(nullptr);
     if (ThisFuseGroup && ThisFuseGroup == FuseGroup) {
       // This loop is fused
       ToBeFused.push_back(ChildBand);
       if (!FollowupFusedId)
-        FollowupFusedId = cast_or_null<MDNode>( findMetadataOperand(LoopMD, "llvm.loop.fuse.followup_fused" ).getValueOr(nullptr));
+        FollowupFusedId = cast_or_null<MDNode>(
+            findMetadataOperand(LoopMD, "llvm.loop.fuse.followup_fused")
+                .getValueOr(nullptr));
     }
   });
 
@@ -2616,33 +2618,23 @@ static isl::schedule applyLoopFuseGroup(isl::schedule_node FuseParent, MDNode* F
   return applyFusion(ToBeFused, FollowupFusedId);
 }
 
+static isl::schedule applyLoopFusion(MDNode *LoopMD,
+                                     isl::schedule_node BandToFuse) {
 
-
-
-
-
-
-static isl::schedule applyLoopFusion(MDNode *LoopMD, isl::schedule_node BandToFuse) {
-
- // auto FuseWith = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fuse_with");
-  auto FuseGroup = cast<MDNode> (findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group").getValue());
+  // auto FuseWith = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fuse_with");
+  auto FuseGroup = cast<MDNode>(
+      findMetadataOperand(LoopMD, "llvm.loop.fuse.fuse_group").getValue());
   assert(FuseGroup);
 
   isl::schedule_node ParentBand = BandToFuse.parent();
-  
+
   while (!isSequence(ParentBand)) {
     ParentBand = ParentBand.parent();
   }
 
   return applyLoopFuseGroup(ParentBand, FuseGroup);
 
-
-
   // Find the other bands to fuse with
- 
-
-
-
 
 #if 0
  auto FusedID = findOptionMDForLoopID(LoopMD, "llvm.loop.fuse.fused_id");
@@ -2657,10 +2649,8 @@ static isl::schedule applyLoopFusion(MDNode *LoopMD, isl::schedule_node BandToFu
   return applyFusion(LoopMD, BandToFission, SplitPos);
 #endif
 
-  return{};
+  return {};
 }
-
-
 
 // Return the properties from a LoopID. Scalar properties are ignored.
 static auto getLoopMDProps(MDNode *LoopMD) {
@@ -2894,9 +2884,8 @@ public:
         Result = applyLoopFusion(LoopMD, Band);
         if (!Result.is_null())
           Result = checkDependencyViolation(
-            LoopMD, CodeRegion, Band, "llvm.loop.fuse.loc",
-            "llvm.loop.fuse.", "FailedRequestedFusion",
-            "loop fusion");
+              LoopMD, CodeRegion, Band, "llvm.loop.fuse.loc", "llvm.loop.fuse.",
+              "FailedRequestedFusion", "loop fusion");
         if (!Result.is_null())
           return;
       }

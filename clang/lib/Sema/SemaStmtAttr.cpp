@@ -326,39 +326,34 @@ static Attr *handleLoopFission(Sema &S, Stmt *St, const ParsedAttr &A,
       FissionedId.data(), FissionedId.size(), A.getRange());
 }
 
-
-
-
-static Attr *handleLoopFusion(Sema &S, Stmt *St, const ParsedAttr &A,  SourceRange) {
+static Attr *handleLoopFusion(Sema &S, Stmt *St, const ParsedAttr &A,
+                              SourceRange) {
   assert(A.getNumArgs() >= 1);
 
   // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) fuse
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
   SmallVector<StringRef, 4> ApplyOns;
   unsigned i = 0;
-    while (true) {
-      auto Ident = A.getArgAsIdent(i);
-      i += 1;
-      if (!Ident)
-        break;
-      ApplyOnLocs.push_back(Ident);
-      ApplyOns.push_back(Ident->Ident->getName());
-   }
-  
-    auto FusedId = A.getArgAsIdent(i);
-    StringRef FusedIdName;
-    if (FusedId)
-      FusedIdName = FusedId->Ident->getName();
-
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
     i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
+
+  auto FusedId = A.getArgAsIdent(i);
+  StringRef FusedIdName;
+  if (FusedId)
+    FusedIdName = FusedId->Ident->getName();
+
+  i += 1;
   assert(A.getNumArgs() == i);
 
-
-  return LoopFusionAttr::CreateImplicit(S.Context,
-    ApplyOns.data(),ApplyOns.size(), FusedIdName ,
-    A.getRange());
+  return LoopFusionAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), FusedIdName, A.getRange());
 }
-
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {

@@ -262,11 +262,10 @@ struct LoopTransformation {
     return Result;
   }
 
-
-  static LoopTransformation
-    createFusion(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
-      llvm::ArrayRef<StringRef> ApplyOns, 
-      StringRef FusedId) {
+  static LoopTransformation createFusion(llvm::DebugLoc BeginLoc,
+                                         llvm::DebugLoc EndLoc,
+                                         llvm::ArrayRef<StringRef> ApplyOns,
+                                         StringRef FusedId) {
 
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
@@ -461,29 +460,45 @@ public:
   VirtualLoopInfo(llvm::LLVMContext &Ctx);
   VirtualLoopInfo(llvm::LLVMContext &Ctx, llvm::StringRef Name);
 
-  /// Mark follow-up loop to require an explicit LoopID; otherwise, the LoopID will be derived by the loop transformation pass.
-  /// TODO: Do the loop transformation pass have to add disable_heuristics themselves?
+  /// Mark follow-up loop to require an explicit LoopID; otherwise, the LoopID
+  /// will be derived by the loop transformation pass.
+  /// TODO: Do the loop transformation pass have to add disable_heuristics
+  /// themselves?
   void markNondefault() {
     assert(!_LoopID && "LoopID already created");
-    IsDefault = false; }
+    IsDefault = false;
+  }
 
   /// Mark a loop to be not processed by heursitics.
-  /// MUST be added to any transformed loop to avoid that loop optimization pass other than the intended processed them.
-  /// TODO: Add to followup-loops as well? If a loop has a user-transformation, the user may not want additional transformations to be applied which may just revert their user-directed transformation. 
+  /// MUST be added to any transformed loop to avoid that loop optimization pass
+  /// other than the intended processed them.
+  /// TODO: Add to followup-loops as well? If a loop has a user-transformation,
+  /// the user may not want additional transformations to be applied which may
+  /// just revert their user-directed transformation.
   /// TODO: Should this imply markNondefault()?
-  void markDisableHeuristic() {     assert(!_LoopID && "LoopID already created");DisableHeuristic = true; }
+  void markDisableHeuristic() {
+    assert(!_LoopID && "LoopID already created");
+    DisableHeuristic = true;
+  }
 
-  void addAttribute(llvm::Metadata *Node) {     assert(!_LoopID && "LoopID already created");Attributes.push_back(Node); }
+  void addAttribute(llvm::Metadata *Node) {
+    assert(!_LoopID && "LoopID already created");
+    Attributes.push_back(Node);
+  }
 
-  void addTransformMD(llvm::Metadata *Node) {     assert(!_LoopID && "LoopID already created");Transforms.push_back(Node); }
+  void addTransformMD(llvm::Metadata *Node) {
+    assert(!_LoopID && "LoopID already created");
+    Transforms.push_back(Node);
+  }
 
   void addFollowup(const char *FollowupAttributeName,
-                   VirtualLoopInfo *Followup) {    assert(!_LoopID && "LoopID already created");
+                   VirtualLoopInfo *Followup) {
+    assert(!_LoopID && "LoopID already created");
     // assert(!Followups.count(FollowupAttributeName));
     Followups.push_back({FollowupAttributeName, Followup});
   }
 
-  void addSubloop(VirtualLoopInfo *Subloop) {   Subloops.push_back(Subloop); }
+  void addSubloop(VirtualLoopInfo *Subloop) { Subloops.push_back(Subloop); }
 
 #if 0
 	void addOriginal(VirtualLoopInfo* VInfo) {
@@ -497,7 +512,7 @@ public:
 	}
 #endif
   llvm::TempMDTuple TmpLoopID;
-  llvm::MDNode* _LoopID = nullptr;
+  llvm::MDNode *_LoopID = nullptr;
   llvm::MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
   // private:
@@ -648,7 +663,8 @@ public:
                                        VirtualLoopInfo *On);
   VirtualLoopInfo *applyFission(const LoopTransformation &Transform,
                                 VirtualLoopInfo *On);
-  VirtualLoopInfo* applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<VirtualLoopInfo*> On);
+  VirtualLoopInfo *applyFusion(const LoopTransformation &Transform,
+                               llvm::ArrayRef<VirtualLoopInfo *> On);
 
   void finish();
 

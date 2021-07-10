@@ -597,7 +597,7 @@ LoopInfoStack::applyTiling(const LoopTransformation &Transform,
     auto TileId = (i < Transform.TileTileIds.size()) ? Transform.TileTileIds[i]
                                                      : StringRef();
 
-    auto Outer = new VirtualLoopInfo(Ctx,  FloorId);
+    auto Outer = new VirtualLoopInfo(Ctx, FloorId);
     OuterLoops.push_back(Outer);
     if (!FloorId.empty()) {
       // Outer->Name = FloorId;
@@ -834,7 +834,7 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   assert(OrigIntermediateLoops.back() == OrigInner);
 
   auto Result = new VirtualLoopInfo(Ctx, Orig->Name);
-  auto ResultInner = new VirtualLoopInfo(Ctx,OrigInner->Name);
+  auto ResultInner = new VirtualLoopInfo(Ctx, OrigInner->Name);
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -989,7 +989,6 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
   return Result;
 }
 
-
 VirtualLoopInfo *
 LoopInfoStack::applyFission(const LoopTransformation &Transform,
                             VirtualLoopInfo *On) {
@@ -1013,9 +1012,7 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
               ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
   }
 
-
- 
-  if (SplitAt.size()) {  
+  if (SplitAt.size()) {
     SmallVector<Metadata *> SplitAtInfo;
     SplitAtInfo.reserve(SplitAt.size() + 1);
     SplitAtInfo.push_back(MDString::get(Ctx, "llvm.loop.fission.split_at"));
@@ -1026,22 +1023,15 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
     Orig->addTransformMD(MDNode::get(Ctx, SplitAtInfo));
   }
 
-
-
   SmallVector<VirtualLoopInfo *, 4> FissionedLoops;
   auto AddFissionedLoop = [&](int i, int Start, int Stop) {
-     StringRef FissionedId;
-     if (i < FissionIds.size())
-       FissionedId = FissionIds[i];
+    StringRef FissionedId;
+    if (i < FissionIds.size())
+      FissionedId = FissionIds[i];
     auto Fissioned = new VirtualLoopInfo(Ctx, FissionedId);
     Fissioned->markNondefault();
     Fissioned->markDisableHeuristic();
     FissionedLoops.push_back(Fissioned);
-
-
- 
-
-
 
     // Inherit attributes (debug loc, etc).
     for (auto X : Orig->Attributes) {
@@ -1052,94 +1042,88 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
 
     if (!FissionedId.empty()) {
       Fissioned->addTransformMD(
-        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
-          MDString::get(Ctx, FissionedId)}));
+          MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
+                            MDString::get(Ctx, FissionedId)}));
 
       assert(!NamedLoopMap.count(FissionedId));
       NamedLoopMap[FissionedId] = Fissioned;
     }
 
-    // FIXME: If identifying loops by nesting (instead of loop ids), need to update subloop structure
-    //Orig->addSubloop(Fissioned);
+    // FIXME: If identifying loops by nesting (instead of loop ids), need to
+    // update subloop structure
+    // Orig->addSubloop(Fissioned);
   };
 
   int NextStart = 0;
-  FissionedLoops.reserve(SplitAt.size()+1);
+  FissionedLoops.reserve(SplitAt.size() + 1);
   for (int i = 0; i < SplitAt.size(); i += 1) {
     AddFissionedLoop(i, NextStart, SplitAt[i]);
     NextStart = SplitAt[i] + 1;
   }
-  AddFissionedLoop(SplitAt.size(),NextStart, -1);
- 
-  
+  AddFissionedLoop(SplitAt.size(), NextStart, -1);
 
-  
-
-  
   return FissionedLoops[0];
 }
 
-
-
-
-
-VirtualLoopInfo*
-LoopInfoStack::applyFusion(const LoopTransformation& Transform, llvm::ArrayRef<VirtualLoopInfo*> On) {
+VirtualLoopInfo *
+LoopInfoStack::applyFusion(const LoopTransformation &Transform,
+                           llvm::ArrayRef<VirtualLoopInfo *> On) {
   assert(On.size() >= 2);
   auto Orig = On;
   auto FusedId = Transform.FusedId;
 
-  auto FuseGroup = MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
+  auto FuseGroup =
+      MDNode::getDistinct(Ctx, {MDString::get(Ctx, "Loop Fuse Group")});
 
   for (auto OrigL : Orig) {
-    OrigL->markDisableHeuristic();  
-    OrigL->addTransformMD(MDNode::get(Ctx, { 
-      MDString::get(Ctx, "llvm.loop.fuse.enable"),
-      ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
+    OrigL->markDisableHeuristic();
+    OrigL->addTransformMD(MDNode::get(
+        Ctx, {MDString::get(Ctx, "llvm.loop.fuse.enable"),
+              ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
     addDebugLoc(Ctx, "llvm.loop.fuse.loc", Transform, OrigL);
-    OrigL->addTransformMD(MDNode::get(Ctx, { MDString::get(Ctx, "llvm.loop.fuse.fuse_group"), FuseGroup }));
+    OrigL->addTransformMD(MDNode::get(
+        Ctx, {MDString::get(Ctx, "llvm.loop.fuse.fuse_group"), FuseGroup}));
     invalidateVirtualLoop(OrigL);
   }
 
-  VirtualLoopInfo* FusedLoop = new VirtualLoopInfo(Ctx, FusedId);
+  VirtualLoopInfo *FusedLoop = new VirtualLoopInfo(Ctx, FusedId);
   FusedLoop->markDisableHeuristic();
   FusedLoop->markNondefault();
 
   // Inherit attributes (debug loc, etc) that are common to all fused loops
-  SetVector<Metadata*> CommonAttrs;
-  for (auto X : Orig[0]->Attributes) 
+  SetVector<Metadata *> CommonAttrs;
+  for (auto X : Orig[0]->Attributes)
     CommonAttrs.insert(X);
-  
-  SmallSet<Metadata*,4> ThisAttrs;
-  for (auto Y : llvm::drop_begin(On,1)) {
+
+  SmallSet<Metadata *, 4> ThisAttrs;
+  for (auto Y : llvm::drop_begin(On, 1)) {
     ThisAttrs.clear();
-    //ThisAttrs.reserve(Y->Attributes.size());
-    for (Metadata* X : Y->Attributes) {
+    // ThisAttrs.reserve(Y->Attributes.size());
+    for (Metadata *X : Y->Attributes) {
       ThisAttrs.insert(X);
-    }  
-    CommonAttrs.remove_if([&](Metadata* MD) { return !ThisAttrs.contains(MD); });
+    }
+    CommonAttrs.remove_if(
+        [&](Metadata *MD) { return !ThisAttrs.contains(MD); });
   }
-  for (auto X : CommonAttrs) 
+  for (auto X : CommonAttrs)
     FusedLoop->addAttribute(X);
 
-  for (auto OrigL : Orig) 
+  for (auto OrigL : Orig)
     OrigL->addFollowup("llvm.loop.fuse.followup_fused", FusedLoop);
-  
+
   if (!FusedId.empty()) {
-    FusedLoop->addTransformMD(MDNode::get(
-      Ctx, {MDString::get(Ctx, "llvm.loop.id"), MDString::get(Ctx, FusedId)}));
+    FusedLoop->addTransformMD(
+        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
+                          MDString::get(Ctx, FusedId)}));
 
     assert(!NamedLoopMap.count(FusedId));
     NamedLoopMap[FusedId] = FusedLoop;
   }
 
-  // FIXME: If identifying loops by nesting (instead of loop ids), need to update subloop structure
+  // FIXME: If identifying loops by nesting (instead of loop ids), need to
+  // update subloop structure
   return FusedLoop;
 }
-
-
-
-
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
   //	LLVMContext &Ctx = Header->getContext();
@@ -1239,9 +1223,7 @@ void LoopInfo::finish(LoopInfoStack &LIS) {
   TempLoopID->replaceAllUsesWith(LoopID);
 }
 
-
-
-MDNode *VirtualLoopInfo::makeLoopID(llvm::LLVMContext &Ctx) { 
+MDNode *VirtualLoopInfo::makeLoopID(llvm::LLVMContext &Ctx) {
   if (_LoopID)
     return _LoopID;
 
@@ -1297,13 +1279,10 @@ MDNode *VirtualLoopInfo::makeLoopID(llvm::LLVMContext &Ctx) {
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
-
   TmpLoopID->replaceAllUsesWith(LoopID);
   _LoopID = LoopID;
   return LoopID;
 }
-
-
 
 LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
                               const llvm::DebugLoc &StartLoc,
@@ -1322,9 +1301,11 @@ LoopInfo *LoopInfoStack::push(BasicBlock *Header, Function *F,
   return NewLoop;
 }
 
-VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext& Ctx) : TmpLoopID(MDNode::getTemporary(Ctx, {nullptr})) {}
+VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext &Ctx)
+    : TmpLoopID(MDNode::getTemporary(Ctx, {nullptr})) {}
 
-VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext &Ctx, StringRef Name) : VirtualLoopInfo(Ctx) {
+VirtualLoopInfo::VirtualLoopInfo(llvm::LLVMContext &Ctx, StringRef Name)
+    : VirtualLoopInfo(Ctx) {
   this->Name = Name;
 }
 
@@ -1455,24 +1436,16 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       continue;
     }
 
-
-
     if (auto LFusion = dyn_cast<LoopFusionAttr>(Attr)) {
       auto ApplyOns = LFusion->applyOn();
-      auto FusedId=LFusion->getFusedId();
-
-
+      auto FusedId = LFusion->getFusedId();
 
       addTransformation(LoopTransformation::createFusion(
-        LocBegin, LocEnd, 
-        makeArrayRef(LFusion->applyOn_begin(), LFusion->applyOn_end()) ,
-        FusedId
-        ));
+          LocBegin, LocEnd,
+          makeArrayRef(LFusion->applyOn_begin(), LFusion->applyOn_end()),
+          FusedId));
       continue;
     }
-
-
-
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
@@ -1910,7 +1883,8 @@ void LoopInfoStack::finish() {
         if (auto LI = dyn_cast<LoadInst>(Op))
           continue;
 
-        // Don't know whether a return by a function is related to the memory address.
+        // Don't know whether a return by a function is related to the memory
+        // address.
         if (auto CB = dyn_cast<CallBase>(Op)) {
           switch (CB->getIntrinsicID()) {
             // TODO: more whitelisted functions.

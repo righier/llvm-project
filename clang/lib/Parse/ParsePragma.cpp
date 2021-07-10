@@ -1435,7 +1435,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
   switch (Kind) {
   case TransformClauseKind::ReversedId:
-  case TransformClauseKind::FusedId:  {
+  case TransformClauseKind::FusedId: {
     i += 1;
 
     assert(Toks[i].is(tok::l_paren));
@@ -2059,7 +2059,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
       if (Kind == TransformClauseKind::None)
         break;
-        llvm_unreachable("unsupported clause for thread-parallelism");
+      llvm_unreachable("unsupported clause for thread-parallelism");
     }
 
     auto &EofTok = Toks[i];
@@ -2126,19 +2126,14 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     return true;
   }
 
-
-
-
   if (IdTok.getIdentifierInfo()->getName() == "fuse") {
     assert(ApplyOnLocs.size() > 1 && "must fuse at least two loops");
     assert(!ApplyOnFollowing && "fusion requires loop ids");
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
     ArgHints.push_back((IdentifierLoc *)nullptr);
- 
 
-
-    ArgsUnion FusedId{(IdentifierLoc *)nullptr}; 
+    ArgsUnion FusedId{(IdentifierLoc *)nullptr};
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -2164,8 +2159,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     PP.Lex(Tok);
     return true;
   }
-
-
 
   llvm_unreachable("Unrecognized transformation");
 }

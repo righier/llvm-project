@@ -1478,12 +1478,11 @@ writePrettyPrintFunction(const Record &R,
 
     OS << "  case " << I << " : {\n";
 
-
     if (Variety == "Pragma") {
-    OS  << "    OS << \"" << Prefix;
+      OS << "    OS << \"" << Prefix;
       if (PrettyPrintSpelling)
         OS << Spelling;
-      OS <<  "\";\n";
+      OS << "\";\n";
       OS << "    printPrettyPragma(OS, Policy);\n";
       OS << "    OS << \"\\n\";";
       OS << "    break;\n";
@@ -1491,7 +1490,7 @@ writePrettyPrintFunction(const Record &R,
       continue;
     }
 
-     OS  << "    OS << \"" << Prefix << Spelling << "\";\n";
+    OS << "    OS << \"" << Prefix << Spelling << "\";\n";
 
     if (Spelling == "availability") {
       OS << "    OS << \"(";
@@ -2618,8 +2617,8 @@ static void emitAttributes(RecordKeeper &Records, raw_ostream &OS,
       OS << "  A->setImplicit(Implicit);\n";
       OS << "  return A;\n}\n\n";
 
-       auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
-    writePrettyPrintFunction(R, Args, OS, PrettyPrintSpelling);
+      auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
+      writePrettyPrintFunction(R, Args, OS, PrettyPrintSpelling);
 
       writeGetSpellingFunction(R, OS);
     }
