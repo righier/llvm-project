@@ -3833,19 +3833,28 @@ def LoopUnrolling : Attr {
 // TODO: 'interleave' would also be defined with arbitrary loop nests.
 def LoopUnrollingAndJam : Attr {
   // #pragma clang loop unrollingandjam [factor(n)] [full]
-  // #pragma clang loop(loopname) unrollingandjam [factor(n)] [full]
+  // #pragma clang loop(loopname,loopname) unrollingandjam [factor(n)] [full]
 
   // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
   let Spellings = [Pragma<"", "unrollingandjam">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">, VariadicStringArgument<"UnrolledIds">, ];
 
   let AdditionalMembers = [{
     void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
       OS << "clang loop";
-      if (!getApplyOn().empty()) {
-        OS << "(" << getApplyOn() << ")";
+      if (applyOn_size()) {
+        OS << "(";
+        bool First = true;
+          for (auto Piece : applyOn()) {
+            if (!First) {
+              OS << ", ";
+            }
+            OS << Piece;
+            First = false;
+          }
+        OS << ")";
       }
 
       OS << " unrollingandjam";
@@ -3858,6 +3867,19 @@ def LoopUnrollingAndJam : Attr {
 
       if (getFull()) {
         OS << " full";
+      }
+
+      if (unrolledIds_size()) {
+        OS << "unrolled_ids(";
+        bool First = true;
+        for (auto Piece : unrolledIds()) {
+            if (!First) {
+              OS << ", ";
+            }
+            OS << Piece;
+            First = false;
+          }
+        OS << ")";
       }
     }
   }];

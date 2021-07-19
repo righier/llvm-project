@@ -66,7 +66,9 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
   llvm::StringRef Name;
-  llvm::StringRef FollowupName;
+
+  // Reversal
+  llvm::StringRef ReversedId;
 
   // Tiling
   llvm::SmallVector<int64_t, 4> TileSizes;
@@ -87,6 +89,9 @@ struct LoopTransformation {
   // Unroll / UnrollAndJam
   int64_t Factor = -1;
   bool Full = false;
+
+  // UnrollAndJam
+  llvm::SmallVector<llvm::StringRef, 4>  UnrolledIds;
 
   // Fission
   bool Autofission = false;
@@ -136,7 +141,7 @@ struct LoopTransformation {
     Result.Kind = Reversal;
     if (!ApplyOn.empty())
       Result.ApplyOns.push_back(ApplyOn);
-    Result.FollowupName = ReversedId;
+    Result.ReversedId = ReversedId;
     return Result;
   }
 
@@ -202,12 +207,13 @@ struct LoopTransformation {
 
   static LoopTransformation createUnrolling(llvm::DebugLoc BeginLoc,
                                             llvm::DebugLoc EndLoc,
-                                            llvm::StringRef ApplyOn,
+    llvm::StringRef ApplyOn,
                                             int64_t Factor, bool Full) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
     Result.Kind = Unrolling;
+
     if (!ApplyOn.empty())
       Result.ApplyOns.push_back(ApplyOn);
     Result.Factor = Factor;
@@ -217,16 +223,16 @@ struct LoopTransformation {
 
   static LoopTransformation createUnrollingAndJam(llvm::DebugLoc BeginLoc,
                                                   llvm::DebugLoc EndLoc,
-                                                  llvm::StringRef ApplyOn,
-                                                  int64_t Factor, bool Full) {
+    llvm::ArrayRef<llvm::StringRef> ApplyOns,                                           
+                                                  int64_t Factor, bool Full,    llvm::ArrayRef<llvm::StringRef> UnrolledIds ) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
     Result.Kind = UnrollingAndJam;
-    if (!ApplyOn.empty())
-      Result.ApplyOns.push_back(ApplyOn);
+    llvm::append_range( Result.ApplyOns , ApplyOns);
     Result.Factor = Factor;
     Result.Full = Full;
+    llvm::append_range(  Result.UnrolledIds, UnrolledIds);
     return Result;
   }
 
@@ -498,6 +504,7 @@ public:
     Followups.push_back({FollowupAttributeName, Followup});
   }
 
+  // TODO: Add subloop to separate, but always-latest loop nest data structure
   void addSubloop(VirtualLoopInfo *Subloop) { Subloops.push_back(Subloop); }
 
 #if 0

@@ -271,15 +271,47 @@ static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A,
 
 static Attr *handleLoopUnrollingAndJam(Sema &S, Stmt *St, const ParsedAttr &A,
                                        SourceRange) {
-  assert(A.getNumArgs() == 3);
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  unsigned i = 0;
 
-  auto ApplyOnLoc = A.getArgAsIdent(0);
-  auto FactorLoc = A.getArgAsExpr(1);
-  auto FullLoc = A.getArgAsIdent(2);
+    while (true) {
+      auto Ident = A.getArgAsIdent(i);
+      i += 1;
+      if (!Ident)
+        break;
+      ApplyOnLocs.push_back(Ident);
+      ApplyOns.push_back(Ident->Ident->getName());
+    }
 
-  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+
+
+  auto FactorLoc = A.getArgAsExpr(i);
+  i += 1;
+  auto FullLoc = A.getArgAsIdent(i);
+  i += 1;
+
+  SmallVector<IdentifierLoc *, 4> UnrolledIdLocs;
+  SmallVector<StringRef, 4> UnrolledIds;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    UnrolledIdLocs.push_back(Ident);
+    UnrolledIds.push_back(Ident->Ident->getName());
+  }
+
+  assert(i==NumArgs);
+
+  //auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
   return LoopUnrollingAndJamAttr::CreateImplicit(
-      S.Context, ApplyOn, FactorLoc, FullLoc != nullptr, A.getRange());
+      S.Context, 
+    ApplyOns.data(), ApplyOns.size(),
+    FactorLoc, FullLoc != nullptr,
+    UnrolledIds.data(), UnrolledIds.size(),
+    A.getRange());
 }
 
 static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,

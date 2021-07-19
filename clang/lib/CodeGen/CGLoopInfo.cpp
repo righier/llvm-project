@@ -546,12 +546,12 @@ LoopInfoStack::applyReversal(const LoopTransformation &TheTransform,
     Result->addAttribute(X);
 
   On->addFollowup("llvm.loop.reverse.followup_reversed", Result);
-  if (!TheTransform.FollowupName.empty()) {
-    assert(!NamedLoopMap.count(TheTransform.FollowupName));
-    NamedLoopMap[TheTransform.FollowupName] = Result;
+  if (!TheTransform.ReversedId.empty()) {
+    assert(!NamedLoopMap.count(TheTransform.ReversedId));
+    NamedLoopMap[TheTransform.ReversedId] = Result;
     Result->addTransformMD(
         MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
-                          MDString::get(Ctx, TheTransform.FollowupName)}));
+                          MDString::get(Ctx, TheTransform.ReversedId)}));
     Result->markNondefault();
   }
 
@@ -795,6 +795,7 @@ LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,
   Orig->markDisableHeuristic();
   invalidateVirtualLoop(Orig);
 
+#if 0
   if (!Transform.FollowupName.empty()) {
     assert(!NamedLoopMap.count(Transform.FollowupName));
     NamedLoopMap[Transform.FollowupName] = Result;
@@ -803,6 +804,7 @@ LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,
                           MDString::get(Ctx, Transform.FollowupName)}));
     Result->markNondefault();
   }
+#endif
 
   return Result;
 }
@@ -810,82 +812,109 @@ LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,
 VirtualLoopInfo *
 LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
                                     llvm::ArrayRef<VirtualLoopInfo *> On) {
-  assert(On.size() == 1);
-  auto Orig = On[0];
-
+  VirtualLoopInfo* OrigOuter = nullptr;
+  VirtualLoopInfo* OrigInner = nullptr;
   SmallVector<VirtualLoopInfo *, 4> OrigIntermediateLoops;
-
-  // Find innermost loop
-  auto OrigInner = Orig;
-  while (true) {
-    OrigIntermediateLoops.push_back(OrigInner);
-    assert(OrigInner->Subloops.size() <= 1 && "Must be perfectly nested loops");
-    if (OrigInner->Subloops.empty()) {
-      // Reached innermost loop
-      break;
-    }
-
-    OrigInner = OrigInner->Subloops[0];
+  for (int i = 0; i < On.size(); i += 1) {
+    auto Orig = On[i];
+    if (i == 0)
+      OrigOuter = Orig;
+    else if (i + 1 == On.size())
+      OrigInner = Orig;    
+    OrigIntermediateLoops.push_back(Orig);
   }
 
-  assert(OrigInner != Orig && "Unrolling-and-Jam requires a nested loop");
+  assert(OrigOuter);
+  if (!OrigInner) {
+    // Auto-Find innermost loop
+    auto OrigInner = OrigOuter;
+    while (true) {
+      OrigIntermediateLoops.push_back(OrigInner);
+      assert(OrigInner->Subloops.size() <= 1 && "Must be perfectly nested loops");
+      if (OrigInner->Subloops.empty()) {
+        // Reached innermost loop
+        break;
+      }
+
+      OrigInner = OrigInner->Subloops[0];
+    }
+  }
+
+//  auto OuterUnrolledId=  Transform.UnrolledIds[0];
+  //auto InnerUnrolledId=  Transform.UnrolledIds[1];
+
+  assert(OrigInner != OrigOuter && "Unrolling-and-Jam requires a nested loop");
   // ... but could also be interpreted as simple unrolling
-  assert(OrigIntermediateLoops.front() == Orig);
+  assert(OrigIntermediateLoops.front() == OrigOuter);
   assert(OrigIntermediateLoops.back() == OrigInner);
+  assert(OrigIntermediateLoops.size()>=2);
 
-  auto Result = new VirtualLoopInfo(Ctx, Orig->Name);
-  auto ResultInner = new VirtualLoopInfo(Ctx, OrigInner->Name);
+  SmallVector<VirtualLoopInfo *, 4> NewIntermediateLoops;
+  for (auto OrigL : llvm::enumerate(OrigIntermediateLoops)) {
+    auto Orig = OrigL.value();
+    auto i = OrigL.index();
+    auto Name = (i < Transform.UnrolledIds.size()) ?  Transform.UnrolledIds[i] : StringRef();
+    auto Result = new VirtualLoopInfo(Ctx, Name);
+    NewIntermediateLoops.push_back(Result);
+  }
 
-  // Inherit all attributes.
-  for (auto X : Orig->Attributes)
-    Result->addAttribute(X);
+  auto ResultOuter = NewIntermediateLoops.front();
+  auto ResultInner = NewIntermediateLoops.back();
 
-  Orig->addTransformMD(
-      MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.unroll_and_jam.enable"),
-                        createBoolMetadataConstant(Ctx, true)}));
-  Orig->markDisableHeuristic();
-  Orig->markNondefault();
+  for (auto P : llvm::zip(OrigIntermediateLoops, NewIntermediateLoops)) {
+    auto Orig = std::get<0>( P);
+    auto Result = std::get<1>( P);
+
+    // Inherit all attributes.
+    for (auto X : Orig->Attributes)
+      Result->addAttribute(X);
+    Orig->markDisableHeuristic();
+    Orig->markNondefault();
+  }
+
+  OrigOuter->addTransformMD(
+    MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.unroll_and_jam.enable"),
+      createBoolMetadataConstant(Ctx, true)}));
 
   auto UnrollFactor = Transform.Factor;
   auto IsFullUnroll = Transform.Full;
   if (UnrollFactor > 0 && IsFullUnroll) {
     llvm_unreachable("Contradicting state");
   } else if (UnrollFactor > 0) {
-    Orig->addTransformMD(
+    OrigOuter->addTransformMD(
         MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.unroll_and_jam.count"),
                           createUnsignedMetadataConstant(Ctx, UnrollFactor)}));
   } else if (IsFullUnroll) {
-    Orig->addTransformMD(
+    OrigOuter->addTransformMD(
         MDNode::get(Ctx, MDString::get(Ctx, "llvm.loop.unroll_and_jam.full")));
   } else {
     // Determine unroll factor heuristically
   }
   addDebugLoc(Ctx, "llvm.loop.unroll_and_jam.loc", Transform, On[0]);
 
-  Orig->addFollowup("llvm.loop.unroll_and_jam.followup_outer_unrolled", Result);
-  OrigInner->addFollowup("llvm.loop.unroll_and_jam.followup_inner_unrolled",
-                         ResultInner);
-  Orig->markNondefault();
-  OrigInner->markNondefault();
-  Orig->markDisableHeuristic();
-  OrigInner->markDisableHeuristic();
+  OrigOuter->addFollowup("llvm.loop.unroll_and_jam.followup_outer_unrolled", ResultOuter);  OrigOuter->markNondefault();  OrigOuter->markDisableHeuristic();
+  OrigInner->addFollowup("llvm.loop.unroll_and_jam.followup_inner_unrolled", ResultInner);  OrigInner->markNondefault();  OrigInner->markDisableHeuristic();
+  // TODO: Inner followups
 
-  invalidateVirtualLoop(Orig);
-  invalidateVirtualLoop(OrigInner);
-  NamedLoopMap[Result->Name] = Result;
-  NamedLoopMap[ResultInner->Name] = ResultInner;
+  VirtualLoopInfo* PrevResult = nullptr;
+  for (auto P : llvm::zip(OrigIntermediateLoops, NewIntermediateLoops)) {
+    auto Orig = std::get<0>( P);
+    auto Result = std::get<1>( P);
+    invalidateVirtualLoop(Orig);
+    if (!Result->Name.empty())
+      NamedLoopMap[Result->Name] = Result;
 
-  if (!Transform.FollowupName.empty()) {
-    assert(!NamedLoopMap.count(Transform.FollowupName));
-    NamedLoopMap[Transform.FollowupName] = Result;
-    Result->addTransformMD(
-        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
-                          MDString::get(Ctx, Transform.FollowupName)}));
-    Result->markNondefault();
+    // TODO: Properly restore 
+    if (PrevResult)
+      PrevResult->addSubloop(Result);
+    PrevResult = Result;
   }
+  for (auto BodyLoop : OrigInner->Subloops) 
+    PrevResult->addSubloop(BodyLoop);
 
+#if 0
   SmallVector<VirtualLoopInfo *, 4> NewIntermediateLoops;
-  NewIntermediateLoops.push_back(Result);
+  NewIntermediateLoops.push_back(ResultOuter);
   for (int i = 1; i < OrigIntermediateLoops.size() - 1; i += 1) {
     NewIntermediateLoops.push_back(
         new VirtualLoopInfo(Ctx, OrigIntermediateLoops[i]->Name));
@@ -898,8 +927,9 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   for (auto BodyLoop : OrigInner->Subloops) {
     NewIntermediateLoops.back()->addSubloop(BodyLoop);
   }
+#endif
 
-  return Result;
+  return ResultOuter;
 }
 
 VirtualLoopInfo *
@@ -1404,8 +1434,12 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         FactorInt = FactorAPS.getSExtValue();
       }
       addTransformation(LoopTransformation::createUnrollingAndJam(
-          LocBegin, LocEnd, Unrolling->getApplyOn(), FactorInt,
-          Unrolling->getFull()));
+          LocBegin, LocEnd,// Unrolling->getApplyOn(), 
+        makeArrayRef(Unrolling->applyOn_begin(), Unrolling->applyOn_size()),        
+        FactorInt,
+          Unrolling->getFull(), 
+        makeArrayRef(Unrolling->unrolledIds_begin(), Unrolling->unrolledIds_size())
+        ));
       continue;
     }
 
