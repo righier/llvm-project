@@ -657,7 +657,17 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
                                 llvm::ArrayRef<VirtualLoopInfo *> On) {
   auto N = On.size();
   assert(N >= 2);
-  assert(Transform.Permutation.size() == N);
+
+#if 0
+  auto Permutation = Transform.Permutation;
+  if (Permutation.empty()) {
+    // Implicitly assume interchange of two loops
+    assert(On.size()==2);
+
+  }
+
+  assert(Permutation.size() == N);
+#endif
 
   for (auto OldLoop : On)
     invalidateVirtualLoop(OldLoop);
@@ -671,30 +681,50 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N)))}));
   addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, TopmostOrig);
 
-  StringMap<int> NewPos; // old name -> new index
-  for (auto PermutedName : Transform.Permutation) {
-    auto NewIndex = NewPos.size();
-    NewPos.insert({PermutedName, NewIndex});
+
+  SmallVector<int> Perm; // old index -> new index
+  if (Transform.Permutation.empty()) {
+    // Implied interchange of two loops
+    assert(On.size()==2);
+    Perm.push_back(1);
+    Perm.push_back(0);
+  } else {
+    StringMap<int> NewPos; // old name -> new index
+    for (auto PermutedName : Transform.Permutation) {
+      auto NewIndex = NewPos.size();
+      NewPos.insert({PermutedName, NewIndex});
+    }
+
+    for (int i = 0; i < N; i += 1) {
+      auto LoopName = On[i]->Name;
+      auto NewIndex = NewPos.lookup(LoopName);
+      Perm.push_back(NewIndex);
+    }
   }
 
-  SmallVector<Metadata *, 4> Permutation; // old index -> MDNode
-  SmallVector<StringRef, 4> NewId;        // old index -> new name
+  assert(Perm.size() == On.size ());
+
+
+  SmallVector<Metadata *> Permutation; // old index -> MDNode
+  SmallVector<StringRef> NewId;        // old index -> new name
   for (int i = 0; i < N; i += 1)
     NewId.push_back(StringRef());
 
-  Permutation.push_back(
-      MDString::get(Ctx, "llvm.loop.interchange.permutation"));
+
+
+  Permutation.push_back(MDString::get(Ctx, "llvm.loop.interchange.permutation"));
   for (int i = 0; i < N; i += 1) {
-    auto LoopName = On[i]->Name;
-    auto NewIndex = NewPos.lookup(LoopName);
-    Permutation.push_back(
-        ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
+    //auto LoopName = On[i]->Name;
+    auto NewIndex = Perm[i];
+    Permutation.push_back(ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
     if (NewIndex < Transform.PermutedIds.size())
       NewId[i] = Transform.PermutedIds[NewIndex];
   }
   TopmostOrig->addTransformMD(MDNode::get(Ctx, Permutation));
 
-  SmallVector<VirtualLoopInfo *, 4> LoopsToPermute;
+
+
+  SmallVector<VirtualLoopInfo *> LoopsToPermute;
   for (int i = 0; i < N; i += 1) {
     auto Orig = On[i];
     auto PermutedId = NewId[i].empty() ? Orig->Name : NewId[i];
@@ -718,11 +748,11 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
   for (auto NewLoop : LoopsToPermute)
     NamedLoopMap.insert({NewLoop->Name, NewLoop});
 
-  SmallVector<VirtualLoopInfo *, 4> NewPermutation;
+  SmallVector<VirtualLoopInfo *> NewPermutation;
   NewPermutation.resize(N);
   for (int i = 0; i < N; i += 1) {
-    auto LoopName = On[i]->Name;
-    auto Pos = NewPos.lookup(LoopName);
+    //auto LoopName = On[i]->Name;
+    auto Pos = Perm[i]; 
     NewPermutation[Pos] = LoopsToPermute[i];
   }
 
@@ -814,7 +844,58 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
                                     llvm::ArrayRef<VirtualLoopInfo *> On) {
   VirtualLoopInfo* OrigOuter = nullptr;
   VirtualLoopInfo* OrigInner = nullptr;
-  SmallVector<VirtualLoopInfo *, 4> OrigIntermediateLoops;
+  SmallVector<VirtualLoopInfo *> OrigIntermediateLoops; 
+  SmallVector<VirtualLoopInfo *> OrigLoops;
+
+  assert(On.size() >= 1 && "Must apply to one loop");
+  OrigOuter = On.front();
+  if (On.size() >= 2)
+    OrigInner = On.back();
+
+
+  if (!OrigInner) {
+    // Automatically find innermost loop if not specified
+    OrigInner = OrigOuter;
+    while (true) {
+     // OrigIntermediateLoops.push_back(OrigInner);
+      assert(OrigInner->Subloops.size() <= 1 && "Must be perfectly nested loops");
+      if (OrigInner->Subloops.empty()) {
+        // Reached innermost loop
+        break;
+      }
+
+      OrigInner = OrigInner->Subloops[0];
+    }
+  }
+
+  // Find intermediate loops (Could be specified with `On` but we are ignoring it)
+  auto Cur = OrigOuter;
+  while (true) {
+    assert(Cur);
+    OrigLoops.push_back(Cur);
+    if (Cur == OrigInner)
+      break;
+    assert(Cur->Subloops.size() ==1);
+    Cur = Cur->Subloops.front();
+  }
+
+  llvm::append_range( OrigIntermediateLoops , llvm::drop_begin(OrigLoops,1));
+  OrigIntermediateLoops.pop_back();
+
+#if 0
+  switch (On.size()) {
+  case 0: { llvm_unreachable("Must apply to one loop"); } break;
+  case 1: {
+    // Auto-find innermost and intermediate loops
+  } break;
+  case 2: {
+  // Auto-find intermediate loops
+  } break;
+  default: {
+    
+  } break;
+}
+
   for (int i = 0; i < On.size(); i += 1) {
     auto Orig = On[i];
     if (i == 0)
@@ -827,7 +908,7 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   assert(OrigOuter);
   if (!OrigInner) {
     // Auto-Find innermost loop
-    auto OrigInner = OrigOuter;
+     OrigInner = OrigOuter;
     while (true) {
       OrigIntermediateLoops.push_back(OrigInner);
       assert(OrigInner->Subloops.size() <= 1 && "Must be perfectly nested loops");
@@ -842,26 +923,28 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
 
 //  auto OuterUnrolledId=  Transform.UnrolledIds[0];
   //auto InnerUnrolledId=  Transform.UnrolledIds[1];
+#endif
 
   assert(OrigInner != OrigOuter && "Unrolling-and-Jam requires a nested loop");
   // ... but could also be interpreted as simple unrolling
-  assert(OrigIntermediateLoops.front() == OrigOuter);
-  assert(OrigIntermediateLoops.back() == OrigInner);
-  assert(OrigIntermediateLoops.size()>=2);
+  assert(OrigLoops.front() == OrigOuter);
+  assert(OrigLoops.back() == OrigInner);
+  assert(OrigLoops.size()>=2);
+  assert(OrigLoops.size() == OrigIntermediateLoops.size()+2);
 
-  SmallVector<VirtualLoopInfo *, 4> NewIntermediateLoops;
-  for (auto OrigL : llvm::enumerate(OrigIntermediateLoops)) {
+  SmallVector<VirtualLoopInfo *, 4> NewLoops;
+  for (auto OrigL : llvm::enumerate(OrigLoops)) {
     auto Orig = OrigL.value();
     auto i = OrigL.index();
     auto Name = (i < Transform.UnrolledIds.size()) ?  Transform.UnrolledIds[i] : StringRef();
     auto Result = new VirtualLoopInfo(Ctx, Name);
-    NewIntermediateLoops.push_back(Result);
+    NewLoops.push_back(Result);
   }
 
-  auto ResultOuter = NewIntermediateLoops.front();
-  auto ResultInner = NewIntermediateLoops.back();
+  auto ResultOuter = NewLoops.front();
+  auto ResultInner = NewLoops.back();
 
-  for (auto P : llvm::zip(OrigIntermediateLoops, NewIntermediateLoops)) {
+  for (auto P : llvm::zip(OrigLoops, NewLoops)) {
     auto Orig = std::get<0>( P);
     auto Result = std::get<1>( P);
 
@@ -897,7 +980,7 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   // TODO: Inner followups
 
   VirtualLoopInfo* PrevResult = nullptr;
-  for (auto P : llvm::zip(OrigIntermediateLoops, NewIntermediateLoops)) {
+  for (auto P : llvm::zip(OrigLoops, NewLoops)) {
     auto Orig = std::get<0>( P);
     auto Result = std::get<1>( P);
     invalidateVirtualLoop(Orig);

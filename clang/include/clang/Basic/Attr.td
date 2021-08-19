@@ -3870,7 +3870,7 @@ def LoopUnrollingAndJam : Attr {
       }
 
       if (unrolledIds_size()) {
-        OS << "unrolled_ids(";
+        OS << " unrolled_ids(";
         bool First = true;
         for (auto Piece : unrolledIds()) {
             if (!First) {

@@ -229,7 +229,7 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
 
   assert(NumArgs == i && "Must consume all args");
   assert(ApplyOns.size() >= 2);
-  assert(ApplyOns.size() == Permutation.size());
+  assert((Permutation.empty()&&ApplyOns.size()  ==2) || (ApplyOns.size() == Permutation.size()));
   return LoopInterchangeAttr::CreateImplicit(
       S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth,
       Permutation.data(), Permutation.size(), PermutedId.data(),

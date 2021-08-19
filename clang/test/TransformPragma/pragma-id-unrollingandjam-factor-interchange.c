@@ -1,7 +1,7 @@
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck %s --match-full-lines --check-prefix=PRINT 
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST 
+// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck %s --check-prefix=TRANS 
 // RUN: %clang                           -DMAIN                                   -std=c99            -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
@@ -10,8 +10,8 @@ void pragma_unrollingandjam_factor_interchange(double C[const restrict static 12
 #pragma clang loop(i, j) unrollingandjam factor(2) unrolled_ids(ui, uj)
 
   #pragma clang loop id(i)
-  #pragma clang loop id(j)
   for (int i = 0; i < 128; i += 1)
+    #pragma clang loop id(j)
     for (int j = 0; j < 128; j += 1)
       C[i][j] = A[i+j] + i + j;
 }
@@ -32,51 +32,55 @@ int main() {
 #endif
 
 
-// PRINT-LABEL: void pragma_unrollingandjam_factor_interchange(int n, double A[n], double B[n]) {
+// PRINT-LABEL: void pragma_unrollingandjam_factor_interchange(double C[const restrict static 128][128], double A[const restrict static 256]) {
 // PRINT-NEXT:  #pragma clang loop(ui, uj) interchange
 // PRINT-NEXT:  #pragma clang loop(i, j) unrollingandjam factor(2) unrolled_ids(ui, uj)
 // PRINT-NEXT:    #pragma clang loop id(i)
-// PRINT-NEXT:    #pragma clang loop id(j)
-// PRINT-NEXT:    for (int i = 0; i < n; i += 1) {
-// PRINT-NEXT:      A[i] = 3 * i;
-// PRINT-NEXT:      B[i] = 2 * i;
-// PRINT-NEXT:    }
+// PRINT-NEXT:    for (int i = 0; i < 128; i += 1)
+// PRINT-NEXT:      #pragma clang loop id(j)
+// PRINT-NEXT:      for (int j = 0; j < 128; j += 1)
+// PRINT-NEXT:        C[i][j] = A[i + j] + i + j;
 // PRINT-NEXT:  }
 
 
 // IR-LABEL: @pragma_unrollingandjam_factor_interchange(
-// IR:         br label %for.cond, !llvm.loop !2
+// IR:         br label %for.cond1, !llvm.loop !2
+// IR:         br label %for.cond, !llvm.loop !7
 //
-// IR: !2 = distinct !{!2, !3, !4, !5, !6, !7}
+// IR: !2 = distinct !{!2, !3, !4, !5}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
-// IR: !4 = !{!"llvm.loop.id", !"i"}
-// IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
-// IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
-// IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !11}
-// IR: !8 = distinct !{!8, !3, !9, !10}
-// IR: !9 = !{!"llvm.loop.id", !"a"}
-// IR: !10 = !{!"llvm.loop.reverse.enable", i1 true}
-// IR: !11 = distinct !{!11, !3, !12, !10}
-// IR: !12 = !{!"llvm.loop.id", !"b"}
+// IR: !4 = !{!"llvm.loop.id", !"j"}
+// IR: !5 = !{!"llvm.loop.unroll_and_jam.followup_inner_unrolled", !6}
+//
+// IR: !6 = distinct !{!6, !3}
+//
+// IR: !7 = distinct !{!7, !3, !8, !9, !10, !11}
+// IR: !8 = !{!"llvm.loop.id", !"i"}
+// IR: !9 = !{!"llvm.loop.unroll_and_jam.enable", i1 true}
+// IR: !10 = !{!"llvm.loop.unroll_and_jam.count", i3 2}
+// IR: !11 = !{!"llvm.loop.unroll_and_jam.followup_outer_unrolled", !12}
+//
+// IR: !12 = distinct !{!12, !3, !13, !14, !15}
+// IR: !13 = !{!"llvm.loop.interchange.enable", i1 true}
+// IR: !14 = !{!"llvm.loop.interchange.depth", i32 2}
+// IR: !15 = !{!"llvm.loop.interchange.permutation", i32 1, i32 0}
 
 
 // AST: if (1 
-// AST:     {
-// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
-// AST:         Stmt2(-c0);
-// AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
-// AST:         Stmt2b(-c0);
+// AST:   for (int c0 = 0; c0 <= 127; c0 += 1) {
+// AST:     for (int c1 = 0; c1 <= 127; c1 += 2) {
+// AST:       Stmt_for_body4(c1, c0);
+// AST:       Stmt_for_body4(c1 + 1, c0);
 // AST:     }
-// AST:   else
-// AST:     {  /* original code */ }
+// AST:   }
 
 
-// TRANS: polly.loop_header:
-// TRANS:   %7 = sub nsw i64 0, %polly.indvar
-// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !17, !noalias !19
-// TRANS: polly.loop_header19:
-// TRANS:   %10 = sub nsw i64 0, %polly.indvar23
-// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !20, !noalias !21
+// TRANS: polly.loop_header32:
+// TRANS:   %polly.indvar35 = phi i64 [ 0, %polly.loop_header ], [ %polly.indvar_next36, %polly.loop_header32 ]
+// TRANS:   store double %p_add7, double* %scevgep40, align 8, !alias.scope !5, !noalias !6
+// TRANS:   %3 = or i64 %polly.indvar35, 1
+// TRANS:   store double %p_add748, double* %scevgep50, align 8, !alias.scope !5, !noalias !6
+// TRANS:   %polly.indvar_next36 = add nuw nsw i64 %polly.indvar35, 2
 
 
-// RESULT: (3 2)
+// RESULT: (44)
