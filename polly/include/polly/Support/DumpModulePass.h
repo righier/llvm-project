@@ -44,6 +44,19 @@ struct DumpModulePass : llvm::PassInfoMixin<DumpModulePass> {
   llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &AM);
 };
 
+struct DumpModuleOfFunctionPass
+    : llvm::PassInfoMixin<DumpModuleOfFunctionPass> {
+  std::string Filename;
+  bool IsSuffix;
+  llvm::DenseSet<llvm::Module *> AlreadyDumped;
+
+  DumpModuleOfFunctionPass(std::string Filename, bool IsSuffix)
+      : Filename(std::move(Filename)), IsSuffix(IsSuffix) {}
+
+  llvm::PreservedAnalyses run(llvm::Function &F,
+                              llvm::FunctionAnalysisManager &AM);
+};
+
 } // namespace polly
 
 namespace llvm {

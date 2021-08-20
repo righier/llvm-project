@@ -18,8 +18,13 @@
 #include "isl/isl-noexceptions.h"
 #include <cassert>
 
+namespace llvm {
+class MDNode;
+}
+
 namespace polly {
 struct BandAttr;
+struct Dependences;
 
 /// This class defines a simple visitor class that may be used for
 /// various schedule tree analysis purposes.
@@ -141,6 +146,8 @@ struct RecursiveScheduleTreeVisitor
   }
 };
 
+bool isBand(const isl::schedule_node &Node);
+
 /// Is this node the marker for its parent band?
 bool isBandMark(const isl::schedule_node &Node);
 
@@ -155,6 +162,9 @@ BandAttr *getBandAttr(isl::schedule_node MarkOrBand);
 /// overlap.
 isl::schedule hoistExtensionNodes(isl::schedule Sched);
 
+isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, int Factor,
+                              bool Full);
+
 /// Replace the AST band @p BandToUnroll by a sequence of all its iterations.
 ///
 /// The implementation enumerates all points in the partial schedule and creates
@@ -164,6 +174,16 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
+
+isl::schedule applyAutofission(isl::schedule_node BandToFission,
+                               const Dependences *D);
+
+isl::schedule applyFission(llvm::MDNode *LoopMD,
+                           isl::schedule_node BandToFission,
+                           llvm::ArrayRef<uint64_t> SplitAtPositions);
+
+isl::schedule applyFusion(llvm::ArrayRef<isl::schedule_node> BandsToFuse,
+                          llvm::MDNode *FusedMD);
 
 /// Build the desired set of partial tile prefixes.
 ///

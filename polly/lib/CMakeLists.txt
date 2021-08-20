@@ -83,6 +83,7 @@ add_llvm_pass_plugin(Polly
   Support/ScopLocation.cpp
   Support/ISLTools.cpp
   Support/DumpModulePass.cpp
+  Support/DumpLoopNestPass.cpp
   Support/VirtualInstruction.cpp
   Transform/Canonicalization.cpp
   Transform/CodePreparation.cpp
