@@ -1024,8 +1024,9 @@ static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
 
 static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
                                     isl::schedule_node BandToJam, int Factor,
-                                    bool Full, MDNode *UnrolledID,ArrayRef<MDNode *>IntermediateIDs,
-                                    MDNode *JammedID ) {
+                                    bool Full, MDNode *UnrolledID,
+                                    ArrayRef<MDNode *> IntermediateIDs,
+                                    MDNode *JammedID) {
   // BandToJam must be perfectly inside BandToUnroll
   assert(!BandToUnroll.is_null());
   assert(isBand(BandToUnroll));
@@ -1113,16 +1114,15 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     if (!NewBandId.is_null())
       UnrolledLoop = insertMark(UnrolledLoop, NewBandId);
 
-    
-
     IntermediateLoops = UnrolledLoop;
     int k = 0;
-    for (int i = 0; i < JamDepthInNodes; i += 1) {   
+    for (int i = 0; i < JamDepthInNodes; i += 1) {
       IntermediateLoops = IntermediateLoops.first_child();
 
-      if (i!= JamDepthInNodes-1 && isBand(IntermediateLoops)) {
-        auto TheID = IntermediateIDs[k]; k+= 1;
-       auto X = makeTransformLoopId(Ctx, TheID, "immediate");
+      if (i != JamDepthInNodes - 1 && isBand(IntermediateLoops)) {
+        auto TheID = IntermediateIDs[k];
+        k += 1;
+        auto X = makeTransformLoopId(Ctx, TheID, "immediate");
         IntermediateLoops = removeMark(IntermediateLoops);
         if (!X.is_null()) {
           IntermediateLoops = insertMark(IntermediateLoops, X);
@@ -2371,7 +2371,7 @@ static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
   auto BandToJam = BandToUnroll;
   auto Cur = BandToJam;
   while (true) {
-   
+
     if (Cur.n_children() != 1)
       break;
     auto Child = Cur.first_child();
@@ -2386,19 +2386,24 @@ static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
   IntermediateBands.pop_back();
 
   auto JamAttr = getBandAttr(BandToJam);
-  auto JammedID = findOptionalMDOperand(JamAttr->Metadata,
+  auto JammedID =
+      findOptionalMDOperand(JamAttr->Metadata,
                             "llvm.loop.unroll_and_jam.followup_inner_unrolled")
           .getValueOr(nullptr);
-
 
   SmallVector<MDNode *> IntermediateIDs;
   for (auto Band : IntermediateBands) {
     auto Attr = getBandAttr(Band);
-    auto IntermediateID = findOptionalMDOperand(Attr->Metadata,      "llvm.loop.unroll_and_jam.followup_intermediate_unrolled")          .getValueOr(nullptr);
+    auto IntermediateID =
+        findOptionalMDOperand(
+            Attr->Metadata,
+            "llvm.loop.unroll_and_jam.followup_intermediate_unrolled")
+            .getValueOr(nullptr);
     IntermediateIDs.push_back(IntermediateID);
   }
 
-  return unrollAndOrJam(BandToUnroll, BandToJam, Factor, Full, UnrolledID,           IntermediateIDs,             JammedID);
+  return unrollAndOrJam(BandToUnroll, BandToJam, Factor, Full, UnrolledID,
+                        IntermediateIDs, JammedID);
 }
 
 static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,

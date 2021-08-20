@@ -1428,7 +1428,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("isl_redirect", TransformClauseKind::IslRedirect)
                   .Case("factor", TransformClauseKind::Factor)
                   .Case("full", TransformClauseKind::Full)
-    .Case("unrolled_ids", TransformClauseKind::UnrolledIds )
+                  .Case("unrolled_ids", TransformClauseKind::UnrolledIds)
                   .Case("autofission", TransformClauseKind::Autofission)
                   .Case("split_at", TransformClauseKind::SplitAt)
                   .Case("fissioned_ids", TransformClauseKind::FissionendIds)
@@ -1504,8 +1504,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   case TransformClauseKind::Permutation:
   case TransformClauseKind::PermutedIds:
   case TransformClauseKind::FissionendIds:
-  case TransformClauseKind::UnrolledIds:
-  {
+  case TransformClauseKind::UnrolledIds: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
     while (true) {
@@ -2001,12 +2000,11 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
   if (IdTok.getIdentifierInfo()->getName() == "unrollingandjam") {
     assert(!ApplyOnFollowing && "following loop not supported by unrollandjam");
-   // assert(ApplyOnLocs.size()==2&&  "specify outer (loop too unroll) and inner (loop to jam) as loops to apply on");
+    // assert(ApplyOnLocs.size()==2&&  "specify outer (loop too unroll) and
+    // inner (loop to jam) as loops to apply on");
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
     ArgHints.push_back((IdentifierLoc *)nullptr);
-
-
 
     ArgsUnion Factor{(Expr *)nullptr};
     ArgsUnion Full{(IdentifierLoc *)nullptr}; // Only presence matters

@@ -229,7 +229,8 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
 
   assert(NumArgs == i && "Must consume all args");
   assert(ApplyOns.size() >= 2);
-  assert((Permutation.empty()&&ApplyOns.size()  ==2) || (ApplyOns.size() == Permutation.size()));
+  assert((Permutation.empty() && ApplyOns.size() == 2) ||
+         (ApplyOns.size() == Permutation.size()));
   return LoopInterchangeAttr::CreateImplicit(
       S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth,
       Permutation.data(), Permutation.size(), PermutedId.data(),
@@ -276,16 +277,14 @@ static Attr *handleLoopUnrollingAndJam(Sema &S, Stmt *St, const ParsedAttr &A,
   auto NumArgs = A.getNumArgs();
   unsigned i = 0;
 
-    while (true) {
-      auto Ident = A.getArgAsIdent(i);
-      i += 1;
-      if (!Ident)
-        break;
-      ApplyOnLocs.push_back(Ident);
-      ApplyOns.push_back(Ident->Ident->getName());
-    }
-
-
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
 
   auto FactorLoc = A.getArgAsExpr(i);
   i += 1;
@@ -303,15 +302,12 @@ static Attr *handleLoopUnrollingAndJam(Sema &S, Stmt *St, const ParsedAttr &A,
     UnrolledIds.push_back(Ident->Ident->getName());
   }
 
-  assert(i==NumArgs);
+  assert(i == NumArgs);
 
-  //auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  // auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
   return LoopUnrollingAndJamAttr::CreateImplicit(
-      S.Context, 
-    ApplyOns.data(), ApplyOns.size(),
-    FactorLoc, FullLoc != nullptr,
-    UnrolledIds.data(), UnrolledIds.size(),
-    A.getRange());
+      S.Context, ApplyOns.data(), ApplyOns.size(), FactorLoc,
+      FullLoc != nullptr, UnrolledIds.data(), UnrolledIds.size(), A.getRange());
 }
 
 static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,

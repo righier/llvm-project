@@ -91,7 +91,7 @@ struct LoopTransformation {
   bool Full = false;
 
   // UnrollAndJam
-  llvm::SmallVector<llvm::StringRef, 4>  UnrolledIds;
+  llvm::SmallVector<llvm::StringRef, 4> UnrolledIds;
 
   // Fission
   bool Autofission = false;
@@ -207,7 +207,7 @@ struct LoopTransformation {
 
   static LoopTransformation createUnrolling(llvm::DebugLoc BeginLoc,
                                             llvm::DebugLoc EndLoc,
-    llvm::StringRef ApplyOn,
+                                            llvm::StringRef ApplyOn,
                                             int64_t Factor, bool Full) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
@@ -221,18 +221,19 @@ struct LoopTransformation {
     return Result;
   }
 
-  static LoopTransformation createUnrollingAndJam(llvm::DebugLoc BeginLoc,
-                                                  llvm::DebugLoc EndLoc,
-    llvm::ArrayRef<llvm::StringRef> ApplyOns,                                           
-                                                  int64_t Factor, bool Full,    llvm::ArrayRef<llvm::StringRef> UnrolledIds ) {
+  static LoopTransformation
+  createUnrollingAndJam(llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc,
+                        llvm::ArrayRef<llvm::StringRef> ApplyOns,
+                        int64_t Factor, bool Full,
+                        llvm::ArrayRef<llvm::StringRef> UnrolledIds) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
     Result.Kind = UnrollingAndJam;
-    llvm::append_range( Result.ApplyOns , ApplyOns);
+    llvm::append_range(Result.ApplyOns, ApplyOns);
     Result.Factor = Factor;
     Result.Full = Full;
-    llvm::append_range(  Result.UnrolledIds, UnrolledIds);
+    llvm::append_range(Result.UnrolledIds, UnrolledIds);
     return Result;
   }
 
