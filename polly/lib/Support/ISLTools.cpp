@@ -291,10 +291,11 @@ isl::map polly::reverseRange(isl::map Map) {
 }
 
 isl::union_map polly::reverseRange(const isl::union_map &UMap) {
-  isl::union_map Result = isl::union_map::empty(UMap.get_space());
+  isl::union_map Result =
+      isl::union_map::empty(UMap.ctx()).align_params(UMap.get_space());
   for (isl::map Map : UMap.get_map_list()) {
     auto Reversed = reverseRange(std::move(Map));
-    Result = Result.add_map(Reversed);
+    Result = Result.unite(Reversed);
   }
   return Result;
 }
@@ -629,7 +630,7 @@ static void collectTupleInfos(isl::space Space, isl::space Model,
 }
 
 TupleNest::TupleNest(isl::set Ref, StringRef ModelStr) : Ref(Ref) {
-  auto Ctx = Ref.get_ctx();
+  auto Ctx = Ref.ctx();
 
   auto Model = isl::set(Ctx, ModelStr.str()).get_space();
   assert(!Model.is_null());
@@ -637,7 +638,7 @@ TupleNest::TupleNest(isl::set Ref, StringRef ModelStr) : Ref(Ref) {
 }
 
 TupleNest::TupleNest(isl::map RefMap, StringRef ModelStr) : Ref(RefMap.wrap()) {
-  auto Ctx = Ref.get_ctx();
+  auto Ctx = Ref.ctx();
 
   auto Model = isl::map(Ctx, ModelStr.str()).get_space();
   assert(!Model.is_null());
@@ -695,9 +696,9 @@ static isl::space rebuildSpaceNest(const SpaceRef *NewNesting) {
 
 static isl::ctx getFirstCtx(const SpaceRef *NewNesting) {
   if (!NewNesting->Space.is_null())
-    return NewNesting->Space.get_ctx();
+    return NewNesting->Space.ctx();
   if (NewNesting->Tuple)
-    return NewNesting->Tuple->Space.get_ctx();
+    return NewNesting->Tuple->Space.ctx();
 
   isl::ctx Result = nullptr;
   if (NewNesting->Domain)
@@ -860,7 +861,7 @@ makeSpaceRef(const TupleNest &Nest, StringRef ModelStr, llvm::SmallVectorImpl<st
 
 isl::set polly::rebuildSetNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
-  auto Ctx = Nest.Ref.get_ctx();
+  auto Ctx = Nest.Ref.ctx();
   auto NewModel = isl::set(Ctx, NewModelStr.str()).get_space();
   assert(NewModel.is_set());
 
@@ -871,7 +872,7 @@ isl::set polly::rebuildSetNesting(const TupleNest &Nest,
 
 isl::map polly::rebuildMapNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
-  auto Ctx = Nest.Ref.get_ctx();
+  auto Ctx = Nest.Ref.ctx();
   auto NewModel = isl::map(Ctx, NewModelStr.str()).get_space();
   assert(NewModel.is_map());
 
@@ -1033,7 +1034,7 @@ isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
       });
 
   if (Stat.is_error())
-    return isl::val::nan(PwAff.get_ctx());
+    return isl::val::nan(PwAff.ctx());
 
   return Result;
 }

@@ -3504,7 +3504,7 @@ def LoopId : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 def LoopReversal : Attr {
@@ -3531,7 +3531,7 @@ def LoopReversal : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 def LoopTiling : Attr {
@@ -3611,7 +3611,7 @@ def LoopTiling : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 def LoopInterchange : Attr {
@@ -3674,9 +3674,8 @@ def LoopInterchange : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
-
 
 
 def LoopFission : Attr {
@@ -3729,7 +3728,7 @@ def LoopFission : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 
@@ -3766,7 +3765,7 @@ def LoopFusion : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 
@@ -3809,7 +3808,7 @@ def Pack : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 
@@ -3845,7 +3844,7 @@ def LoopUnrolling : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 
@@ -3903,7 +3902,7 @@ def LoopUnrollingAndJam : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 
@@ -3927,7 +3926,7 @@ def LoopParallelizeThread : Attr {
     }
   }];
 
-  let Documentation = [];
+  let Documentation = [Undocumented];
 }
 
 

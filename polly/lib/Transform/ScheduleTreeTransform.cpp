@@ -568,7 +568,7 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
   assert(!BandToUnroll.is_null());
   assert(!Full || !(Factor > 0));
 
-  isl::ctx Ctx = BandToUnroll.get_ctx();
+  isl::ctx Ctx = BandToUnroll.ctx();
 
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
@@ -887,7 +887,7 @@ static bool isFilter(const isl::schedule_node &Node) {
 isl::schedule polly::applyFission(MDNode *LoopMD,
                                   isl::schedule_node BandToFission,
                                   ArrayRef<uint64_t> SplitAtPositions) {
-  auto Ctx = BandToFission.get_ctx();
+  auto Ctx = BandToFission.ctx();
   BandToFission = removeMark(BandToFission);
   auto BandBody = BandToFission.child(0);
 
@@ -979,7 +979,7 @@ static bool isSequence(const isl::schedule_node &Node) {
 isl::schedule polly::applyFusion(llvm::ArrayRef<isl::schedule_node> BandsToFuse,
                                  MDNode *FusedMD) {
   assert(BandsToFuse.size() >= 2);
-  auto Ctx = BandsToFuse[0].get_ctx();
+  auto Ctx = BandsToFuse[0].ctx();
   auto N = BandsToFuse.size();
 
   isl::schedule_node Parent;

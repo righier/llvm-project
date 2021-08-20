@@ -56,8 +56,10 @@ int main() {
 // AST:     {  /* original code */ }
 
 
-// TRANS: polly.loop_preheader:
-// TRANS: add nsw i64 %{{[0-9a-zA-Z.]+}}, -1
+// TRANS: polly.loop_if6:
+// TRANS:   %.neg = mul i64 %polly.indvar, -128
+// TRANS: polly.stmt.for.body.preheader:
+// TRANS:   %7 = xor i64 %.neg, -1
 
 
 // RESULT: (43)
