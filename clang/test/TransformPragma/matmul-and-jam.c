@@ -1,18 +1,18 @@
-// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o -         %s -disable-llvm-passes | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o /dev/null %s -mllvm -debug-only=polly-ast 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1  -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o -         %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -ast-print %s | FileCheck  %s --match-full-lines --check-prefix=PRINT 
+// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o -         %s -disable-llvm-passes | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1                        -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o /dev/null %s -mllvm -debug-only=polly-ast 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
+// RUN: %clang_cc1  -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -emit-llvm -o -         %s | FileCheck %s --check-prefix=TRANS
 // RUN: %clang                            -DMAIN                                   -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -ffast-math -march=native -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
 void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) {
-#pragma clang loop(i1) pack array(B) allocate(malloc) isl_redirect("{ Prefix[c,j,k]   -> [MyB[x,y] -> MyPacked_B[floord(y,8) mod 256,x mod 256,y mod 8]] }")
-#pragma clang loop(j2) pack array(A) allocate(malloc) isl_redirect("{ Prefix[c,j,k,l] -> [MyA[x,y] -> MyPacked_A[floord(x,4) mod 16,y mod 256,x mod 4]] }")
-#pragma clang loop(i2,k2) unrollingandjam factor(4)
-#pragma clang loop(j2,i2,k2) unrollingandjam factor(8)
-#pragma clang loop(i1,j1,k1,i2,j2) interchange permutation(j1,k1,i1,j2,i2)
-#pragma clang loop(i,j,k) tile sizes(64,2048,256) floor_ids(i1,j1,k1) tile_ids(i2,j2,k2) peel(rectangular)
+#pragma clang loop(i1p) pack array(B) allocate(malloc) isl_redirect("{ Prefix[c,j,k]   -> [MyB[x,y] -> MyPacked_B[floord(y,8) mod 256,x mod 256,y mod 8]] }")
+#pragma clang loop(j2u) pack array(A) allocate(malloc) isl_redirect("{ Prefix[c,j,k,l] -> [MyA[x,y] -> MyPacked_A[floord(x,4) mod 16,y mod 256,x mod 4]] }")
+#pragma clang loop(i2u, k2u) unrollingandjam factor(4) unrolled_ids(i2uu, k2uu)
+#pragma clang loop(j2p, i2p, k2) unrollingandjam factor(8) unrolled_ids(j2u, i2u, k2u)
+#pragma clang loop(i1, j1, k1, i2, j2) interchange permutation(j1, k1, i1, j2, i2) permuted_ids(j1p, k1p, i1p, j2p, i2p)
+#pragma clang loop(i, j, k) tile sizes(64, 2048, 256) floor_ids(i1, j1, k1) tile_ids(i2, j2, k2) peel(rectangular)
 #pragma clang loop id(i)
   for (int i = 0; i < M; i += 1)
     #pragma clang loop id(j)
@@ -45,11 +45,11 @@ int main() {
 
 
 // PRINT-LABEL: void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) __attribute__((noinline)) {
-// PRINT-NEXT: #pragma clang loop(i1) pack array(B) allocate(malloc) isl_redirect("{ Prefix[c,j,k]   -> [MyB[x,y] -> MyPacked_B[floord(y,8) mod 256,x mod 256,y mod 8]] }")
-// PRINT-NEXT: #pragma clang loop(j2) pack array(A) allocate(malloc) isl_redirect("{ Prefix[c,j,k,l] -> [MyA[x,y] -> MyPacked_A[floord(x,4) mod 16,y mod 256,x mod 4]] }")
-// PRINT-NEXT: #pragma clang loop(i2) unrollingandjam factor(4)
-// PRINT-NEXT: #pragma clang loop(j2) unrollingandjam factor(8)
-// PRINT-NEXT: #pragma clang loop(i1, j1, k1, i2, j2) interchange permutation(j1, k1, i1, j2, i2)
+// PRINT-NEXT: #pragma clang loop(i1p) pack array(B) allocate(malloc) isl_redirect("{ Prefix[c,j,k]   -> [MyB[x,y] -> MyPacked_B[floord(y,8) mod 256,x mod 256,y mod 8]] }")
+// PRINT-NEXT: #pragma clang loop(j2u) pack array(A) allocate(malloc) isl_redirect("{ Prefix[c,j,k,l] -> [MyA[x,y] -> MyPacked_A[floord(x,4) mod 16,y mod 256,x mod 4]] }")
+// PRINT-NEXT: #pragma clang loop(i2u, k2u) unrollingandjam factor(4) unrolled_ids(i2uu, k2uu)
+// PRINT-NEXT: #pragma clang loop(j2p, i2p, k2) unrollingandjam factor(8) unrolled_ids(j2u, i2u, k2u)
+// PRINT-NEXT: #pragma clang loop(i1, j1, k1, i2, j2) interchange permutation(j1, k1, i1, j2, i2) permuted_ids(j1p, k1p, i1p, j2p, i2p)
 // PRINT-NEXT: #pragma clang loop(i, j, k) tile sizes(64, 2048, 256) floor_ids(i1, j1, k1) tile_ids(i2, j2, k2) peel(rectangular)
 // PRINT-NEXT: #pragma clang loop id(i)
 // PRINT-NEXT:     for (int i = 0; i < M; i += 1)
@@ -90,38 +90,38 @@ int main() {
 // AST: 						for (int c4 = 0; c4 <= 63; c4 += 4) {
 // AST: 							// Loop with Metadata
 // AST: 							for (int c5 = 0; c5 <= 255; c5 += 1) {
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 1, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 2, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 3, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 4, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 5, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 6, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 7, 256 * c1 + c5);
-// AST: 								Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 1, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 2, 2048 * c0 + c3 + 7, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 1, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 2, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 3, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 4, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 5, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 6, 256 * c1 + c5);
+// AST:                    Stmt_for_body8(64 * c2 + c4 + 3, 2048 * c0 + c3 + 7, 256 * c1 + c5);
 // AST: 							}
 // AST: 						}
 // AST: 					}

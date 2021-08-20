@@ -45,25 +45,27 @@ int main() {
 
 // IR-LABEL: @pragma_unrollingandjam_factor_interchange(
 // IR:         br label %for.cond1, !llvm.loop !2
-// IR:         br label %for.cond, !llvm.loop !7
+// IR:         br label %for.cond, !llvm.loop !8
 //
 // IR: !2 = distinct !{!2, !3, !4, !5}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"j"}
 // IR: !5 = !{!"llvm.loop.unroll_and_jam.followup_inner_unrolled", !6}
 //
-// IR: !6 = distinct !{!6, !3}
+// IR: !6 = distinct !{!6, !3, !7}
+// IR: !7 = !{!"llvm.loop.id", !"uj"}
 //
-// IR: !7 = distinct !{!7, !3, !8, !9, !10, !11}
-// IR: !8 = !{!"llvm.loop.id", !"i"}
-// IR: !9 = !{!"llvm.loop.unroll_and_jam.enable", i1 true}
-// IR: !10 = !{!"llvm.loop.unroll_and_jam.count", i3 2}
-// IR: !11 = !{!"llvm.loop.unroll_and_jam.followup_outer_unrolled", !12}
+// IR: !8 = distinct !{!8, !3, !9, !10, !11, !12}
+// IR: !9 = !{!"llvm.loop.id", !"i"}
+// IR: !10 = !{!"llvm.loop.unroll_and_jam.enable", i1 true}
+// IR: !11 = !{!"llvm.loop.unroll_and_jam.count", i3 2}
+// IR: !12 = !{!"llvm.loop.unroll_and_jam.followup_outer_unrolled", !13}
 //
-// IR: !12 = distinct !{!12, !3, !13, !14, !15}
-// IR: !13 = !{!"llvm.loop.interchange.enable", i1 true}
-// IR: !14 = !{!"llvm.loop.interchange.depth", i32 2}
-// IR: !15 = !{!"llvm.loop.interchange.permutation", i32 1, i32 0}
+// IR: !13 = distinct !{!13, !3, !14, !15, !16, !17}
+// IR: !14 = !{!"llvm.loop.id", !"ui"}
+// IR: !15 = !{!"llvm.loop.interchange.enable", i1 true}
+// IR: !16 = !{!"llvm.loop.interchange.depth", i32 2}
+// IR: !17 = !{!"llvm.loop.interchange.permutation", i32 1, i32 0}
 
 
 // AST: if (1 

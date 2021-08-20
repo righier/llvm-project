@@ -682,12 +682,12 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
   addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, TopmostOrig);
 
 
-  SmallVector<int> Perm; // old index -> new index
+  SmallVector<int> OldToNewIdx; // old index -> new index
   if (Transform.Permutation.empty()) {
     // Implied interchange of two loops
     assert(On.size()==2);
-    Perm.push_back(1);
-    Perm.push_back(0);
+    OldToNewIdx.push_back(1);
+    OldToNewIdx.push_back(0);
   } else {
     StringMap<int> NewPos; // old name -> new index
     for (auto PermutedName : Transform.Permutation) {
@@ -698,36 +698,47 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
     for (int i = 0; i < N; i += 1) {
       auto LoopName = On[i]->Name;
       auto NewIndex = NewPos.lookup(LoopName);
-      Perm.push_back(NewIndex);
+      OldToNewIdx.push_back(NewIndex);
     }
   }
 
-  assert(Perm.size() == On.size ());
+  assert(OldToNewIdx.size() == On.size());
+
+
+  SmallVector<int> NewToOldIdx;
+  NewToOldIdx.resize(On.size());
+  for (int OldIdx = 0; OldIdx < N; OldIdx += 1) {
+    auto NewIdx = OldToNewIdx[OldIdx];
+    NewToOldIdx[NewIdx] = OldIdx;
+  }
 
 
   SmallVector<Metadata *> Permutation; // old index -> MDNode
-  SmallVector<StringRef> NewId;        // old index -> new name
-  for (int i = 0; i < N; i += 1)
-    NewId.push_back(StringRef());
-
+  SmallVector<StringRef> NewId;        // new index -> new name
+  //for (int i = 0; i < N; i += 1)
+  //  NewId.push_back(StringRef());
+  NewId.resize(N);
 
 
   Permutation.push_back(MDString::get(Ctx, "llvm.loop.interchange.permutation"));
   for (int i = 0; i < N; i += 1) {
     //auto LoopName = On[i]->Name;
-    auto NewIndex = Perm[i];
+    auto NewIndex = OldToNewIdx[i];
     Permutation.push_back(ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, NewIndex))));
     if (NewIndex < Transform.PermutedIds.size())
-      NewId[i] = Transform.PermutedIds[NewIndex];
+      NewId[NewIndex] = Transform.PermutedIds[NewIndex];
+    else
+      NewId[NewIndex] = On[i]->Name;
   }
   TopmostOrig->addTransformMD(MDNode::get(Ctx, Permutation));
 
 
 
-  SmallVector<VirtualLoopInfo *> LoopsToPermute;
+  SmallVector<VirtualLoopInfo *> LoopsToPermute; // new index -> VirtualLoopInfo
   for (int i = 0; i < N; i += 1) {
     auto Orig = On[i];
-    auto PermutedId = NewId[i].empty() ? Orig->Name : NewId[i];
+    auto NewIdx = OldToNewIdx[i];
+    auto PermutedId = NewId[NewIdx];
     auto Permuted = new VirtualLoopInfo(Ctx, PermutedId);
     LoopsToPermute.push_back(Permuted);
 
@@ -737,7 +748,7 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
     if (!Permuted->Name.empty()) {
       Permuted->addTransformMD(
           MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
-                            MDString::get(Ctx, Permuted->Name)}));
+                           MDString::get(Ctx, Permuted->Name)}));
     }
     Orig->markDisableHeuristic();
     Orig->markNondefault();
@@ -752,8 +763,8 @@ LoopInfoStack::applyInterchange(const LoopTransformation &Transform,
   NewPermutation.resize(N);
   for (int i = 0; i < N; i += 1) {
     //auto LoopName = On[i]->Name;
-    auto Pos = Perm[i]; 
-    NewPermutation[Pos] = LoopsToPermute[i];
+    auto NewIdx = OldToNewIdx[i]; 
+    NewPermutation[NewIdx] = LoopsToPermute[i];
   }
 
   for (auto i = 0; i < N - 1; i += 1) {
@@ -933,12 +944,22 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   assert(OrigLoops.size() == OrigIntermediateLoops.size()+2);
 
   SmallVector<VirtualLoopInfo *, 4> NewLoops;
+  SmallVector<VirtualLoopInfo *, 4> NewIntermediateLoops;
   for (auto OrigL : llvm::enumerate(OrigLoops)) {
     auto Orig = OrigL.value();
     auto i = OrigL.index();
-    auto Name = (i < Transform.UnrolledIds.size()) ?  Transform.UnrolledIds[i] : StringRef();
+    auto Name = (i < Transform.UnrolledIds.size()) ?  Transform.UnrolledIds[i] : Orig->Name;
     auto Result = new VirtualLoopInfo(Ctx, Name);
+    if (!Result->Name.empty()) {
+      Result->addTransformMD(
+        MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
+          MDString::get(Ctx, Result->Name)}));
+      Result->markNondefault();
+    }
+    //Result->markDisableHeuristic();
     NewLoops.push_back(Result);
+    if (0 < i && i+1!=OrigLoops.size())
+      NewIntermediateLoops.push_back(Result);
   }
 
   auto ResultOuter = NewLoops.front();
@@ -976,6 +997,11 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   addDebugLoc(Ctx, "llvm.loop.unroll_and_jam.loc", Transform, On[0]);
 
   OrigOuter->addFollowup("llvm.loop.unroll_and_jam.followup_outer_unrolled", ResultOuter);  OrigOuter->markNondefault();  OrigOuter->markDisableHeuristic();
+  for (auto p : zip( OrigIntermediateLoops, NewIntermediateLoops)) {
+    auto OrigIntermediate = std::get<0>(p);
+    auto NewIntermediate = std::get<1>(p);
+    OrigIntermediate->addFollowup("llvm.loop.unroll_and_jam.followup_intermediate_unrolled", NewIntermediate);  OrigIntermediate->markNondefault();  OrigIntermediate->markDisableHeuristic();
+  }
   OrigInner->addFollowup("llvm.loop.unroll_and_jam.followup_inner_unrolled", ResultInner);  OrigInner->markNondefault();  OrigInner->markDisableHeuristic();
   // TODO: Inner followups
 
@@ -983,9 +1009,9 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   for (auto P : llvm::zip(OrigLoops, NewLoops)) {
     auto Orig = std::get<0>( P);
     auto Result = std::get<1>( P);
-    invalidateVirtualLoop(Orig);
-    if (!Result->Name.empty())
-      NamedLoopMap[Result->Name] = Result;
+    //invalidateVirtualLoop(Orig);
+   // if (!Result->Name.empty())
+   //   NamedLoopMap[Result->Name] = Result;
 
     // TODO: Properly restore 
     if (PrevResult)
@@ -994,6 +1020,17 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform,
   }
   for (auto BodyLoop : OrigInner->Subloops) 
     PrevResult->addSubloop(BodyLoop);
+
+
+
+  for (auto OrigLoop : OrigLoops) {
+    invalidateVirtualLoop(OrigLoop);
+  }
+  for (auto NewLoop : NewLoops) {
+    if (!NewLoop->Name.empty())
+      NamedLoopMap[NewLoop->Name] = NewLoop;
+  }
+
 
 #if 0
   SmallVector<VirtualLoopInfo *, 4> NewIntermediateLoops;

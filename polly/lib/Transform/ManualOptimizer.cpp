@@ -1024,8 +1024,8 @@ static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
 
 static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
                                     isl::schedule_node BandToJam, int Factor,
-                                    bool Full, MDNode *UnrolledID,
-                                    MDNode *JammedID) {
+                                    bool Full, MDNode *UnrolledID,ArrayRef<MDNode *>IntermediateIDs,
+                                    MDNode *JammedID ) {
   // BandToJam must be perfectly inside BandToUnroll
   assert(!BandToUnroll.is_null());
   assert(isBand(BandToUnroll));
@@ -1113,9 +1113,22 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     if (!NewBandId.is_null())
       UnrolledLoop = insertMark(UnrolledLoop, NewBandId);
 
+    
+
     IntermediateLoops = UnrolledLoop;
-    for (int i = 0; i < JamDepthInNodes; i += 1)
+    int k = 0;
+    for (int i = 0; i < JamDepthInNodes; i += 1) {   
       IntermediateLoops = IntermediateLoops.first_child();
+
+      if (i!= JamDepthInNodes-1 && isBand(IntermediateLoops)) {
+        auto TheID = IntermediateIDs[k]; k+= 1;
+       auto X = makeTransformLoopId(Ctx, TheID, "immediate");
+        IntermediateLoops = removeMark(IntermediateLoops);
+        if (!X.is_null()) {
+          IntermediateLoops = insertMark(IntermediateLoops, X);
+        }
+      }
+    }
 
     auto LoopToJam = IntermediateLoops;
 
@@ -1127,6 +1140,17 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
       if (!NewJammedBandId.is_null())
         LoopToJam = insertMark(LoopToJam, NewJammedBandId);
     }
+
+#if 0
+    for (auto P : zip(IntermediateLoops, IntermediateIDs)) {
+     auto Loop = std::get<0>(P);
+     auto ID = std::get<1>(P);
+     auto NewID = makeTransformLoopId(Ctx, ID, "intermediate");
+     Loop = removeMark(Loop);
+     if (!NewID.is_null())
+       Loop = insertMark(Loop, NewID);
+    }
+#endif
 
     auto Body = LoopToJam.first_child();
 
@@ -2343,27 +2367,38 @@ static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
 
+  SmallVector<isl::schedule_node> IntermediateBands;
   auto BandToJam = BandToUnroll;
   auto Cur = BandToJam;
   while (true) {
+   
     if (Cur.n_children() != 1)
       break;
     auto Child = Cur.first_child();
-    if (isBand(Child))
+    if (isBand(Child)) {
+      IntermediateBands.push_back(Cur);
       BandToJam = Child;
+    }
     Cur = Child;
   }
   assert(!isSameNode(BandToJam, BandToUnroll) &&
          "unroll-and-jam requires perfect loop nest");
+  IntermediateBands.pop_back();
 
   auto JamAttr = getBandAttr(BandToJam);
-  auto JammedID =
-      findOptionalMDOperand(JamAttr->Metadata,
+  auto JammedID = findOptionalMDOperand(JamAttr->Metadata,
                             "llvm.loop.unroll_and_jam.followup_inner_unrolled")
           .getValueOr(nullptr);
 
-  return unrollAndOrJam(BandToUnroll, BandToJam, Factor, Full, UnrolledID,
-                        JammedID);
+
+  SmallVector<MDNode *> IntermediateIDs;
+  for (auto Band : IntermediateBands) {
+    auto Attr = getBandAttr(Band);
+    auto IntermediateID = findOptionalMDOperand(Attr->Metadata,      "llvm.loop.unroll_and_jam.followup_intermediate_unrolled")          .getValueOr(nullptr);
+    IntermediateIDs.push_back(IntermediateID);
+  }
+
+  return unrollAndOrJam(BandToUnroll, BandToJam, Factor, Full, UnrolledID,           IntermediateIDs,             JammedID);
 }
 
 static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,

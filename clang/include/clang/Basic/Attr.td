@@ -3641,7 +3641,7 @@ def LoopInterchange : Attr {
       }
 
       if (permutedIds_size()) {
-        OS << " permutedIds(";
+        OS << " permuted_ids(";
         bool First = true;
         for (auto PermId : permutedIds()) {
           if (!First) {
