@@ -1,5 +1,8 @@
 // RUN: %clang_cc1 -std=c++11 -verify %s
 
+// Parsing errornous lines expecting legacy #pragma clang loop handler
+// XFAIL: *
+
 // Note that this puts the expected lines before the directives to work around
 // limitations in the -verify mode.
 
