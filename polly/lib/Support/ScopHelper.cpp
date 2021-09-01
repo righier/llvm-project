@@ -688,7 +688,8 @@ bool polly::isBandMark(const isl::id &Id) {
 }
 
 bool polly::isBandMark(const isl::schedule_node &Node) {
-  return isMark(Node) && isBandMark(Node.as<isl::schedule_node_mark> ().get_id());
+  return isMark(Node) &&
+         isBandMark(Node.as<isl::schedule_node_mark>().get_id());
 }
 
 bool polly::isMark(const isl::schedule_node &Node) {

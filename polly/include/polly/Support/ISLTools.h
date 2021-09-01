@@ -698,7 +698,4 @@ void printSorted(const isl::map &Map, llvm::raw_ostream &OS);
 
 } // namespace polly
 
-
-
-
 #endif /* POLLY_ISLTOOLS_H */

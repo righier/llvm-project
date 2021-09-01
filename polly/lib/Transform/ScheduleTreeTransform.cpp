@@ -11,10 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/ScheduleTreeTransform.h"
+#include "polly/Support/GICHelper.h"
+#include "polly/Support/ISLFuncs.h"
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/ScopHelper.h"
-#include "polly/Support/ISLFuncs.h"
-#include "polly/Support/GICHelper.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
@@ -460,10 +460,6 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   return Band.insert_mark(Mark).child(0);
 }
 
-
-
-
-
 bool polly::isBand(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
 }
@@ -576,8 +572,6 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
   return getIslLoopAttr(Ctx, Attr);
 }
 
-
-
 isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
                                      int Factor, bool Full) {
   assert(!BandToUnroll.is_null());
@@ -598,7 +592,8 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
     isl::union_set Domain = BandToUnroll.get_domain();
     isl::union_pw_aff PartialSchedUAff = PartialSched.at(0);
     PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
-    isl::union_map PartialSchedUMap = isl::convert< isl::union_map>(PartialSchedUAff);
+    isl::union_map PartialSchedUMap =
+        isl::convert<isl::union_map>(PartialSchedUAff);
 
     // Make consumable for the following code.
     // Schedule at the beginning so it is at coordinate 0.
@@ -659,7 +654,7 @@ isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
     isl::union_set_list List = isl::union_set_list(Ctx, Factor);
     for (auto i : seq<int>(0, Factor)) {
       // { Stmt[] -> [x] }
-      isl::union_map UMap = isl::convert<isl::union_map> (PartialSchedUAff);
+      isl::union_map UMap = isl::convert<isl::union_map>(PartialSchedUAff);
 
       // { [x] }
       isl::basic_set Divisible = isDivisibleBySet(Ctx, Factor, i);
@@ -871,7 +866,8 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
                                               int DefaultTileSize) {
   Node = tileNode(Node, "Register tiling", TileSizes, DefaultTileSize);
   auto Ctx = Node.ctx();
-  return Node.as<isl::schedule_node_band>().set_ast_build_options(isl::union_set(Ctx, "{unroll[x]}"));
+  return Node.as<isl::schedule_node_band>().set_ast_build_options(
+      isl::union_set(Ctx, "{unroll[x]}"));
 }
 
 isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
@@ -973,9 +969,6 @@ isl::schedule polly::applyFission(MDNode *LoopMD,
 
   return Fissioned.get_schedule();
 }
-
-
-
 
 static bool isSequence(const isl::schedule_node &Node) {
   auto Kind = isl_schedule_node_get_type(Node.get());

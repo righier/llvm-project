@@ -8,13 +8,13 @@
 
 #include "polly/Support/DumpLoopNestPass.h"
 #include "polly/ScheduleTreeTransform.h"
+#include "polly/Support/GICHelper.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
-#include "polly/Support/GICHelper.h"
 
 #define DEBUG_TYPE "polly-dump-loopnest"
 

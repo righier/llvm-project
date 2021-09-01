@@ -13,11 +13,11 @@
 
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/GICHelper.h"
+#include "polly/Support/ISLFuncs.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/raw_ostream.h"
-#include "polly/Support/ISLFuncs.h"
 #include <cassert>
 #include <vector>
 
@@ -208,7 +208,8 @@ isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
   // Save some computation if the target space is not nested.
   if (!domain_is_wrapping(NewSpace) && !range_is_wrapping(NewSpace)) {
     // Reset Orig tuples to ensure they are not nested anymore.
-    auto Result =  Orig.project_out( isl::dim::in, 0, 0). project_out( isl::dim::out, 0, 0);
+    auto Result =
+        Orig.project_out(isl::dim::in, 0, 0).project_out(isl::dim::out, 0, 0);
 
     if (NewSpace.has_tuple_id(isl::dim::in))
       Result = std::move(Result).set_tuple_id(
@@ -221,8 +222,8 @@ isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
   }
 
   auto WrappedOrig = std::move(Orig).wrap();
-  auto Identitiy = identity_map(
-      WrappedOrig.get_space().map_from_domain_and_range(
+  auto Identitiy =
+      identity_map(WrappedOrig.get_space().map_from_domain_and_range(
           std::move(NewSpace).wrap()));
   return std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
 }
@@ -749,7 +750,7 @@ recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
       auto C = isl::constraint::alloc_equality(LS);
       C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
       C = C.set_coefficient_si(isl::dim::out, TargetPos, -1);
-      Translator = add_constraint(Translator,C);
+      Translator = add_constraint(Translator, C);
     }
   }
 
@@ -810,7 +811,7 @@ isl::set polly::rebuildNesting(
       auto C = isl::constraint::alloc_equality(LS);
       C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
       C = C.set_coefficient_si(isl::dim::in, TargetPos, -1);
-      Translator = add_constraint(Translator,C);
+      Translator = add_constraint(Translator, C);
     }
   }
 
@@ -987,9 +988,10 @@ isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
   if (Max || Min) {
     auto Space = PwAff.get_space();
     auto Map = Space.is_set()
-                   ? isl::map::from_range( isl::convert<isl::set>(PwAff))
+                   ? isl::map::from_range(isl::convert<isl::set>(PwAff))
                    : isl::map::from_pw_aff(PwAff);
-    Map = Map.project_out(isl::dim::param, 0, Map.dim(isl::dim::param).release());
+    Map =
+        Map.project_out(isl::dim::param, 0, Map.dim(isl::dim::param).release());
     Map = Map.project_out(isl::dim::in, 0, Map.dim(isl::dim::in).release());
 
     // TODO: These calls may fail if unbounded; should temporarily disable isl
