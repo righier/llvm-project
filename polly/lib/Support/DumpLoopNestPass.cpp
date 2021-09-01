@@ -14,6 +14,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "polly/Support/GICHelper.h"
 
 #define DEBUG_TYPE "polly-dump-loopnest"
 

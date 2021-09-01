@@ -17,6 +17,7 @@
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/raw_ostream.h"
+#include "polly/Support/ISLFuncs.h"
 #include <cassert>
 #include <vector>
 
@@ -205,11 +206,9 @@ isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
   assert(Orig.dim(isl::dim::out) == NewSpace.dim(isl::dim::out));
 
   // Save some computation if the target space is not nested.
-  if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+  if (!domain_is_wrapping(NewSpace) && !range_is_wrapping(NewSpace)) {
     // Reset Orig tuples to ensure they are not nested anymore.
-    auto Result = std::move(Orig)
-                      .project_out(isl::dim::in, 0, 0)
-                      .project_out(isl::dim::out, 0, 0);
+    auto Result =  Orig.project_out( isl::dim::in, 0, 0). project_out( isl::dim::out, 0, 0);
 
     if (NewSpace.has_tuple_id(isl::dim::in))
       Result = std::move(Result).set_tuple_id(
@@ -222,7 +221,7 @@ isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
   }
 
   auto WrappedOrig = std::move(Orig).wrap();
-  auto Identitiy = isl::basic_map::identity(
+  auto Identitiy = identity_map(
       WrappedOrig.get_space().map_from_domain_and_range(
           std::move(NewSpace).wrap()));
   return std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
@@ -236,7 +235,7 @@ isl::map polly::castSpace(isl::map Orig, isl::space NewSpace) {
   NewSpace = NewSpace.align_params(Orig.get_space());
 
   // Save some computation if the target space is not nested.
-  if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+  if (!domain_is_wrapping(NewSpace) && !range_is_wrapping(NewSpace)) {
     // Reset Orig tuples to ensure they are not nested anymore.
     auto Result = std::move(Orig)
                       .project_out(isl::dim::in, 0, 0)
@@ -291,8 +290,7 @@ isl::map polly::reverseRange(isl::map Map) {
 }
 
 isl::union_map polly::reverseRange(const isl::union_map &UMap) {
-  isl::union_map Result =
-      isl::union_map::empty(UMap.ctx()).align_params(UMap.get_space());
+  isl::union_map Result = emptyUMap(UMap.get_space());
   for (isl::map Map : UMap.get_map_list()) {
     auto Reversed = reverseRange(std::move(Map));
     Result = Result.unite(Reversed);
@@ -610,11 +608,11 @@ isl::union_map polly::applyDomainRange(isl::union_map UMap,
 static void collectTupleInfos(isl::space Space, isl::space Model,
                               StringMap<TupleInfo> &Tuples, TupleNest *Parent,
                               int DimOffset) {
-  if (Model.is_map()) {
+  if (is_map(Model)) {
     collectTupleInfos(Space.domain(), Model.domain(), Tuples, Parent,
                       DimOffset);
     collectTupleInfos(Space.range(), Model.range(), Tuples, Parent,
-                      DimOffset + Space.dim(isl::dim::in));
+                      DimOffset + Space.dim(isl::dim::in).release());
     return;
   }
 
@@ -715,7 +713,7 @@ recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
   auto NumDims = 0;
   if (!NewNesting->Space.is_null()) {
     // Universe of space => no constraints, no children
-    NumDims += NewNesting->Space.dim(isl::dim::set);
+    NumDims += NewNesting->Space.dim(isl::dim::set).release();
   }
   if (NewNesting->Domain) {
     NumDims += recursiveAddConstaints(NewNesting->Domain, Translator,
@@ -733,9 +731,9 @@ recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
     auto TuplePos = Tuple->Offset;
     auto NestPos = NestOffsets.lookup(Parent);
     auto Space = Tuple->Space;
-    auto N = Space.dim(isl::dim::set);
+    auto N = Space.dim(isl::dim::set).release();
     NumDims += N;
-    auto LS = Translator.get_local_space();
+    auto LS = get_local_space(Translator);
 
     //    auto SourceFlat = flattenSpace(SetRef->get_space());
     //  auto SetId =  std::distance(Refs.begin(),  std::find(Refs.begin(),
@@ -751,7 +749,7 @@ recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
       auto C = isl::constraint::alloc_equality(LS);
       C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
       C = C.set_coefficient_si(isl::dim::out, TargetPos, -1);
-      Translator = Translator.add_constraint(C);
+      Translator = add_constraint(Translator,C);
     }
   }
 
@@ -778,9 +776,9 @@ isl::set polly::rebuildNesting(
   DenseMap<const TupleNest *, int> NestOffsets;
   auto SourceSet = isl::set::universe(isl::space(Ctx, 0, 0));
   for (auto i : seq<size_t>(0, Refs.size())) {
-    SourceOffsets.push_back(SourceSet.dim(isl::dim::set));
-    NestOffsets.insert({Refs[i], SourceSet.dim(isl::dim::set)});
-    SourceSet = SourceSet.flat_product(Refs[i]->Ref);
+    SourceOffsets.push_back(SourceSet.dim(isl::dim::set).release());
+    NestOffsets.insert({Refs[i], SourceSet.dim(isl::dim::set).release()});
+    SourceSet = flat_product(SourceSet, Refs[i]->Ref);
   }
   auto SourceSpace = SourceSet.get_space();
 
@@ -791,7 +789,7 @@ isl::set polly::rebuildNesting(
       recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
   (void)TotalDims;
   assert(TotalDims == TargetSpace.dim(isl::dim::set));
-  auto LS = Translator.get_local_space();
+  auto LS = get_local_space(Translator);
 
   for (auto &Intersection : Intersections) {
     auto &First = Intersection.first;
@@ -812,7 +810,7 @@ isl::set polly::rebuildNesting(
       auto C = isl::constraint::alloc_equality(LS);
       C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
       C = C.set_coefficient_si(isl::dim::in, TargetPos, -1);
-      Translator = Translator.add_constraint(C);
+      Translator = add_constraint(Translator,C);
     }
   }
 
@@ -832,7 +830,7 @@ isl::map polly::rebuildNesting(
 static SpaceRef *
 makeSpaceRef(const TupleNest &Nest, isl::space Model,
              llvm::SmallVectorImpl<std::unique_ptr<SpaceRef>> &ToFree) {
-  if (Model.is_map()) {
+  if (is_map(Model)) {
     auto Domain = makeSpaceRef(Nest, Model.domain(), ToFree);
     auto Range = makeSpaceRef(Nest, Model.range(), ToFree);
     auto Result = new SpaceRef(*Domain, *Range);
@@ -874,7 +872,7 @@ isl::map polly::rebuildMapNesting(const TupleNest &Nest,
                                   llvm::StringRef NewModelStr) {
   auto Ctx = Nest.Ref.ctx();
   auto NewModel = isl::map(Ctx, NewModelStr.str()).get_space();
-  assert(NewModel.is_map());
+  assert(is_map(NewModel));
 
   SmallVector<std::unique_ptr<SpaceRef>, 16> ToFree;
   auto Ref = makeSpaceRef(Nest, NewModel, ToFree);
@@ -896,13 +894,13 @@ isl::map polly::rebuildNesting(isl::map Map, llvm::StringRef ModelStr,
 }
 
 isl::basic_map polly::isolateDim(isl::basic_map BMap, int Pos) {
-  auto OutDims = BMap.dim(isl::dim::out);
+  auto OutDims = BMap.dim(isl::dim::out).release();
   return BMap.project_out(isl::dim::out, Pos + 1, OutDims - Pos - 1)
       .project_out(isl::dim::out, 0, Pos);
 }
 
 isl::map polly::isolateDim(isl::map Map, int Pos) {
-  auto OutDims = Map.dim(isl::dim::out);
+  auto OutDims = Map.dim(isl::dim::out).release();
   return Map.project_out(isl::dim::out, Pos + 1, OutDims - Pos - 1)
       .project_out(isl::dim::out, 0, Pos);
 }
@@ -989,18 +987,18 @@ isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
   if (Max || Min) {
     auto Space = PwAff.get_space();
     auto Map = Space.is_set()
-                   ? isl::map::from_range(isl::set::from_pw_aff(PwAff))
+                   ? isl::map::from_range( isl::convert<isl::set>(PwAff))
                    : isl::map::from_pw_aff(PwAff);
-    Map = Map.project_out(isl::dim::param, 0, Map.dim(isl::dim::param));
-    Map = Map.project_out(isl::dim::in, 0, Map.dim(isl::dim::in));
+    Map = Map.project_out(isl::dim::param, 0, Map.dim(isl::dim::param).release());
+    Map = Map.project_out(isl::dim::in, 0, Map.dim(isl::dim::in).release());
 
     // TODO: These calls may fail if unbounded; should temporarily disable isl
     // error handler. We might be in a quota-region as well.
     //  if ( Map.range().is_bounded())
     if (Min) {
-      PwAff = Map.lexmin_pw_multi_aff().get_pw_aff(0);
+      PwAff = Map.lexmin_pw_multi_aff().at(0);
     } else if (Max) {
-      PwAff = Map.lexmax_pw_multi_aff().get_pw_aff(0);
+      PwAff = Map.lexmax_pw_multi_aff().at(0);
     }
   }
 

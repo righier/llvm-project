@@ -23,6 +23,7 @@
 #include "polly/Simplify.h"
 #include "polly/Support/ISLOStream.h"
 #include "polly/Support/ISLTools.h"
+#include "polly/Support/ISLFuncs.h"
 #include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
@@ -40,6 +41,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "polly/Support/GICHelper.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "isl/ctx.h"
 #include "isl/options.h"
@@ -274,7 +276,7 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
          "Don't add a two marks for a band");
   Band = isl::manage(
       isl_schedule_node_insert_mark(Band.release(), Mark.release()));
-  return Band.get_child(0);
+  return Band.child(0);
 }
 
 static isl::schedule applyLoopReversal(MDNode *LoopMD,
@@ -293,7 +295,7 @@ static isl::schedule applyLoopReversal(MDNode *LoopMD,
       isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
   assert(PartialSched.dim(isl::dim::out) == 1);
 
-  auto MPA = PartialSched.get_union_pw_aff(0);
+  auto MPA = PartialSched.at(0);
   auto Neg = MPA.neg();
 
   auto Node = isl::manage(isl_schedule_node_delete(BandToReverse.copy()));
@@ -425,7 +427,7 @@ public:
     auto Marker = moveToBandMark(Band);
     assert(isl_schedule_node_get_type(Marker.get()) == isl_schedule_node_mark);
     // TODO: somehow get Loop id even if there is no marker
-    return createFromIslId(Marker.mark_get_id());
+    return createFromIslId(Marker.as<isl::schedule_node_mark>().get_id());
   }
 };
 
@@ -433,7 +435,7 @@ static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
   assert(!Node.is_null());
   while (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark) {
     assert(Node.n_children() == 1);
-    Node = Node.get_child(0);
+    Node = Node.child(0);
   }
   return Node;
 }
@@ -472,8 +474,8 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
       CombinedSchedule = X;
     }
 
-    for (auto i : seq<isl_size>(0, X.dim(isl::dim::out))) {
-      auto Y = X.get_union_pw_aff(i);
+    for (auto i : seq<isl_size>(0, X.dim(isl::dim::out).release())) {
+      auto Y = X.at(i);
       PartialSchedules.push_back(Y);
       CollapsedLoops += 1;
     }
@@ -501,7 +503,7 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
 
   auto Space = isl::manage(isl_schedule_node_band_get_space(BandToTile.get()));
   auto Sizes = isl::multi_val::zero(Space);
-  for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set))) {
+  for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set).release())) {
     auto tileSize = TileSizes[i];
     Sizes = Sizes.set_val(i, isl::val(Ctx, tileSize));
   }
@@ -541,18 +543,18 @@ static void collectVerticalLoops(const isl::schedule_node &TopBand,
 static std::tuple<isl::pw_aff_list, isl::pw_aff_list, isl::pw_aff_list>
 extractExtends(isl::map Map) {
   auto Ctx = Map.ctx();
-  isl_size Dims = Map.dim(isl::dim::out);
+  auto Dims = Map.dim(isl::dim::out).release();
   auto IndexSpace = Map.get_space().range();
   auto LocalIndexSpace = isl::local_space(IndexSpace);
 
-  isl::pw_aff_list DimMins = isl::pw_aff_list::alloc(Ctx, Dims);
-  isl::pw_aff_list DimSizes = isl::pw_aff_list::alloc(Ctx, Dims);
-  isl::pw_aff_list DimEnds = isl::pw_aff_list::alloc(Ctx, Dims);
+  isl::pw_aff_list DimMins = isl::pw_aff_list(Ctx, Dims);
+  isl::pw_aff_list DimSizes = isl::pw_aff_list(Ctx, Dims);
+  isl::pw_aff_list DimEnds = isl::pw_aff_list(Ctx, Dims);
   for (auto i = 0; i < Dims; i += 1) {
     auto TheDim = Map.project_out(isl::dim::out, i + 1, Dims - i - 1)
                       .project_out(isl::dim::out, 0, i);
-    auto Min = TheDim.lexmin_pw_multi_aff().get_pw_aff(0);
-    auto Max = TheDim.lexmax_pw_multi_aff().get_pw_aff(0);
+    auto Min = TheDim.lexmin_pw_multi_aff().at(0);
+    auto Max = TheDim.lexmax_pw_multi_aff().at(0);
 
     auto One = isl::aff(isl::local_space(Min.get_space().domain()),
                         isl::val(LocalIndexSpace.ctx(), 1));
@@ -613,10 +615,8 @@ struct UniqueStmtRewriter
 
     auto SetList = Domain.get_set_list();
     auto ParamSpace = Domain.get_space();
-    auto IdMap =
-        isl::union_map::empty(ParamSpace.ctx()).align_params(ParamSpace);
-    auto Result =
-        isl::union_set::empty(ParamSpace.ctx()).align_params(ParamSpace);
+    auto IdMap = emptyUMap(ParamSpace);
+    auto Result = emptyUSet(ParamSpace);
     for (auto Dom : SetList) {
       simplify(Dom);
       auto Id = Dom.get_space().get_tuple_id(isl::dim::set);
@@ -689,20 +689,20 @@ struct UniqueStmtRewriter
 
   RetTy visitMark(const isl::schedule_node &Mark, bool DoUniqueSubtree,
                   Args... args) {
-    auto TheMark = Mark.mark_get_id();
+    auto TheMark = Mark. as<isl::schedule_node_mark>().get_id();
     auto ChildResult =
         getDerived().visit(Mark.child(0), DoUniqueSubtree, args...);
 
     auto NewChild = ChildResult.first;
     auto NewMap = ChildResult.second;
     auto NewSchedule =
-        NewChild.get_root().get_child(0).insert_mark(TheMark).get_schedule();
+        NewChild.get_root().child(0).insert_mark(TheMark).get_schedule();
     return {NewSchedule, NewMap};
   }
 
   RetTy visitFilter(const isl::schedule_node &Filter, bool DoUniqueSubtree,
                     Args... args) {
-    auto FilterDomain = Filter.filter_get_filter();
+    auto FilterDomain = Filter. as<isl::schedule_node_filter>().  get_filter();
     auto ChildResult =
         getDerived().visit(Filter.child(0), DoUniqueSubtree, args...);
 
@@ -773,7 +773,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
   auto TheBand = tileBand(TheCollapsedBand, TileSizes);
 
   auto OuterBand = TheBand;
-  auto InnerBand = TheBand.get_child(0);
+  auto InnerBand = TheBand.child(0);
 
   InnerBand = separateBand(InnerBand);
   for (auto TileId : TileIds) {
@@ -781,7 +781,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     auto Mark = makeTransformLoopId(IslCtx, TileId, "inner tile");
     InnerBand = insertMark(InnerBand, Mark);
 
-    InnerBand = InnerBand.get_child(0);
+    InnerBand = InnerBand.child(0);
   }
 
   // Jump back to first of the tile loops
@@ -798,7 +798,7 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     auto Mark = makeTransformLoopId(IslCtx, PitId, "outer floor");
     OuterBand = insertMark(OuterBand, Mark);
 
-    OuterBand = OuterBand.get_child(0);
+    OuterBand = OuterBand.child(0);
   }
 
   // Jump back to first of the pit loops
@@ -827,9 +827,9 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
       auto SizeMinusOne = isl::aff(LSpace, isl::val(IslCtx, TileSize - 1));
 
       // { Domain[] -> Schedule[] }
-      auto DimPartial = Partial.get_union_pw_aff(i);
+      auto DimPartial = Partial.at(i);
       auto Sched = DimPartial.intersect_domain(Domains);
-      auto SchedMap = isl::union_map::from_union_pw_aff(Sched);
+      auto SchedMap = isl::convert<isl::union_map > (Sched);
       auto SchedSpace = isl::set(SchedMap.range());
 
       isl::pw_aff_list DimMins;
@@ -837,8 +837,8 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
       isl::pw_aff_list DimEnds;
       std::tie(DimMins, DimSizes, DimEnds) =
           extractExtends(isl::map::from_range(SchedSpace));
-      auto DimMin = DimMins.get_pw_aff(0).add_dims(isl::dim::in, 1);
-      auto DimEnd = DimEnds.get_pw_aff(0).add_dims(isl::dim::in, 1);
+      auto DimMin = DimMins.at(0).add_dims(isl::dim::in, 1);
+      auto DimEnd = DimEnds.at(0).add_dims(isl::dim::in, 1);
 
       auto EndFloor = DimEnd.div(Size).floor().mul(Size);
       auto MinCeil = DimMin.add(SizeMinusOne).div(Size).floor().mul(Size);
@@ -857,13 +857,13 @@ static isl::schedule applyLoopTiling(MDNode *LoopMD,
     auto OuterDomains = Domains.subtract(InsideDomains);
     // Empty OuterDomains means it was already rectangular.
     if (!OuterDomains.is_empty()) {
-      auto Filters = isl::union_set_list::alloc(IslCtx, 2);
+      auto Filters = isl::union_set_list(IslCtx, 2);
       Filters = Filters.add(InsideDomains);
       Filters = Filters.add(OuterDomains);
       auto InnerAndOuter = OuterBand.insert_sequence(Filters);
 
       MarkRemoverPlain MarkCleaner;
-      auto Peeled = MarkCleaner.visit(InnerAndOuter.get_child(1));
+      auto Peeled = MarkCleaner.visit(InnerAndOuter.child(1));
 
       UniqueStmtRewriterPlain Visitor(Peeled);
       auto Result = Visitor.visit(Peeled.get_schedule());
@@ -967,9 +967,7 @@ struct CollectInnerSchedules
 
   isl::union_map InnerSched;
 
-  CollectInnerSchedules(isl::space ParamSpace)
-      : InnerSched(
-            isl::union_map::empty(ParamSpace.ctx()).align_params(ParamSpace)) {}
+  CollectInnerSchedules(isl::space ParamSpace) : InnerSched(emptyUMap(ParamSpace)) {}
 
   RetTy visit(const isl::schedule_node &Band,
               isl::multi_union_pw_aff PostfixSched) {
@@ -978,7 +976,7 @@ struct CollectInnerSchedules
 
   RetTy visit(const isl::schedule_node &Band) {
     auto Ctx = Band.ctx();
-    auto List = isl::union_pw_aff_list::alloc(Ctx, 0);
+    auto List = isl::union_pw_aff_list(Ctx, 0);
     auto Empty =
         isl::multi_union_pw_aff(Band.get_universe_domain().get_space(), List);
     return visit(Band, Empty);
@@ -1064,8 +1062,8 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     assert(PartialSchedToJam.dim(isl::dim::out) == 1);
 
     // { Stmt[] -> [x] }
-    auto PartialSchedToUnrollUAff = PartialSchedToUnroll.get_union_pw_aff(0);
-    auto PartialSchedToJamUAff = PartialSchedToJam.get_union_pw_aff(0);
+    auto PartialSchedToUnrollUAff = PartialSchedToUnroll.at(0);
+    auto PartialSchedToJamUAff = PartialSchedToJam.at(0);
 
     // Unrolling...
     // FIXME: Here we assume the schedule stride is one and starts with 0, which
@@ -1089,7 +1087,7 @@ static isl::schedule unrollAndOrJam(isl::schedule_node BandToUnroll,
     auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), Factor));
     for (int i = 0; i < Factor; i += 1) {
       // { Stmt[] -> [x] }
-      auto UMap = PartialSchedToUnroll;
+      isl::union_map UMap = isl::convert<isl::union_map>( PartialSchedToUnroll);
 
       // { [x] }
       auto Divisible = isDivisibleBySet(Ctx, Factor, i);
@@ -1195,9 +1193,9 @@ static void collectMemAccsDomains(isl::schedule_node Node,
 
     break;
   default:
-    auto n = Node.n_children();
+    auto n = Node.n_children().release();
     for (auto i = 0; i < n; i += 1)
-      collectMemAccsDomains(Node.get_child(i), SAI, Result, true);
+      collectMemAccsDomains(Node.child(i), SAI, Result, true);
     break;
   }
 }
@@ -1221,9 +1219,9 @@ collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo *SAI,
     }
   }
 
-  auto n = Node.n_children();
+  auto n = Node.n_children().release();
   for (auto i = 0; i < n; i += 1) {
-    auto Child = Node.get_child(i);
+    auto Child = Node.child(i);
     collectSubtreeAccesses(Child, SAI, Accs);
   }
 }
@@ -1241,9 +1239,9 @@ static void collectStmtDomains(isl::schedule_node Node, isl::union_set &Result,
     }
     break;
   default:
-    auto n = Node.n_children();
+    auto n = Node.n_children().release();
     for (auto i = 0; i < n; i += 1)
-      collectStmtDomains(Node.get_child(i), Result, true);
+      collectStmtDomains(Node.child(i), Result, true);
     break;
   }
 }
@@ -1252,8 +1250,7 @@ static void collectStmtDomains(isl::schedule_node Node, isl::union_set &Result,
 static isl::union_map collectParentSchedules(isl::schedule_node Node) {
   auto Ctx = Node.ctx();
   auto ParamSpace = Node.get_universe_domain().get_space();
-  isl::union_set Doms =
-      isl::union_set::empty(ParamSpace.ctx()).align_params(ParamSpace);
+  isl::union_set Doms = emptyUSet(ParamSpace);
   collectStmtDomains(Node, Doms, false);
 
   // { [] -> Stmt[] }
@@ -1278,11 +1275,11 @@ static isl::union_map collectParentSchedules(isl::schedule_node Node) {
       auto Partial = isl::union_map::from(isl::manage(
           isl_schedule_node_band_get_partial_schedule(Ancestor.get())));
 
-      Result = Result.flat_domain_product(Partial.reverse());
+      Result = flat_domain_product(Result, Partial.reverse());
     } break;
     case isl_schedule_node_sequence: {
       auto PrevNode = Ancestors[i - 1];
-      auto Pos = PrevNode.get_child_position();
+      auto Pos = PrevNode.get_child_position().release();
       auto Domain = PrevNode.get_domain();
 
       auto LS = isl::local_space(isl::space(Ctx, 0, 0));
@@ -1291,7 +1288,7 @@ static isl::union_map collectParentSchedules(isl::schedule_node Node) {
       auto S = C.range();
       auto M = isl::union_map::from_domain_and_range(S, Domain);
 
-      Result = Result.flat_domain_product(M);
+      Result = flat_domain_product(Result,M);
     } break;
     case isl_schedule_node_set:
       break;
@@ -1308,11 +1305,11 @@ static isl::union_map collectParentSchedules(isl::schedule_node Node) {
 }
 
 static std::vector<unsigned int> sizeBox(isl::pw_aff_list DimSizes) {
-  auto Dims = DimSizes.size();
+  auto Dims = DimSizes.size().release();
   std::vector<unsigned int> PackedSizes;
   PackedSizes.reserve(Dims);
   for (auto i = 0; i < Dims; i += 1) {
-    auto Len = DimSizes.get_pw_aff(i);
+    auto Len = DimSizes.at(i);
     Len = Len.coalesce();
 
     // FIXME: Because of the interfaces of Scop::createScopArrayInfo, array
@@ -1389,10 +1386,10 @@ readPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   if (!IslSize.is_null()) {
     auto SizeAff1 = isl::pw_multi_aff::from_map(isl::map::from_range(IslSize));
     auto SizeAff2 = isl::multi_pw_aff(SizeAff1);
-    auto Dims = IslSize.dim(isl::dim::set);
+    auto Dims = IslSize.dim(isl::dim::set).release();
     PackedSizes.resize(Dims);
     for (int i = 0; i < Dims; i += 1) {
-      auto PwAff = SizeAff2.get_pw_aff(i);
+      auto PwAff = SizeAff2.at(i);
       auto Size = polly::getConstant(PwAff, false, false);
       PackedSizes[i] = Size.get_num_si(); // TODO: Overflow check
     }
@@ -1413,11 +1410,11 @@ readPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
 }
 
 static void negateCoeff(isl::constraint &C, isl::dim Dim) {
-  auto N = C.get_local_space().dim(Dim);
+  auto N =  dim(get_local_space(C),Dim).release();
   for (auto i = 0; i < N; i += 1) {
-    auto V = C.get_coefficient_val(Dim, i);
+    auto V =get_coefficient_val(C, Dim, i);
     V = V.neg();
-    C = C.set_coefficient_val(Dim, i, V);
+    C = set_coefficient_val(C, Dim, i, V);
   }
 }
 
@@ -1435,7 +1432,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
   isl_size MaxSchedDims = 0;
   //   unsigned PackedDims = 0;
   for (auto Map : ScheduleToAccess.get_map_list()) {
-    MaxSchedDims = std::max(MaxSchedDims, Map.dim(isl::dim::in));
+    MaxSchedDims = std::max(MaxSchedDims, Map.dim(isl::dim::in).release());
     //     PackedDims = std::max(PackedDims, Map.dim(isl::dim::out));
   }
 
@@ -1446,7 +1443,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
     return {};
   }();
   assert(!PackedSpace.is_null());
-  auto PackedDims = PackedSpace.dim(isl::dim::set);
+  auto PackedDims = PackedSpace.dim(isl::dim::set).release();
 
   SmallVector<bool, 8> UsedDims;
   UsedDims.reserve(PackedDims);
@@ -1455,20 +1452,20 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
   }
 
   // { PackedData[] -> [] }
-  auto Permutation = isl::basic_map::universe(PackedSpace.from_domain());
+  auto Permutation = isl::basic_map::universe(from_domain(PackedSpace));
   SmallVector<unsigned int, 8> NewPackedSizes;
   NewPackedSizes.reserve(PackedDims); // reversed!
 
   // TODO: If schedule has been stripmined/tiled/unroll-and-jammed, also apply
   // on 'permutation'
   for (int i = MaxSchedDims - 1; i >= 0; i -= 1) {
-    if (Permutation.dim(isl::dim::in) <= 1 + Permutation.dim(isl::dim::out))
+    if (Permutation.dim(isl::dim::in).release() <= 1 + Permutation.dim(isl::dim::out).release())
       break;
 
     for (auto Map : ScheduleToAccess.get_map_list()) {
       assert(PackedDims == Map.dim(isl::dim::out));
 
-      auto SchedDims = Map.dim(isl::dim::in);
+      auto SchedDims = Map.dim(isl::dim::in).release();
       if (SchedDims <= i)
         continue;
 
@@ -1478,17 +1475,17 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
 
       SmallVector<isl::constraint, 32> Constraints;
       for (auto BMap : ExtractPostfix.get_basic_map_list()) {
-        for (auto C : BMap.get_constraint_list()) {
+        for (auto C : get_constraint_list(BMap)) {
           if (!isl_constraint_is_equality(C.get()))
             continue;
 
-          auto Coeff = C.get_coefficient_val(isl::dim::out, 0);
+          auto Coeff = get_coefficient_val(C, isl::dim::out, 0);
           if (Coeff.is_zero())
             continue;
 
           // Normalize coefficients
           if (Coeff.is_pos()) {
-            auto Cons = C.get_constant_val();
+            auto Cons = get_constant_val(C);
             Cons = Cons.neg();
             C = C.set_constant_val(Cons);
             negateCoeff(C, isl::dim::param);
@@ -1509,7 +1506,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
 
       for (auto C : Constraints) {
         for (auto i : seq<isl_size>(0, PackedDims)) {
-          auto Coeff = C.get_coefficient_val(isl::dim::in, i);
+          auto Coeff = get_coefficient_val(C, isl::dim::in, i);
           if (Coeff.is_zero())
             continue;
 
@@ -1541,11 +1538,9 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
 
       // { PackedSpace[] -> [ChosenDim] }
       auto TheDim =
-          isolateDim(isl::basic_map::identity(
-                         PackedSpace.map_from_domain_and_range(PackedSpace)),
-                     ChosenDim);
+          isolateDim(identity_map(PackedSpace.map_from_domain_and_range(PackedSpace)),  ChosenDim);
 
-      Permutation = TheDim.flat_range_product(Permutation);
+      Permutation = flat_range_product(TheDim, Permutation);
       NewPackedSizes.push_back(PackedSizes[ChosenDim]);
     }
   }
@@ -1556,10 +1551,10 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess,
       continue;
 
     auto TheDim =
-        isolateDim(isl::basic_map::identity(
+        isolateDim(identity_map(
                        PackedSpace.map_from_domain_and_range(PackedSpace)),
                    i);
-    Permutation = TheDim.flat_range_product(Permutation);
+    Permutation = flat_range_product(TheDim, Permutation);
     NewPackedSizes.push_back(PackedSizes[i]);
   }
 
@@ -1645,7 +1640,7 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   auto SourceSpace = PrefixSpace.map_from_domain_and_range(IndexSpace);
 
   // { PrefixSched[] -> DataMin[] }
-  auto AllMins = isl::multi_pw_aff(SourceSpace, DimMins);
+  isl::multi_pw_aff AllMins = isl::multi_pw_aff(SourceSpace, DimMins);
 
 #if 1
   auto PackedSizes = sizeBox(DimSizes);
@@ -1680,35 +1675,32 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   // }
   auto Translator = isl::basic_map::universe(
       SourceSpace.wrap().map_from_domain_and_range(TargetSpace.wrap()));
-  auto TranslatorLS = Translator.get_local_space();
+  auto TranslatorLS = get_local_space(Translator);
 
   // PrefixSched[] = PrefixSched[]
   for (auto i = 0; i < PrefixSpace.dim(isl::dim::set); i += 1) {
     auto C = isl::constraint::alloc_equality(TranslatorLS);
     C = C.set_coefficient_si(isl::dim::in, i, 1);
     C = C.set_coefficient_si(isl::dim::out, i, -1);
-    Translator = Translator.add_constraint(C);
+    Translator = add_constraint(Translator, C);
   }
 
   // Data[] = Data[] - DataMin[]
-  for (auto i : seq<isl_size>(0, IndexSpace.dim(isl::dim::set))) {
+  for (auto i : seq<isl_size>(0, IndexSpace.dim(isl::dim::set).release())) {
     auto C = isl::constraint::alloc_equality(TranslatorLS);
     // Min
-    C = C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set) + i,
-                             1);
+    C = C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set).release() + i,                             1);
     // i
-    C = C.set_coefficient_si(isl::dim::out, PrefixSpace.dim(isl::dim::set) + i,
-                             -1);
+    C = C.set_coefficient_si(isl::dim::out, PrefixSpace.dim(isl::dim::set).release() + i,                             -1);
     // x
     C = C.set_coefficient_si(
         isl::dim::out,
-        PrefixSpace.dim(isl::dim::set) + IndexSpace.dim(isl::dim::set) + i, 1);
-    Translator = Translator.add_constraint(C);
+        PrefixSpace.dim(isl::dim::set).release() + IndexSpace.dim(isl::dim::set).release() + i, 1);
+    Translator = add_constraint(Translator,C);
   }
 
   // { PrefixSched[] -> [Data[] -> PackedData[]] }
-  auto OrigToPackedIndexMap =
-      isl::map::from_multi_pw_aff(AllMins).wrap().apply(Translator).unwrap();
+  auto OrigToPackedIndexMap = isl::convert<isl::map>(AllMins).wrap().apply(Translator).unwrap();
 
   // TupleNest OrigToPackedIndexRef(OrigToPackedIndexMap, "{ PrefixSched[] ->
   // [Data[] -> PackedData[]] }"); TupleNest
@@ -1719,8 +1711,7 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
 
   //	Permutation = castSpace(Permutation,
   // TmpPackedSpace.map_from_domain_and_range(PackedSpace));
-  Permutation = Permutation.set_tuple_id(isl::dim::in, TmpPackedId)
-                    .set_tuple_id(isl::dim::out, TmpPackedId);
+  Permutation =Permutation.set_tuple_id(isl::dim::in, TmpPackedId). set_tuple_id(isl::dim::out, TmpPackedId);
 
   OrigToPackedIndexMap = OrigToPackedIndexMap.uncurry()
                              .intersect_domain(WorkingSet.wrap())
@@ -1734,10 +1725,9 @@ findPackingLayout(isl::union_map InnerSchedules, isl::union_map InnerInstances,
 /// dimensions following it?
 static bool isFunctionallyDetermined(isl::map Map, int OutDim) {
   auto PMap = Map.project_out(isl::dim::out, 0, OutDim);
-  auto InDims = PMap.dim(isl::dim::in);
-  auto OutDims = PMap.dim(isl::dim::out);
-  auto MMap =
-      PMap.move_dims(isl::dim::in, InDims, isl::dim::out, 1, OutDims - 1);
+  auto InDims = PMap.dim(isl::dim::in).release();
+  auto OutDims = PMap.dim(isl::dim::out).release();
+  auto MMap =      PMap.move_dims(isl::dim::in, InDims, isl::dim::out, 1, OutDims - 1);
   return MMap.is_single_valued();
 }
 
@@ -1815,8 +1805,7 @@ findPackingLayout2(isl::union_map InnerSchedules, isl::union_map InnerInstances,
   std::tie(DimMins, DimSizes, DimEnds) = extractExtends(PackedWorkingSet);
 
   // { PrefixSched[] -> Packed[] }
-  auto AllMins = isl::map::from_multi_pw_aff(isl::multi_pw_aff(
-      PrefixSchedSpace.map_from_domain_and_range(PackedSpace), DimMins));
+  auto AllMins = isl::convert<isl::map>(isl::multi_pw_aff(PrefixSchedSpace.map_from_domain_and_range(PackedSpace), DimMins));
   TupleNest AllMinsNest(AllMins, "{ PrefixSched[] -> MinPacked[] }");
 
   // { [PrefixSched[] -> Data[]] -> Packed[] }
@@ -1835,7 +1824,7 @@ findPackingLayout2(isl::union_map InnerSchedules, isl::union_map InnerInstances,
 
     if (PackedSize == 1 ||
         isFunctionallyDetermined(Layout4.curry(),
-                                 DataSpace.dim(isl::dim::set) + i)) {
+                                 DataSpace.dim(isl::dim::set).release() + i)) {
       // Remove dimension
       PackedSizes.erase(PackedSizes.begin() + i);
       Layout4 = Layout4.project_out(isl::dim::out, i, 1);
@@ -1926,7 +1915,7 @@ collectRedirects(isl::schedule_node Node, isl::map OrigToPackedIndexMap,
 
   auto n = Node.n_children();
   for (auto i = 0; i < n; i += 1) {
-    auto Child = Node.get_child(i);
+    auto Child = Node.child(i);
     collectRedirects(Child, OrigToPackedIndexMap, InnerInstances,
                      AccessesToUpdate);
   }
@@ -1986,8 +1975,7 @@ struct ExtensionNodeRewriter
     assert(NumChildren >= 1);
     isl::schedule NewNode;
     auto PSpace = Domain.get_space();
-    isl::union_map NewExtensions =
-        isl::union_map::empty(PSpace.ctx()).align_params(PSpace);
+    isl::union_map NewExtensions = emptyUMap(PSpace);
 
     for (int i = 0; i < NumChildren; i += 1) {
       auto OldChild = Sequence.child(i);
@@ -1998,7 +1986,7 @@ struct ExtensionNodeRewriter
       int BandDims = 1;
 
       for (auto Ext : NewChildExtensions.get_map_list()) {
-        int ExtDims = Ext.dim(isl::dim::in);
+        int ExtDims = Ext.dim(isl::dim::in).release();
         assert(ExtDims >= BandDims);
         auto OuterDims = ExtDims - BandDims;
 
@@ -2034,7 +2022,7 @@ struct ExtensionNodeRewriter
   std::pair<isl::schedule, isl::union_map>
   visitMark(const isl::schedule_node &Mark, const isl::union_set &Domain,
             Args... args) {
-    auto TheMark = Mark.mark_get_id();
+    auto TheMark = Mark.as<isl::schedule_node_mark>().get_id();
     isl::schedule NewChildNode;
     isl::union_map NewChildExtensions;
     std::tie(NewChildNode, NewChildExtensions) =
@@ -2066,17 +2054,15 @@ struct ExtensionNodeRewriter
         getDerived().visit(OldChild, Domain, args...);
 
     auto PSpace = NewChildExtensions.get_space();
-    isl::union_map OuterExtensions =
-        isl::union_map::empty(PSpace.ctx()).align_params(PSpace);
-    isl::union_map BandExtensions =
-        isl::union_map::empty(PSpace.ctx()).align_params(PSpace);
+    isl::union_map OuterExtensions = emptyUMap(PSpace);
+    isl::union_map BandExtensions =emptyUMap(PSpace);
     auto NewPartialSched = OldPartialSched;
     isl::union_map NewPartialSchedMap = isl::union_map::from(OldPartialSched);
 
     // We have to add the extensions to the schedule
     auto BandDims = isl_schedule_node_band_n_member(Band.get());
     for (auto Ext : NewChildExtensions.get_map_list()) {
-      auto ExtDims = (isl_size)Ext.dim(isl::dim::in);
+      auto ExtDims =Ext.dim(isl::dim::in).release();
       assert(ExtDims >= BandDims);
       auto OuterDims = ExtDims - BandDims;
 
@@ -2106,7 +2092,7 @@ struct ExtensionNodeRewriter
   std::pair<isl::schedule, isl::union_map>
   visitFilter(const isl::schedule_node &Filter, const isl::union_set &Domain,
               Args... args) {
-    auto FilterDomain = Filter.filter_get_filter();
+    auto FilterDomain = Filter.as<isl::schedule_node_filter>().  get_filter();
     auto NewDomain = Domain.intersect(FilterDomain);
     auto NewChild = getDerived().visit(Filter.child(0), NewDomain);
 
@@ -2117,7 +2103,7 @@ struct ExtensionNodeRewriter
   std::pair<isl::schedule, isl::union_map>
   visitExtension(const isl::schedule_node &Extension,
                  const isl::union_set &Domain, Args... args) {
-    auto ExtDomain = Extension.extension_get_extension();
+    auto ExtDomain = Extension.as<isl::schedule_node_extension>().get_extension();
     auto NewDomain = Domain.unite(ExtDomain.range());
     auto NewChild = getDerived().visit(Extension.child(0), NewDomain);
     return {NewChild.first, NewChild.second.unite(ExtDomain)};
@@ -2155,12 +2141,10 @@ static isl::schedule hoistExtensionNodes2(isl::schedule Sched) {
   SmallVector<isl::schedule_node, 4> ExtNodes;
   ExtensionCollector.visit(Sched, ExtNodes);
 
-  isl::union_set ExtDomains =
-      isl::union_set::empty(ParamSpace.ctx()).align_params(ParamSpace);
-  isl::union_map Extensions =
-      isl::union_map::empty(ParamSpace.ctx()).align_params(ParamSpace);
+  isl::union_set ExtDomains = emptyUSet(ParamSpace);
+  isl::union_map Extensions = emptyUMap(ParamSpace);
   for (auto ExtNode : ExtNodes) {
-    auto Extension = ExtNode.extension_get_extension();
+    auto Extension = ExtNode.as<isl::schedule_node_extension>() .get_extension();
     ExtDomains = ExtDomains.unite(Extension.range());
     Extensions = Extensions.unite(Extension);
   }
@@ -2186,8 +2170,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
     LLVM_DEBUG(dbgs() << "IslRedirect: " << IslRedirect << "\n");
 
   auto PSpace = S.getParamSpace();
-  isl::union_map Accs =
-      isl::union_map::empty(PSpace.ctx()).align_params(PSpace);
+  isl::union_map Accs = emptyUMap(PSpace);
   collectMemAccsDomains(TheBand, SAI, Accs, false);
 
   SmallVector<polly::MemoryAccess *, 16> MemAccs;
@@ -2383,7 +2366,7 @@ static isl::schedule applyLoopUnrollAndJam(MDNode *LoopMD,
   auto Cur = BandToJam;
   while (true) {
 
-    if (Cur.n_children() != 1)
+    if (Cur.n_children().release() != 1)
       break;
     auto Child = Cur.first_child();
     if (isBand(Child)) {
@@ -2533,7 +2516,7 @@ applyArrayPacking(MDNode *LoopMD, isl::schedule_node LoopToPack, Function *F,
 
   auto Mark = moveToBandMark(LoopToPack);
   if (isBandMark(Mark)) {
-    auto Attr = static_cast<BandAttr *>(Mark.mark_get_id().get_user());
+    auto Attr = static_cast<BandAttr *>(Mark.as<isl::schedule_node_mark>().get_id().get_user());
 
     auto NewLoopMD = makePostTransformationMetadata(
         F->getContext(), Attr->Metadata, {"llvm.data.pack."}, {});
@@ -2553,7 +2536,7 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
   BandToParallelize = removeMark(BandToParallelize);
 
   assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
-  auto ParallelizedBand = BandToParallelize.band_member_set_coincident(0, true);
+  isl::schedule_node ParallelizedBand = BandToParallelize.as<isl::schedule_node_band>().member_set_coincident(0, true);
 
   auto NewBandId = makeTransformLoopId(Ctx, nullptr, "threaded");
   auto NewAttr = static_cast<BandAttr *>(NewBandId.get_user());
@@ -2564,8 +2547,7 @@ applyParallelizeThread(MDNode *LoopMD, isl::schedule_node BandToParallelize) {
 }
 
 /// Apply full or partial unrolling.
-static isl::schedule applyLoopUnroll(MDNode *LoopMD,
-                                     isl::schedule_node BandToUnroll) {
+static isl::schedule applyLoopUnroll(MDNode *LoopMD, isl::schedule_node BandToUnroll) {
   TransformationMode UnrollMode = ::hasUnrollTransformation(LoopMD);
   if (UnrollMode & TM_Disable)
     return {};
@@ -2610,6 +2592,8 @@ static isl::schedule applyLoopFission(MDNode *LoopMD,
   //  return applyAutofission(BandToFission, D);
 }
 
+
+
 static void foreachScheduleTreeChild(
     isl::schedule_node Parent,
     llvm::function_ref<void(const isl::schedule_node &Child)> Callback) {
@@ -2623,6 +2607,7 @@ static void foreachScheduleTreeChild(
     }
   }
 }
+
 
 static bool isFilter(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;
@@ -2730,7 +2715,7 @@ public:
 
   isl::schedule
   checkDependencyViolation(llvm::MDNode *LoopMD, llvm::Value *CodeRegion,
-                           const isl::noexceptions::schedule_node &OrigBand,
+                           const isl::schedule_node &OrigBand,
                            StringRef DebugLocAttr, StringRef TransPrefix,
                            StringRef RemarkName, StringRef TransformationName) {
     // Check legality
@@ -2794,7 +2779,7 @@ public:
     if (Mark.is_null() || Mark.get() == Band.get())
       return;
 
-    auto Attr = static_cast<BandAttr *>(Mark.mark_get_id().get_user());
+    auto Attr = static_cast<BandAttr *>(Mark.as<isl::schedule_node_mark>().get_id().get_user());
     auto Loop = Attr->OriginalLoop;
     Value *CodeRegion = nullptr;
     if (Loop)
@@ -2862,7 +2847,7 @@ public:
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.parallelize_thread.enable") {
-        auto IsCoincident = Band.band_member_get_coincident(0);
+        auto IsCoincident = Band.as<isl::schedule_node_band>().member_get_coincident(0);
         if (!IsCoincident) {
           auto DepsAll =
               D->getDependences(Dependences::TYPE_RAW | Dependences::TYPE_WAW |
