@@ -89,7 +89,6 @@ void APInt::initSlowCase(const APInt& that) {
 }
 
 void APInt::initFromArray(ArrayRef<uint64_t> bigVal) {
-  assert(BitWidth && "Bitwidth too small");
   assert(bigVal.data() && "Null pointer detected!");
   if (isSingleWord())
     U.VAL = bigVal[0];
@@ -105,19 +104,17 @@ void APInt::initFromArray(ArrayRef<uint64_t> bigVal) {
   clearUnusedBits();
 }
 
-APInt::APInt(unsigned numBits, ArrayRef<uint64_t> bigVal)
-  : BitWidth(numBits) {
+APInt::APInt(unsigned numBits, ArrayRef<uint64_t> bigVal) : BitWidth(numBits) {
   initFromArray(bigVal);
 }
 
 APInt::APInt(unsigned numBits, unsigned numWords, const uint64_t bigVal[])
-  : BitWidth(numBits) {
+    : BitWidth(numBits) {
   initFromArray(makeArrayRef(bigVal, numWords));
 }
 
 APInt::APInt(unsigned numbits, StringRef Str, uint8_t radix)
-  : BitWidth(numbits) {
-  assert(BitWidth && "Bitwidth too small");
+    : BitWidth(numbits) {
   fromString(numbits, Str, radix);
 }
 
@@ -140,7 +137,7 @@ void APInt::reallocate(unsigned NewBitWidth) {
     U.pVal = getMemory(getNumWords());
 }
 
-void APInt::AssignSlowCase(const APInt& RHS) {
+void APInt::assignSlowCase(const APInt &RHS) {
   // Don't do anything for X = X
   if (this == &RHS)
     return;
@@ -233,33 +230,30 @@ APInt APInt::operator*(const APInt& RHS) const {
     return APInt(BitWidth, U.VAL * RHS.U.VAL);
 
   APInt Result(getMemory(getNumWords()), getBitWidth());
-
   tcMultiply(Result.U.pVal, U.pVal, RHS.U.pVal, getNumWords());
-
   Result.clearUnusedBits();
   return Result;
 }
 
-void APInt::AndAssignSlowCase(const APInt &RHS) {
+void APInt::andAssignSlowCase(const APInt &RHS) {
   WordType *dst = U.pVal, *rhs = RHS.U.pVal;
   for (size_t i = 0, e = getNumWords(); i != e; ++i)
     dst[i] &= rhs[i];
 }
 
-void APInt::OrAssignSlowCase(const APInt &RHS) {
+void APInt::orAssignSlowCase(const APInt &RHS) {
   WordType *dst = U.pVal, *rhs = RHS.U.pVal;
   for (size_t i = 0, e = getNumWords(); i != e; ++i)
     dst[i] |= rhs[i];
 }
 
-void APInt::XorAssignSlowCase(const APInt &RHS) {
+void APInt::xorAssignSlowCase(const APInt &RHS) {
   WordType *dst = U.pVal, *rhs = RHS.U.pVal;
   for (size_t i = 0, e = getNumWords(); i != e; ++i)
     dst[i] ^= rhs[i];
 }
 
-APInt& APInt::operator*=(const APInt& RHS) {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
+APInt &APInt::operator*=(const APInt &RHS) {
   *this = *this * RHS;
   return *this;
 }
@@ -274,7 +268,7 @@ APInt& APInt::operator*=(uint64_t RHS) {
   return clearUnusedBits();
 }
 
-bool APInt::EqualSlowCase(const APInt& RHS) const {
+bool APInt::equalSlowCase(const APInt &RHS) const {
   return std::equal(U.pVal, U.pVal + getNumWords(), RHS.U.pVal);
 }
 
@@ -343,6 +337,17 @@ static void tcComplement(APInt::WordType *dst, unsigned parts) {
 void APInt::flipAllBitsSlowCase() {
   tcComplement(U.pVal, getNumWords());
   clearUnusedBits();
+}
+
+/// Concatenate the bits from "NewLSB" onto the bottom of *this.  This is
+/// equivalent to:
+///   (this->zext(NewWidth) << NewLSB.getBitWidth()) | NewLSB.zext(NewWidth)
+/// In the slow case, we know the result is large.
+APInt APInt::concatSlowCase(const APInt &NewLSB) const {
+  unsigned NewWidth = getBitWidth() + NewLSB.getBitWidth();
+  APInt Result = NewLSB.zext(NewWidth);
+  Result.insertBits(*this, NewLSB.getBitWidth());
+  return Result;
 }
 
 /// Toggle a given bit to its opposite value whose position is given
@@ -714,6 +719,8 @@ APInt APInt::reverseBits() const {
     return APInt(BitWidth, llvm::reverseBits<uint16_t>(U.VAL));
   case 8:
     return APInt(BitWidth, llvm::reverseBits<uint8_t>(U.VAL));
+  case 0:
+    return *this;
   default:
     break;
   }
@@ -873,7 +880,6 @@ double APInt::roundToDouble(bool isSigned) const {
 // Truncate to new width.
 APInt APInt::trunc(unsigned width) const {
   assert(width < BitWidth && "Invalid APInt Truncate request");
-  assert(width && "Can't truncate to 0 bits");
 
   if (width <= APINT_BITS_PER_WORD)
     return APInt(width, getRawData()[0]);
@@ -896,7 +902,6 @@ APInt APInt::trunc(unsigned width) const {
 // Truncate to new width with unsigned saturation.
 APInt APInt::truncUSat(unsigned width) const {
   assert(width < BitWidth && "Invalid APInt Truncate request");
-  assert(width && "Can't truncate to 0 bits");
 
   // Can we just losslessly truncate it?
   if (isIntN(width))
@@ -908,7 +913,6 @@ APInt APInt::truncUSat(unsigned width) const {
 // Truncate to new width with signed saturation.
 APInt APInt::truncSSat(unsigned width) const {
   assert(width < BitWidth && "Invalid APInt Truncate request");
-  assert(width && "Can't truncate to 0 bits");
 
   // Can we just losslessly truncate it?
   if (isSignedIntN(width))
@@ -1071,6 +1075,8 @@ void APInt::shlSlowCase(unsigned ShiftAmt) {
 
 // Calculate the rotate amount modulo the bit width.
 static unsigned rotateModulo(unsigned BitWidth, const APInt &rotateAmt) {
+  if (LLVM_UNLIKELY(BitWidth == 0))
+    return 0;
   unsigned rotBitWidth = rotateAmt.getBitWidth();
   APInt rot = rotateAmt;
   if (rotBitWidth < BitWidth) {
@@ -1087,6 +1093,8 @@ APInt APInt::rotl(const APInt &rotateAmt) const {
 }
 
 APInt APInt::rotl(unsigned rotateAmt) const {
+  if (LLVM_UNLIKELY(BitWidth == 0))
+    return *this;
   rotateAmt %= BitWidth;
   if (rotateAmt == 0)
     return *this;
@@ -1098,6 +1106,8 @@ APInt APInt::rotr(const APInt &rotateAmt) const {
 }
 
 APInt APInt::rotr(unsigned rotateAmt) const {
+  if (BitWidth == 0)
+    return *this;
   rotateAmt %= BitWidth;
   if (rotateAmt == 0)
     return *this;
@@ -1121,7 +1131,7 @@ unsigned APInt::nearestLogBase2() const {
     return U.VAL - 1;
 
   // Handle the zero case.
-  if (isNullValue())
+  if (isZero())
     return UINT32_MAX;
 
   // The non-zero case is handled by computing:
@@ -2145,7 +2155,7 @@ void APInt::toString(SmallVectorImpl<char> &Str, unsigned Radix,
   }
 
   // First, check for a zero value and just short circuit the logic below.
-  if (*this == 0) {
+  if (isZero()) {
     while (*Prefix) {
       Str.push_back(*Prefix);
       ++Prefix;
@@ -2713,7 +2723,7 @@ APInt llvm::APIntOps::RoundingUDiv(const APInt &A, const APInt &B,
   case APInt::Rounding::UP: {
     APInt Quo, Rem;
     APInt::udivrem(A, B, Quo, Rem);
-    if (Rem == 0)
+    if (Rem.isZero())
       return Quo;
     return Quo + 1;
   }
@@ -2728,7 +2738,7 @@ APInt llvm::APIntOps::RoundingSDiv(const APInt &A, const APInt &B,
   case APInt::Rounding::UP: {
     APInt Quo, Rem;
     APInt::sdivrem(A, B, Quo, Rem);
-    if (Rem == 0)
+    if (Rem.isZero())
       return Quo;
     // This algorithm deals with arbitrary rounding mode used by sdivrem.
     // We want to check whether the non-integer part of the mathematical value
@@ -2764,7 +2774,7 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
                     << "x + " << C << ", rw:" << RangeWidth << '\n');
 
   // Identify 0 as a (non)solution immediately.
-  if (C.sextOrTrunc(RangeWidth).isNullValue() ) {
+  if (C.sextOrTrunc(RangeWidth).isZero()) {
     LLVM_DEBUG(dbgs() << __func__ << ": zero solution\n");
     return APInt(CoeffWidth, 0);
   }
@@ -2826,7 +2836,7 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
   auto RoundUp = [] (const APInt &V, const APInt &A) -> APInt {
     assert(A.isStrictlyPositive());
     APInt T = V.abs().urem(A);
-    if (T.isNullValue())
+    if (T.isZero())
       return V;
     return V.isNegative() ? V+T : V+(A-T);
   };
@@ -2910,7 +2920,7 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
   // can be 0, but cannot be negative.
   assert(X.isNonNegative() && "Solution should be non-negative");
 
-  if (!InexactSQ && Rem.isNullValue()) {
+  if (!InexactSQ && Rem.isZero()) {
     LLVM_DEBUG(dbgs() << __func__ << ": solution (root): " << X << '\n');
     return X;
   }
@@ -2926,8 +2936,8 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
 
   APInt VX = (A*X + B)*X + C;
   APInt VY = VX + TwoA*X + A + B;
-  bool SignChange = VX.isNegative() != VY.isNegative() ||
-                    VX.isNullValue() != VY.isNullValue();
+  bool SignChange =
+      VX.isNegative() != VY.isNegative() || VX.isZero() != VY.isZero();
   // If the sign did not change between X and X+1, X is not a valid solution.
   // This could happen when the actual (exact) roots don't have an integer
   // between them, so they would both be contained between X and X+1.
@@ -2947,6 +2957,40 @@ llvm::APIntOps::GetMostSignificantDifferentBit(const APInt &A, const APInt &B) {
   if (A == B)
     return llvm::None;
   return A.getBitWidth() - ((A ^ B).countLeadingZeros() + 1);
+}
+
+APInt llvm::APIntOps::ScaleBitMask(const APInt &A, unsigned NewBitWidth) {
+  unsigned OldBitWidth = A.getBitWidth();
+  assert((((OldBitWidth % NewBitWidth) == 0) ||
+          ((NewBitWidth % OldBitWidth) == 0)) &&
+         "One size should be a multiple of the other one. "
+         "Can't do fractional scaling.");
+
+  // Check for matching bitwidths.
+  if (OldBitWidth == NewBitWidth)
+    return A;
+
+  APInt NewA = APInt::getNullValue(NewBitWidth);
+
+  // Check for null input.
+  if (A.isNullValue())
+    return NewA;
+
+  if (NewBitWidth > OldBitWidth) {
+    // Repeat bits.
+    unsigned Scale = NewBitWidth / OldBitWidth;
+    for (unsigned i = 0; i != OldBitWidth; ++i)
+      if (A[i])
+        NewA.setBits(i * Scale, (i + 1) * Scale);
+  } else {
+    // Merge bits - if any old bit is set, then set scale equivalent new bit.
+    unsigned Scale = OldBitWidth / NewBitWidth;
+    for (unsigned i = 0; i != NewBitWidth; ++i)
+      if (!A.extractBits(Scale, i * Scale).isNullValue())
+        NewA.setBit(i);
+  }
+
+  return NewA;
 }
 
 /// StoreIntToMemory - Fills the StoreBytes bytes of memory starting from Dst

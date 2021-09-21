@@ -684,6 +684,24 @@ PreservedAnalyses GVN::run(Function &F, FunctionAnalysisManager &AM) {
   return PA;
 }
 
+void GVN::printPipeline(
+    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
+  static_cast<PassInfoMixin<GVN> *>(this)->printPipeline(OS,
+                                                         MapClassName2PassName);
+
+  OS << "<";
+  if (Options.AllowPRE != None)
+    OS << (Options.AllowPRE.getValue() ? "" : "no-") << "pre;";
+  if (Options.AllowLoadPRE != None)
+    OS << (Options.AllowLoadPRE.getValue() ? "" : "no-") << "load-pre;";
+  if (Options.AllowLoadPRESplitBackedge != None)
+    OS << (Options.AllowLoadPRESplitBackedge.getValue() ? "" : "no-")
+       << "split-backedge-load-pre;";
+  if (Options.AllowMemDep != None)
+    OS << (Options.AllowMemDep.getValue() ? "" : "no-") << "memdep";
+  OS << ">";
+}
+
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void GVN::dump(DenseMap<uint32_t, Value*>& d) const {
   errs() << "{\n";
@@ -2460,10 +2478,8 @@ bool GVN::runImpl(Function &F, AssumptionCache &RunAC, DominatorTree &RunDT,
   DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
   // Merge unconditional branches, allowing PRE to catch more
   // optimization opportunities.
-  for (Function::iterator FI = F.begin(), FE = F.end(); FI != FE; ) {
-    BasicBlock *BB = &*FI++;
-
-    bool removedBlock = MergeBlockIntoPredecessor(BB, &DTU, LI, MSSAU, MD);
+  for (BasicBlock &BB : llvm::make_early_inc_range(F)) {
+    bool removedBlock = MergeBlockIntoPredecessor(&BB, &DTU, LI, MSSAU, MD);
     if (removedBlock)
       ++NumGVNBlocks;
 
