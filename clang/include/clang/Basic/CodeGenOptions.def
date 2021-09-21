@@ -447,6 +447,11 @@ CODEGENOPT(EmitIEEENaNCompliantInsts, 1, 1)
 /// See NoLegacyLoopTransformsPassGate in BackendUtil.cpp
 CODEGENOPT(DisableLegacyLoopTransformation, 1, 0)
 
+// Whether to emit Swift Async function extended frame information: auto,
+// never, always.
+ENUM_CODEGENOPT(SwiftAsyncFramePointer, SwiftAsyncFramePointerKind, 2,
+                SwiftAsyncFramePointerKind::Always)
+
 #undef CODEGENOPT
 #undef ENUM_CODEGENOPT
 #undef VALUE_CODEGENOPT
