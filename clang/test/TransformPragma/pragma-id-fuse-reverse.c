@@ -1,7 +1,7 @@
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --match-full-lines %s --check-prefix=PRINT
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
+// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck %s --check-prefix=TRANS
 // RUN: %clang                           -DMAIN                                   -std=c99            -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
@@ -35,10 +35,10 @@ int main() {
 // PRINT-NEXT:   #pragma clang loop(k) reverse
 // PRINT-NEXT:   #pragma clang loop(i, j) fuse fused_id(k)
 // PRINT-NEXT:   #pragma clang loop id(i)
-// PRINT-NEXT:   for (int i = 0; i < n; i += 1) 
+// PRINT-NEXT:   for (int i = 0; i < n; i += 1)
 // PRINT-NEXT:     A[i] = 3 * i;
 // PRINT-NEXT:   #pragma clang loop id(j)
-// PRINT-NEXT:   for (int j = 0; j < n; j += 1) 
+// PRINT-NEXT:   for (int j = 0; j < n; j += 1)
 // PRINT-NEXT:     B[j] = 2 * j;
 // PRINT-NEXT: }
 
@@ -61,7 +61,7 @@ int main() {
 // IR: !13 = !{!"llvm.loop.id", !"j"}
 
 
-// AST: if (1 
+// AST: if (1
 // AST:     for (int c0 = -n + 1; c0 <= 0; c0 += 1) {
 // AST:         Stmt_for_body(-c0);
 // AST:         Stmt_for_body5(-c0);
@@ -72,8 +72,8 @@ int main() {
 
 // TRANS: polly.start:
 // TRANS: polly.loop_header:
-// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !18, !noalias !20
-// TRANS:   store double %p_conv7, double* %scevgep35, align 8, !alias.scope !21, !noalias !22
+// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !18, !noalias !21
+// TRANS:   store double %p_conv7, double* %scevgep35, align 8, !alias.scope !21, !noalias !18
 // TRANS:   br i1 %exitcond.not38, label %for.cond.cleanup4, label %polly.loop_header
 
 

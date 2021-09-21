@@ -1,7 +1,7 @@
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --match-full-lines %s --check-prefix=PRINT
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1                       -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
+// RUN: %clang_cc1 -flegacy-pass-manager -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -o - %s | FileCheck %s --check-prefix=TRANS
 // RUN: %clang                           -DMAIN                                   -std=c99            -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
@@ -59,7 +59,7 @@ int main() {
 // IR: !12 = !{!"llvm.loop.id", !"b"}
 
 
-// AST: if (1 
+// AST: if (1
 // AST:     {
 // AST:       for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
 // AST:         Stmt2(-c0);
@@ -72,10 +72,10 @@ int main() {
 
 // TRANS: polly.loop_header:
 // TRANS:   %7 = sub nsw i64 0, %polly.indvar
-// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !17, !noalias !19
+// TRANS:   store double %p_conv, double* %scevgep, align 8, !alias.scope !17, !noalias !20
 // TRANS: polly.loop_header19:
 // TRANS:   %10 = sub nsw i64 0, %polly.indvar23
-// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !20, !noalias !21
+// TRANS:   store double %p_conv2, double* %scevgep27, align 8, !alias.scope !20, !noalias !17
 
 
 // RESULT: (3 2)
