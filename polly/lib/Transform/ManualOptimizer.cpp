@@ -970,12 +970,12 @@ struct CollectInnerSchedules
   CollectInnerSchedules(isl::space ParamSpace)
       : InnerSched(emptyUMap(ParamSpace)) {}
 
-  RetTy visit(const isl::schedule_node &Band,
+  RetTy visit( isl::schedule_node Band,
               isl::multi_union_pw_aff PostfixSched) {
     return getBase().visit(Band, PostfixSched);
   }
 
-  RetTy visit(const isl::schedule_node &Band) {
+  RetTy visit( isl::schedule_node Band) {
     auto Ctx = Band.ctx();
     auto List = isl::union_pw_aff_list(Ctx, 0);
     auto Empty =
@@ -983,7 +983,7 @@ struct CollectInnerSchedules
     return visit(Band, Empty);
   }
 
-  RetTy visitBand(const isl::schedule_node &Band,
+  RetTy visitBand( isl::schedule_node_band Band,
                   isl::multi_union_pw_aff PostfixSched) {
     // auto NumLoops = isl_schedule_node_band_n_member(Band.get());
     auto PartialSched =
@@ -992,7 +992,7 @@ struct CollectInnerSchedules
     return getBase().visitBand(Band, Sched);
   }
 
-  RetTy visitLeaf(const isl::schedule_node &Leaf,
+  RetTy visitLeaf( isl::schedule_node_leaf Leaf,
                   isl::multi_union_pw_aff PostfixSched) {
     auto Dom = Leaf.get_domain();
     auto Sched = PostfixSched.intersect_domain(Dom);
@@ -2779,6 +2779,7 @@ public:
     return Result;
   }
 
+  void visitBand(isl::schedule_node_band Band) {
     // Transform inner loops first (depth-first search).
     getBase().visitBand(Band);
     if (!Result.is_null())

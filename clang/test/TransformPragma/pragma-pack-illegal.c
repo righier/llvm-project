@@ -21,16 +21,16 @@ void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_pack([32 x double]* noalias %C, [16 x double]* noalias %A) #0 !dbg !6 {
+// IR-LABEL: define dso_local void @pragma_pack([32 x double]* noalias %C, [16 x double]* noalias %A) #0 !dbg !5 {
 // IR:         %A.addr = alloca [16 x double]*, align 8
 // IR:         %6 = load double, double* %arrayidx5, align 8, !dbg !35, !llvm.access !36
 // IR:         br label %for.cond1, !dbg !33, !llvm.loop !37
 // IR:         br label %for.cond, !dbg !28, !llvm.loop !45
 //
-// IR: !6 = distinct !DISubprogram(name: "pragma_pack", scope: !7, file: !7, line: 7, type: !8, scopeLine: 7, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !2)
-// IR: !25 = distinct !DILexicalBlock(scope: !6, file: !7, line: 8)
-// IR: !29 = distinct !DILexicalBlock(scope: !25, file: !7, line: 8)
-// IR: !31 = distinct !DILexicalBlock(scope: !29, file: !7, line: 10)
+// IR: !5 = distinct !DISubprogram(name: "pragma_pack", scope: !6, file: !6, line: 7, type: !7, scopeLine: 7, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !20)
+// IR: !25 = distinct !DILexicalBlock(scope: !5, file: !6, line: 8)
+// IR: !29 = distinct !DILexicalBlock(scope: !25, file: !6, line: 8)
+// IR: !31 = distinct !DILexicalBlock(scope: !29, file: !6, line: 10)
 // IR: !32 = !DILocation(line: 10, scope: !31)
 // IR: !36 = distinct !{!"A"}
 // IR: !37 = distinct !{!37, !32, !38, !39, !40, !41, !42, !43}

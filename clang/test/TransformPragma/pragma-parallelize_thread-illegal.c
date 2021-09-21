@@ -17,11 +17,11 @@ void pragma_parallelize_thread(double *A, int N) {
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_parallelize_thread(double* %A, i32 %N) #0 !dbg !6 {
+// IR-LABEL: define dso_local void @pragma_parallelize_thread(double* %A, i32 %N) #0 !dbg !5 {
 // IR:         br label %for.cond, !dbg !19, !llvm.loop !22
 //
-// IR: !6 = distinct !DISubprogram(name: "pragma_parallelize_thread", scope: !7, file: !7, line: 6, type: !8, scopeLine: 6, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !2)
-// IR: !17 = distinct !DILexicalBlock(scope: !6, file: !7, line: 8)
+// IR: !5 = distinct !DISubprogram(name: "pragma_parallelize_thread", scope: !6, file: !6, line: 6, type: !7, scopeLine: 6, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !12)
+// IR: !17 = distinct !DILexicalBlock(scope: !5, file: !6, line: 8)
 // IR: !18 = !DILocation(line: 8, scope: !17)
 // IR: !22 = distinct !{!22, !18, !23, !24, !25, !26}
 // IR: !23 = !DILocation(line: 9, scope: !17)

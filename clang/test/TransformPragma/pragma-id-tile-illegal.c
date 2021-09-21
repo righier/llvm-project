@@ -23,15 +23,15 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* %C) #0 !dbg !6 {
+// IR-LABEL: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* %C) #0 !dbg !5 {
 // IR:         br label %for.cond1, !dbg !28, !llvm.loop !31
 // IR:         br label %for.cond, !dbg !23, !llvm.loop !36
 //
-// IR: !6 = distinct !DISubprogram(name: "pragma_id_tile", scope: !7, file: !7, line: 6, type: !8, scopeLine: 6, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !2)
-// IR: !21 = distinct !DILexicalBlock(scope: !6, file: !7, line: 9)
+// IR: !5 = distinct !DISubprogram(name: "pragma_id_tile", scope: !6, file: !6, line: 6, type: !7, scopeLine: 6, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !15)
+// IR: !21 = distinct !DILexicalBlock(scope: !5, file: !6, line: 9)
 // IR: !22 = !DILocation(line: 9, scope: !21)
-// IR: !24 = distinct !DILexicalBlock(scope: !21, file: !7, line: 9)
-// IR: !26 = distinct !DILexicalBlock(scope: !24, file: !7, line: 11)
+// IR: !24 = distinct !DILexicalBlock(scope: !21, file: !6, line: 9)
+// IR: !26 = distinct !DILexicalBlock(scope: !24, file: !6, line: 11)
 // IR: !27 = !DILocation(line: 11, scope: !26)
 // IR: !31 = distinct !{!31, !27, !32, !33, !34, !35}
 // IR: !32 = !DILocation(line: 12, scope: !26)
