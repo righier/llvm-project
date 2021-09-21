@@ -198,6 +198,7 @@ enum class dim {
 };
 
 } // namespace isl
+
 #include <isl/id.h>
 #include <isl/space.h>
 #include <isl/val.h>
