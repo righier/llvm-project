@@ -27,6 +27,7 @@
 #include "llvm/Analysis/CFLSteensAliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/CostModel.h"
 #include "llvm/Analysis/DDG.h"
 #include "llvm/Analysis/DDGPrinter.h"
 #include "llvm/Analysis/Delinearization.h"
@@ -291,6 +292,11 @@ PipelineTuningOptions::PipelineTuningOptions() {
 }
 
 namespace llvm {
+cl::opt<bool> PrintPipelinePasses(
+    "print-pipeline-passes",
+    cl::desc("Print a '-passes' compatible string describing the pipeline "
+             "(best-effort only)."));
+
 extern cl::opt<unsigned> MaxDevirtIterations;
 extern cl::opt<bool> EnableConstraintElimination;
 extern cl::opt<bool> EnableFunctionSpecialization;
@@ -439,7 +445,8 @@ AnalysisKey NoOpLoopAnalysis::Key;
 /// it. This should be updated if new pass instrumentation wants to use the map.
 /// We currently only use this for --print-before/after.
 bool shouldPopulateClassToPassNames() {
-  return !printBeforePasses().empty() || !printAfterPasses().empty();
+  return PrintPipelinePasses || !printBeforePasses().empty() ||
+         !printAfterPasses().empty();
 }
 
 } // namespace

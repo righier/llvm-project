@@ -529,8 +529,8 @@ void Function::dropAllReferences() {
   clearMetadata();
 }
 
-void Function::addAttribute(unsigned i, Attribute Attr) {
-  AttributeSets = AttributeSets.addAttribute(getContext(), i, Attr);
+void Function::addAttributeAtIndex(unsigned i, Attribute Attr) {
+  AttributeSets = AttributeSets.addAttributeAtIndex(getContext(), i, Attr);
 }
 
 void Function::addFnAttr(Attribute::AttrKind Kind) {
@@ -553,6 +553,14 @@ void Function::addRetAttr(Attribute::AttrKind Kind) {
   AttributeSets = AttributeSets.addRetAttribute(getContext(), Kind);
 }
 
+void Function::addRetAttr(Attribute Attr) {
+  AttributeSets = AttributeSets.addRetAttribute(getContext(), Attr);
+}
+
+void Function::addRetAttrs(const AttrBuilder &Attrs) {
+  AttributeSets = AttributeSets.addRetAttributes(getContext(), Attrs);
+}
+
 void Function::addParamAttr(unsigned ArgNo, Attribute::AttrKind Kind) {
   AttributeSets = AttributeSets.addParamAttribute(getContext(), ArgNo, Kind);
 }
@@ -565,12 +573,12 @@ void Function::addParamAttrs(unsigned ArgNo, const AttrBuilder &Attrs) {
   AttributeSets = AttributeSets.addParamAttributes(getContext(), ArgNo, Attrs);
 }
 
-void Function::removeAttribute(unsigned i, Attribute::AttrKind Kind) {
-  AttributeSets = AttributeSets.removeAttribute(getContext(), i, Kind);
+void Function::removeAttributeAtIndex(unsigned i, Attribute::AttrKind Kind) {
+  AttributeSets = AttributeSets.removeAttributeAtIndex(getContext(), i, Kind);
 }
 
-void Function::removeAttribute(unsigned i, StringRef Kind) {
-  AttributeSets = AttributeSets.removeAttribute(getContext(), i, Kind);
+void Function::removeAttributeAtIndex(unsigned i, StringRef Kind) {
+  AttributeSets = AttributeSets.removeAttributeAtIndex(getContext(), i, Kind);
 }
 
 void Function::removeFnAttr(Attribute::AttrKind Kind) {
@@ -632,12 +640,13 @@ bool Function::hasParamAttribute(unsigned ArgNo,
   return AttributeSets.hasParamAttr(ArgNo, Kind);
 }
 
-Attribute Function::getAttribute(unsigned i, Attribute::AttrKind Kind) const {
-  return AttributeSets.getAttribute(i, Kind);
+Attribute Function::getAttributeAtIndex(unsigned i,
+                                        Attribute::AttrKind Kind) const {
+  return AttributeSets.getAttributeAtIndex(i, Kind);
 }
 
-Attribute Function::getAttribute(unsigned i, StringRef Kind) const {
-  return AttributeSets.getAttribute(i, Kind);
+Attribute Function::getAttributeAtIndex(unsigned i, StringRef Kind) const {
+  return AttributeSets.getAttributeAtIndex(i, Kind);
 }
 
 Attribute Function::getFnAttribute(Attribute::AttrKind Kind) const {
@@ -1736,8 +1745,8 @@ Optional<Function *> Intrinsic::remangleIntrinsicFunction(Function *F) {
 /// and llvm.compiler.used variables.
 bool Function::hasAddressTaken(const User **PutOffender,
                                bool IgnoreCallbackUses,
-                               bool IgnoreAssumeLikeCalls,
-                               bool IgnoreLLVMUsed) const {
+                               bool IgnoreAssumeLikeCalls, bool IgnoreLLVMUsed,
+                               bool IgnoreARCAttachedCall) const {
   for (const Use &U : uses()) {
     const User *FU = U.getUser();
     if (isa<BlockAddress>(FU))
@@ -1781,6 +1790,11 @@ bool Function::hasAddressTaken(const User **PutOffender,
       return true;
     }
     if (!Call->isCallee(&U)) {
+      if (IgnoreARCAttachedCall &&
+          Call->isOperandBundleOfType(LLVMContext::OB_clang_arc_attachedcall,
+                                      U.getOperandNo()))
+        continue;
+
       if (PutOffender)
         *PutOffender = FU;
       return true;

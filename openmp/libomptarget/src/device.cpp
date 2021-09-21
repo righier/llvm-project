@@ -19,28 +19,6 @@
 #include <cstdio>
 #include <string>
 
-DeviceTy::DeviceTy(const DeviceTy &D)
-    : DeviceID(D.DeviceID), RTL(D.RTL), RTLDeviceID(D.RTLDeviceID),
-      IsInit(D.IsInit), InitFlag(), HasPendingGlobals(D.HasPendingGlobals),
-      HostDataToTargetMap(D.HostDataToTargetMap),
-      PendingCtorsDtors(D.PendingCtorsDtors), ShadowPtrMap(D.ShadowPtrMap),
-      DataMapMtx(), PendingGlobalsMtx(), ShadowMtx(),
-      LoopTripCnt(D.LoopTripCnt) {}
-
-DeviceTy &DeviceTy::operator=(const DeviceTy &D) {
-  DeviceID = D.DeviceID;
-  RTL = D.RTL;
-  RTLDeviceID = D.RTLDeviceID;
-  IsInit = D.IsInit;
-  HasPendingGlobals = D.HasPendingGlobals;
-  HostDataToTargetMap = D.HostDataToTargetMap;
-  PendingCtorsDtors = D.PendingCtorsDtors;
-  ShadowPtrMap = D.ShadowPtrMap;
-  LoopTripCnt = D.LoopTripCnt;
-
-  return *this;
-}
-
 DeviceTy::DeviceTy(RTLInfoTy *RTL)
     : DeviceID(-1), RTL(RTL), RTLDeviceID(-1), IsInit(false), InitFlag(),
       HasPendingGlobals(false), HostDataToTargetMap(), PendingCtorsDtors(),
@@ -177,10 +155,11 @@ LookupResult DeviceTy::lookupMapping(void *HstPtrBegin, int64_t Size) {
 
 TargetPointerResultTy
 DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
-                           map_var_info_t HstPtrName, MoveDataStateTy MoveData,
-                           bool IsImplicit, bool UpdateRefCount,
-                           bool HasCloseModifier, bool HasPresentModifier,
-                           bool HasHoldModifier, AsyncInfoTy &AsyncInfo) {
+                           map_var_info_t HstPtrName, bool HasFlagTo,
+                           bool HasFlagAlways, bool IsImplicit,
+                           bool UpdateRefCount, bool HasCloseModifier,
+                           bool HasPresentModifier, bool HasHoldModifier,
+                           AsyncInfoTy &AsyncInfo) {
   void *TargetPointer = nullptr;
   bool IsHostPtr = false;
   bool IsNew = false;
@@ -272,12 +251,9 @@ DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
     TargetPointer = (void *)Ptr;
   }
 
-  if (IsNew && MoveData == MoveDataStateTy::UNKNOWN)
-    MoveData = MoveDataStateTy::REQUIRED;
-
   // If the target pointer is valid, and we need to transfer data, issue the
   // data transfer.
-  if (TargetPointer && (MoveData == MoveDataStateTy::REQUIRED)) {
+  if (TargetPointer && !IsHostPtr && HasFlagTo && (IsNew || HasFlagAlways)) {
     // Lock the entry before releasing the mapping table lock such that another
     // thread that could issue data movement will get the right result.
     Entry->lock();
@@ -387,10 +363,7 @@ void *DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size) {
 }
 
 int DeviceTy::deallocTgtPtr(void *HstPtrBegin, int64_t Size,
-                            bool HasCloseModifier, bool HasHoldModifier) {
-  if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY &&
-      !HasCloseModifier)
-    return OFFLOAD_SUCCESS;
+                            bool HasHoldModifier) {
   // Check if the pointer is contained in any sub-nodes.
   int rc;
   DataMapMtx.lock();
@@ -624,7 +597,7 @@ bool device_is_ready(int device_num) {
   }
 
   // Get device info
-  DeviceTy &Device = PM->Devices[device_num];
+  DeviceTy &Device = *PM->Devices[device_num];
 
   DP("Is the device %d (local ID %d) initialized? %d\n", device_num,
      Device.RTLDeviceID, Device.IsInit);

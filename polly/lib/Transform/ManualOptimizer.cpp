@@ -2779,7 +2779,6 @@ public:
     return Result;
   }
 
-  void visitBand(const isl::schedule_node &Band) {
     // Transform inner loops first (depth-first search).
     getBase().visitBand(Band);
     if (!Result.is_null())
@@ -2926,7 +2925,7 @@ public:
     }
   }
 
-  void visitNode(const isl::schedule_node &Other) {
+  void visitNode(isl::schedule_node Other) {
     if (!Result.is_null())
       return;
     return getBase().visitNode(Other);
