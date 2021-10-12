@@ -13,8 +13,6 @@
 #include "polly/ManualOptimizer.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
-#include "polly/DependenceInfo.h"
-#include "polly/Options.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/ManualOptimizer.h"
 #include "polly/Options.h"
@@ -96,7 +94,6 @@ static TransformationMode hasUnrollTransformation(MDNode *LoopID) {
   return TM_Unspecified;
 }
 
-
 // Return the first DebugLoc in the list.
 static DebugLoc findFirstDebugLoc(MDNode *MD) {
   if (MD) {
@@ -121,7 +118,6 @@ static DebugLoc findTransformationDebugLoc(MDNode *LoopMD, StringRef Name) {
   // Otherwise, fall back to the location of the loop itself
   return findFirstDebugLoc(LoopMD);
 }
-
 
 static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD,
                                                   StringRef Name) {
@@ -2620,27 +2616,20 @@ static isl::schedule applyLoopUnroll(MDNode *LoopMD,
 
 static isl::schedule applyLoopFission(MDNode *LoopMD,
                                       isl::schedule_node BandToFission) {
-  // TODO: Make it possible to selectively fission substatements.
-  // TODO: Apply followup loop properties.
-  // TODO: Instead of fission every statement, find the maximum set that does
-  // not cause a dependency violation.
-  return applyMaxFission(BandToFission);
-}
-
-
-
-static isl::schedule applyLoopFission(MDNode *LoopMD,
-                                      isl::schedule_node BandToFission) {
   SmallVector<uint64_t, 4> SplitPos;
-  auto SplitsMD = findOptionMDForLoopID(LoopMD, "llvm.loop.fission.split_at");
-  if (SplitsMD)
+  auto SplitsMD =
+      findOptionMDForLoopID(LoopMD, "llvm.loop.distribute.split_at");
+  if (SplitsMD) {
     for (auto &X : drop_begin(SplitsMD->operands(), 1)) {
       auto PosConst = cast<ConstantAsMetadata>(X)->getValue();
       auto Pos = cast<ConstantInt>(PosConst)->getZExtValue();
       SplitPos.push_back(Pos);
     }
 
-  return applyFission(LoopMD, BandToFission, SplitPos);
+    return applyFission(LoopMD, BandToFission, SplitPos);
+  }
+
+  return applyMaxFission(BandToFission);
 
   // Assume autofission
   //  return applyAutofission(BandToFission, D);
@@ -2750,15 +2739,22 @@ private:
   // transformed in innermost-first order.
   isl::schedule Result;
 
-  /// Check wether a schedule after a  transformation is legal. Return the old
-  /// schedule without the transformation.
+  /// Check wether a schedule after a transformation is legal.
+  /// If yes, return the new schedule.
+  /// If not, emit diagnostics and return the old schedule without the
+  /// transformation metadata.
   isl::schedule
-  checkDependencyViolation(llvm::MDNode *LoopMD, llvm::Value *CodeRegion,
+  checkDependencyViolation(isl::schedule NewSchedule, llvm::MDNode *LoopMD,
+                           llvm::Value *CodeRegion,
                            const isl::schedule_node &OrigBand,
                            StringRef DebugLocAttr, StringRef TransPrefix,
                            StringRef RemarkName, StringRef TransformationName) {
-    if (D->isValidSchedule(*S, Result))
-      return Result;
+    // Transformation not applied.
+    if (NewSchedule.is_null())
+      return NewSchedule;
+
+    if (D->isValidSchedule(*S, NewSchedule))
+      return NewSchedule;
 
     LLVMContext &Ctx = LoopMD->getContext();
     LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
@@ -2776,7 +2772,7 @@ private:
                 "; still applying because of -polly-pragma-ignore-depcheck")
                    .str());
       }
-      return Result;
+      return NewSchedule;
     }
 
     LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
@@ -2815,62 +2811,6 @@ public:
     return Transformer.Result;
   }
 
-  isl::schedule
-  checkDependencyViolation(llvm::MDNode *LoopMD, llvm::Value *CodeRegion,
-                           const isl::schedule_node &OrigBand,
-                           StringRef DebugLocAttr, StringRef TransPrefix,
-                           StringRef RemarkName, StringRef TransformationName) {
-    // Check legality
-    // FIXME: This assumes that there was no dependency violation before; If
-    // there are any before, we should remove those dependencies.
-    if (D->isValidSchedule(*S, Result))
-      return Result;
-
-    auto &Ctx = LoopMD->getContext();
-    LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
-
-    if (IgnoreDepcheck) {
-      LLVM_DEBUG(dbgs() << "Still accepting transformation due to "
-                           "-polly-pragma-ignore-depcheck\n");
-      if (ORE) {
-        auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
-        // Each '<<' on ORE is visible in the YAML output; to avoid breaking
-        // changes, use Twine.
-        ORE->emit(
-            OptimizationRemark(DEBUG_TYPE, RemarkName, Loc, CodeRegion)
-            << (Twine("Could not verify dependencies for ") +
-                TransformationName +
-                "; still applying because of -polly-pragma-ignore-depcheck")
-                   .str());
-      }
-      return Result;
-    }
-
-    LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
-
-    if (ORE) {
-      auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
-      // Each '<<' on ORE is visible in the YAML output; to avoid breaking
-      // changes, use Twine.
-      ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, RemarkName, Loc,
-                                                  CodeRegion)
-                << (Twine("not applying ") + TransformationName +
-                    ": cannot ensure semantic equivalence due to possible "
-                    "dependency violations")
-                       .str());
-    }
-
-    // If illegal, revert and remove the transformation.
-    auto NewLoopMD =
-        makePostTransformationMetadata(Ctx, LoopMD, {TransPrefix}, {});
-    auto Attr = getBandAttr(OrigBand);
-    Attr->Metadata = NewLoopMD;
-
-    // Roll back old schedule.
-    Result = OrigBand.get_schedule();
-    return Result;
-  }
-
   void visitBand(isl::schedule_node_band Band) {
     // Transform inner loops first (depth-first search).
     getBase().visitBand(Band);
@@ -2893,10 +2833,10 @@ public:
     // CodeRegion used but ORE to determine code hotness.
     // TODO: Works only for original loop; for transformed loops, should track
     // where the loop's body code comes from.
-    Loop *Loop = Attr->OriginalLoop;
-    Value *CodeRegion = nullptr;
-    if (Loop)
-      CodeRegion = Loop->getHeader();
+    // llvm::Loop *L = Attr->OriginalLoop;
+    // Value *CodeRegion = nullptr;
+    //  if (L)
+    //   CodeRegion = L->getHeader();
 
     MDNode *LoopMD = Attr->Metadata;
     if (!LoopMD)
@@ -2914,27 +2854,30 @@ public:
 
       if (AttrName == "llvm.loop.reverse.enable") {
         // TODO: Read argument (0 to disable)
-        Result = applyLoopReversal(LoopMD, Band);
-        checkDependencyViolation(LoopMD, CodeRegion, Band,
-                                 "llvm.loop.reverse.loc", "llvm.loop.reverse.",
-                                 "FailedRequestedReversal", "loop reversal");
+        isl::schedule Reversed = applyLoopReversal(LoopMD, Band);
+        Result = checkDependencyViolation(
+            Reversed, LoopMD, CodeRegion, Band, "llvm.loop.reverse.loc",
+            "llvm.loop.reverse.", "FailedRequestedReversal", "loop reversal");
+
+        // TODO: Sink this out of the conditions
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.tile.enable") {
         // TODO: Read argument (0 to disable)
-        Result = applyLoopTiling(LoopMD, Band);
-        checkDependencyViolation(LoopMD, CodeRegion, Band, "llvm.loop.tile.loc",
-                                 "llvm.loop.tile.", "FailedRequestedTiling",
-                                 "loop tiling");
+        auto Tiled = applyLoopTiling(LoopMD, Band);
+        Result = checkDependencyViolation(
+            Tiled, LoopMD, CodeRegion, Band, "llvm.loop.tile.loc",
+            "llvm.loop.tile.", "FailedRequestedTiling", "loop tiling");
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.interchange.enable") {
         // TODO: Read argument (0 to disable)
-        Result = applyLoopInterchange(LoopMD, Band);
-        checkDependencyViolation(
-            LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
+        auto Interchanged = applyLoopInterchange(LoopMD, Band);
+        Result = checkDependencyViolation(
+            Interchanged, LoopMD, CodeRegion, Band, "llvm.loop.interchange.loc",
             "llvm.loop.interchange.", "FailedRequestedInterchange",
             "loop interchange");
+
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.unroll.enable" ||
@@ -2943,13 +2886,13 @@ public:
         Result = applyLoopUnroll(LoopMD, Band);
         if (!Result.is_null())
           return;
-      } else if (AttrName == "llvm.loop.distribute.enable") {
-        Result = applyLoopFission(LoopMD, Band);
-        if (!Result.is_null())
-          Result = checkDependencyViolation(
-              LoopMD, CodeRegion, Band, "llvm.loop.distribute.loc",
-              "llvm.loop.distribute.", "FailedRequestedFission",
-              "loop fission/distribution");
+      } else if (AttrName == "llvm.loop.unroll_and_jam.enable") {
+        // TODO: Read argument (0 to disable)
+        auto UnrollAndJammed = applyLoopUnrollAndJam(LoopMD, Band);
+        Result = checkDependencyViolation(
+            UnrollAndJammed, LoopMD, CodeRegion, Band,
+            "llvm.loop.unroll_and_jam.loc", "llvm.loop.unroll_and_jam.",
+            "FailedRequestedUnrollAndJam", "unroll-and-jam");
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.data.pack.enable") {
@@ -3002,21 +2945,19 @@ public:
         Result = applyParallelizeThread(LoopMD, Band);
         if (!Result.is_null())
           return;
-      } else if (AttrName == "llvm.loop.fission.enable") {
-        Result = applyLoopFission(LoopMD, Band);
-        if (!Result.is_null())
-          Result = checkDependencyViolation(
-              LoopMD, CodeRegion, Band, "llvm.loop.fission.loc",
-              "llvm.loop.fission.", "FailedRequestedFission",
-              "loop fission/distribution");
+      } else if (AttrName == "llvm.loop.distribute.enable") {
+        auto Distributed = applyLoopFission(LoopMD, Band);
+        Result = checkDependencyViolation(
+            Distributed, LoopMD, CodeRegion, Band, "llvm.loop.distribute.loc",
+            "llvm.loop.distribute.", "FailedRequestedFission",
+            "loop fission/distribution");
         if (!Result.is_null())
           return;
       } else if (AttrName == "llvm.loop.fuse.enable") {
-        Result = applyLoopFusion(LoopMD, Band);
-        if (!Result.is_null())
-          Result = checkDependencyViolation(
-              LoopMD, CodeRegion, Band, "llvm.loop.fuse.loc", "llvm.loop.fuse.",
-              "FailedRequestedFusion", "loop fusion");
+        auto Fused = applyLoopFusion(LoopMD, Band);
+        Result = checkDependencyViolation(
+            Fused, LoopMD, CodeRegion, Band, "llvm.loop.fuse.loc",
+            "llvm.loop.fuse.", "FailedRequestedFusion", "loop fusion");
         if (!Result.is_null())
           return;
       }
@@ -3032,6 +2973,8 @@ public:
     return getBase().visitNode(Other);
   }
 };
+
+} // namespace
 
 isl::schedule
 polly::applyManualTransformations(Scop *S, isl::schedule Sched,

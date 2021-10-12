@@ -467,10 +467,7 @@ static MDNode *findOptionalNodeOperand(MDNode *LoopMD, StringRef Name) {
 static bool isBandWithSingleLoop(const isl::schedule_node &Node) {
   return isBand(Node) && isl_schedule_node_band_n_member(Node.get()) == 1;
 }
-
-static bool isLeaf(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf;
-}
+#endif
 
 /// Create an isl::id representing the output loop after a transformation.
 static isl::id createGeneratedLoopAttr(isl::ctx Ctx, MDNode *FollowupLoopMD) {
@@ -1032,7 +1029,6 @@ public:
   }
 };
 
-
 static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
                                    StringRef TransName, StringRef Name = {}) {
   // TODO: Deprecate Name
@@ -1353,7 +1349,6 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
       isl::union_set(Ctx, "{unroll[x]}"));
 }
 
-
 /// Find statements and sub-loops in (possibly nested) sequences.
 static void
 collectFussionableStmts(isl::schedule_node Node,
@@ -1418,24 +1413,6 @@ isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
   llvm_unreachable("not implemented");
 }
 
-static void
-collectFussionableStmts(isl::schedule_node Node,
-                        SmallVectorImpl<isl::schedule_node> &ScheduleStmts) {
-  if (isBand(Node) || isLeaf(Node)) {
-    ScheduleStmts.push_back(Node);
-    return;
-  }
-
-  if (Node.has_children()) {
-    auto C = Node.first_child();
-    while (true) {
-      collectFussionableStmts(C, ScheduleStmts);
-      if (!C.has_next_sibling())
-        break;
-      C = C.next_sibling();
-    }
-  }
-}
 static bool isFilter(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;
 }
@@ -1472,12 +1449,12 @@ isl::schedule polly::applyFission(MDNode *LoopMD,
   for (auto j : Sorted)
     AddUntil(j);
   AddUntil(N);
-
+  // auto Deleted = isl::manage(isl_schedule_node_delete(BandToFission.copy()));
   auto Fissioned = BandToFission.insert_sequence(DomList);
   // Fissioned = Fissioned.parent();
 
-  MDNode *FissionedMD =
-      findNamedMetadataNode(LoopMD, "llvm.loop.fission.followup_fissioned");
+  MDNode *FissionedMD = findNamedMetadataNode(
+      LoopMD, "llvm.loop.distribute.followup_distributed");
 
   if (FissionedMD) {
     SmallVector<MDNode *> FissiondMDs;
@@ -1492,7 +1469,7 @@ isl::schedule polly::applyFission(MDNode *LoopMD,
       auto C = Fissioned.first_child();
       while (true) {
         auto NewBandId =
-            makeTransformLoopId(Ctx, FissiondMDs[i++], "fissioned");
+            makeTransformLoopId(Ctx, FissiondMDs[i++], "distributed");
         bool IsFilter = !isBand(C);
         if (IsFilter)
           C = C.child(0);

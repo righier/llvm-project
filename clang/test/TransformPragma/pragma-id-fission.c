@@ -44,9 +44,9 @@ int main() {
 // IR: !2 = distinct !{!2, !3, !4, !5, !6, !7}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"i"}
-// IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
-// IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
-// IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !9}
+// IR: !5 = !{!"llvm.loop.distribute.enable", i1 true}
+// IR: !6 = !{!"llvm.loop.distribute.split_at", i64 1}
+// IR: !7 = !{!"llvm.loop.distribute.followup_distributed", !8, !9}
 // IR: !8 = distinct !{!8, !3}
 // IR: !9 = distinct !{!9, !3}
 

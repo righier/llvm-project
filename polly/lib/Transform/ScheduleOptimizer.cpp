@@ -177,21 +177,10 @@ static cl::opt<bool> EnableReschedule("polly-reschedule",
                                       cl::init(true), cl::ZeroOrMore,
                                       cl::cat(PollyCategory));
 
-static cl::opt<bool>
-    EnablePostopts("polly-postopts",
-                   cl::desc("Perform post-rescheduling optimizations "
-                            "(pattern-matching and tiling)"),
-                   cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
-
 static cl::opt<bool> PragmaBasedOpts(
     "polly-pragma-based-opts",
     cl::desc("Apply user-directed transformation from metadata"),
     cl::init(true), cl::ZeroOrMore, cl::cat(PollyCategory));
-
-static cl::opt<bool> EnableReschedule("polly-reschedule",
-                                      cl::desc("Optimize SCoPs using ISL"),
-                                      cl::init(true), cl::ZeroOrMore,
-                                      cl::cat(PollyCategory));
 
 static cl::opt<bool>
     PMBasedOpts("polly-pattern-matching-based-opts",
@@ -699,12 +688,6 @@ static bool runIslScheduleOptimizer(
     return false;
   }
 
-  const Dependences &D = GetDeps(Dependences::AL_Statement);
-  if (D.getSharedIslCtx() != S.getSharedIslCtx()) {
-    LLVM_DEBUG(dbgs() << "DependenceInfo for another SCoP/isl_ctx\n");
-    return false;
-  }
-
   // Schedule without optimizations.
   isl::schedule Schedule = S.getScheduleTree();
   walkScheduleTreeForStatistics(S.getScheduleTree(), 0);
@@ -730,9 +713,6 @@ static bool runIslScheduleOptimizer(
           printSchedule(dbgs(), Schedule, "After manual transformations"));
     }
   }
-
-  if (!D.hasValidDependences())
-    return false;
 
   // Only continue if either manual transformations have been applied or we are
   // allowed to apply heuristics.

@@ -56,19 +56,19 @@ int main() {
 // IR: !2 = distinct !{!2, !3, !4, !5, !6, !7}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
 // IR: !4 = !{!"llvm.loop.id", !"i"}
-// IR: !5 = !{!"llvm.loop.fission.enable", i1 true}
-// IR: !6 = !{!"llvm.loop.fission.split_at", i64 1}
-// IR: !7 = !{!"llvm.loop.fission.followup_fissioned", !8, !9}
+// IR: !5 = !{!"llvm.loop.distribute.enable", i1 true}
+// IR: !6 = !{!"llvm.loop.distribute.split_at", i64 1}
+// IR: !7 = !{!"llvm.loop.distribute.followup_distributed", !8, !9}
 // IR: !8 = distinct !{!8, !3}
 // IR: !9 = distinct !{!9, !3}
 // IR: !10 = distinct !{!10, !3, !11, !5, !6, !12}
 // IR: !11 = !{!"llvm.loop.id", !"j"}
-// IR: !12 = !{!"llvm.loop.fission.followup_fissioned", !13, !14}
+// IR: !12 = !{!"llvm.loop.distribute.followup_distributed", !13, !14}
 // IR: !13 = distinct !{!13, !3}
 // IR: !14 = distinct !{!14, !3}
 
 
-// AST: if (1 
+// AST: if (1
 // AST:     {
 // AST:        for (int c0 = 0; c0 < n; c0 += 1) {
 // AST:          for (int c1 = 0; c1 < n; c1 += 1)

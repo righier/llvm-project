@@ -1158,19 +1158,19 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
   Orig->markDisableHeuristic();
   Orig->markNondefault();
   Orig->addTransformMD(MDNode::get(
-      Ctx, {MDString::get(Ctx, "llvm.loop.fission.enable"),
+      Ctx, {MDString::get(Ctx, "llvm.loop.distribute.enable"),
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
-  addDebugLoc(Ctx, "llvm.loop.fission.loc", Transform, Orig);
+  addDebugLoc(Ctx, "llvm.loop.distribute.loc", Transform, Orig);
   if (Autofission) {
     Orig->addTransformMD(MDNode::get(
-        Ctx, {MDString::get(Ctx, "llvm.loop.fission.autofission"),
+        Ctx, {MDString::get(Ctx, "llvm.loop.distribute.autofission"),
               ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
   }
 
   if (SplitAt.size()) {
     SmallVector<Metadata *> SplitAtInfo;
     SplitAtInfo.reserve(SplitAt.size() + 1);
-    SplitAtInfo.push_back(MDString::get(Ctx, "llvm.loop.fission.split_at"));
+    SplitAtInfo.push_back(MDString::get(Ctx, "llvm.loop.distribute.split_at"));
     for (auto x : SplitAt) {
       SplitAtInfo.push_back(
           ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(64, x))));
@@ -1193,7 +1193,7 @@ LoopInfoStack::applyFission(const LoopTransformation &Transform,
       Fissioned->addAttribute(X);
     }
 
-    Orig->addFollowup("llvm.loop.fission.followup_fissioned", Fissioned);
+    Orig->addFollowup("llvm.loop.distribute.followup_distributed", Fissioned);
 
     if (!FissionedId.empty()) {
       Fissioned->addTransformMD(
