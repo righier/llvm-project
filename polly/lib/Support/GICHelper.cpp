@@ -237,6 +237,7 @@ void neverCalled() {
   polly::dumpIslObj(isl::union_set_list());
   polly::dumpIslObj(isl::val());
   polly::dumpIslObj(isl::val_list());
+  //  isl::mat().dump();
 }
 
 void polly::dumpIslObj(__isl_keep isl_schedule_node *node, raw_ostream &OS) {

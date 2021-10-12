@@ -12,6 +12,7 @@
 
 #include "polly/ScheduleTreeTransform.h"
 #include "polly/Support/GICHelper.h"
+#include "polly/Support/ISLFuncs.h"
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -461,22 +462,11 @@ static MDNode *findOptionalNodeOperand(MDNode *LoopMD, StringRef Name) {
       findMetadataOperand(LoopMD, Name).getValueOr(nullptr));
 }
 
-/// Is this node of type mark?
-static bool isMark(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
-}
-
-/// Is this node of type band?
-static bool isBand(const isl::schedule_node &Node) {
-  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
-}
-
 #ifndef NDEBUG
 /// Is this node a band of a single dimension (i.e. could represent a loop)?
 static bool isBandWithSingleLoop(const isl::schedule_node &Node) {
   return isBand(Node) && isl_schedule_node_band_n_member(Node.get()) == 1;
 }
-#endif
 
 static bool isLeaf(const isl::schedule_node &Node) {
   return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf;
@@ -500,19 +490,25 @@ static isl::id createGeneratedLoopAttr(isl::ctx Ctx, MDNode *FollowupLoopMD) {
 
 /// That is, either the mark or, if there is not mark, the loop itself. Can
 /// start with either the mark or the band.
-static isl::schedule_node moveToBandMark(isl::schedule_node BandOrMark) {
-  if (isBandMark(BandOrMark)) {
-    assert(isBandWithSingleLoop(BandOrMark.child(0)));
-    return BandOrMark;
+static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
+  auto Cur = Band;
+  if (isBand(Band))
+    Cur = Band.parent();
+
+  // Go up until we find a band mark.
+  while (true) {
+    if (isl_schedule_node_get_type(Cur.get()) != isl_schedule_node_mark)
+      break;
+    if (isBandMark(Cur))
+      return Cur;
+
+    auto Parent = Cur.parent();
+    assert(!Parent.is_null());
+    Cur = Parent;
   }
-  assert(isBandWithSingleLoop(BandOrMark));
-
-  isl::schedule_node Mark = BandOrMark.parent();
-  if (isBandMark(Mark))
-    return Mark;
-
-  // Band has no loop marker.
-  return BandOrMark;
+  if (isBand(Band))
+    return Band; // Has no mark.
+  return {};
 }
 
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand,
@@ -538,12 +534,51 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   return removeMark(MarkOrBand, Attr);
 }
 
+} // namespace
+
+// from patacca
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isBand(Band));
   assert(moveToBandMark(Band).is_equal(Band) &&
          "Don't add a two marks for a band");
 
   return Band.insert_mark(Mark).child(0);
+}
+
+bool polly::isBand(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
+}
+
+BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
+  MarkOrBand = moveToBandMark(MarkOrBand);
+  if (!isMark(MarkOrBand))
+    return nullptr;
+
+  return getLoopAttr(MarkOrBand.as<isl::schedule_node_mark>().get_id());
+}
+
+isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
+  // If there is no extension node in the first place, return the original
+  // schedule tree.
+  if (!containsExtensionNode(Sched))
+    return Sched;
+
+  // Build options can anchor schedule nodes, such that the schedule tree cannot
+  // be modified anymore. Therefore, apply build options after the tree has been
+  // created.
+  CollectASTBuildOptions Collector;
+  Collector.visit(Sched);
+
+  // Rewrite the schedule tree without extension nodes.
+  ExtensionNodeRewriter Rewriter;
+  isl::schedule NewSched = Rewriter.visitSchedule(Sched);
+
+  // Reapply the AST build options. The rewriter must not change the iteration
+  // order of bands. Any other node type is ignored.
+  ApplyASTBuildOptions Applicator(Collector.ASTBuildOptions);
+  NewSched = Applicator.visitSchedule(NewSched);
+
+  return NewSched;
 }
 
 /// Return the (one-dimensional) set of numbers that are divisible by @p Factor
@@ -567,6 +602,19 @@ static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, long Factor,
   isl::basic_map Divisible = isl::basic_map::from_aff(DivMul);
   isl::basic_map Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
   return Modulo.domain();
+}
+
+static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD,
+                                                           StringRef Name) {
+  Metadata *AttrMD = findMetadataOperand(LoopMD, Name).getValueOr(nullptr);
+  if (!AttrMD)
+    return None;
+
+  auto StrMD = dyn_cast<MDString>(AttrMD);
+  if (!StrMD)
+    return None;
+
+  return StrMD->getString();
 }
 
 /// Make the last dimension of Set to take values from 0 to VectorWidth - 1.
@@ -984,43 +1032,136 @@ public:
   }
 };
 
-} // namespace
 
-bool polly::isBandMark(const isl::schedule_node &Node) {
-  return isMark(Node) &&
-         isLoopAttr(Node.as<isl::schedule_node_mark>().get_id());
+static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
+                                   StringRef TransName, StringRef Name = {}) {
+  // TODO: Deprecate Name
+  // TODO: Only return one when needed.
+  // TODO: If no FollowupLoopMD provided, derive attributes heuristically
+  BandAttr *Attr = new BandAttr();
+
+  StringRef GivenName =
+      findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id")
+          .getValueOr(StringRef());
+  if (GivenName.empty())
+    GivenName = Name;
+  if (GivenName.empty())
+    GivenName =
+        TransName; // TODO: Don't use trans name as LoopName, but as label
+  Attr->LoopName = GivenName.str();
+  Attr->Metadata = FollowupLoopMD;
+  // TODO: Inherit properties if 'FollowupLoopMD' (followup) is not used
+  // TODO: Set followup MDNode
+  return getIslLoopAttr(Ctx, Attr);
 }
 
-BandAttr *polly::getBandAttr(isl::schedule_node MarkOrBand) {
-  MarkOrBand = moveToBandMark(MarkOrBand);
-  if (!isMark(MarkOrBand))
-    return nullptr;
+isl::schedule polly::applyLoopUnroll(isl::schedule_node BandToUnroll,
+                                     int Factor, bool Full) {
+  assert(!BandToUnroll.is_null());
+  assert(!Full || !(Factor > 0));
 
-  return getLoopAttr(MarkOrBand.as<isl::schedule_node_mark>().get_id());
-}
+  isl::ctx Ctx = BandToUnroll.ctx();
 
-isl::schedule polly::hoistExtensionNodes(isl::schedule Sched) {
-  // If there is no extension node in the first place, return the original
-  // schedule tree.
-  if (!containsExtensionNode(Sched))
-    return Sched;
+  BandToUnroll = moveToBandMark(BandToUnroll);
+  BandToUnroll = removeMark(BandToUnroll);
 
-  // Build options can anchor schedule nodes, such that the schedule tree cannot
-  // be modified anymore. Therefore, apply build options after the tree has been
-  // created.
-  CollectASTBuildOptions Collector;
-  Collector.visit(Sched);
+  isl::multi_union_pw_aff PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  assert(PartialSched.dim(isl::dim::out) == 1 &&
+         "Can only unroll a single dimension");
 
-  // Rewrite the schedule tree without extension nodes.
-  ExtensionNodeRewriter Rewriter;
-  isl::schedule NewSched = Rewriter.visitSchedule(Sched);
+  isl::schedule_node Result;
+  if (Full) {
+    isl::union_set Domain = BandToUnroll.get_domain();
+    isl::union_pw_aff PartialSchedUAff = PartialSched.at(0);
+    PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
+    isl::union_map PartialSchedUMap =
+        isl::convert<isl::union_map>(PartialSchedUAff);
 
-  // Reapply the AST build options. The rewriter must not change the iteration
-  // order of bands. Any other node type is ignored.
-  ApplyASTBuildOptions Applicator(Collector.ASTBuildOptions);
-  NewSched = Applicator.visitSchedule(NewSched);
+    // Make consumable for the following code.
+    // Schedule at the beginning so it is at coordinate 0.
+    isl::union_set PartialSchedUSet = PartialSchedUMap.reverse().wrap();
 
-  return NewSched;
+    SmallVector<isl::point, 16> Elts;
+    // FIXME: Will error if not enumerable
+    PartialSchedUSet.foreach_point([&Elts](isl::point P) -> isl::stat {
+      Elts.push_back(P);
+      return isl::stat::ok();
+    });
+
+    llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
+      isl::val C1 = P1.get_coordinate_val(isl::dim::set, 0);
+      isl::val C2 = P2.get_coordinate_val(isl::dim::set, 0);
+      return C1.lt(C2);
+    });
+
+    size_t NumIts = Elts.size();
+    isl::union_set_list List = isl::union_set_list(Ctx, NumIts);
+
+    for (isl::point P : Elts) {
+      // { Stmt[] }
+      isl::space Space = get_space(P).unwrap().range();
+      isl::basic_set Univ = isl::basic_set::universe(Space);
+      for (auto i : seq<isl_size>(0, Space.dim(isl::dim::set).release())) {
+        isl::val Val = P.get_coordinate_val(isl::dim::set, i + 1);
+        Univ = Univ.fix_val(isl::dim::set, i, Val);
+      }
+      List = List.add(Univ);
+    }
+
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
+
+    // assert(no followup);
+    return Body.get_schedule();
+  } else if (Factor > 0) {
+    // { Stmt[] -> [x] }
+    isl::union_pw_aff PartialSchedUAff = PartialSched.at(0);
+
+    // Here we assume the schedule stride is one and starts with 0, which is not
+    // necessarily the case.
+    isl::union_pw_aff StridedPartialSchedUAff =
+        isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+    isl::val ValFactor{Ctx, Factor};
+    PartialSchedUAff.foreach_pw_aff([&StridedPartialSchedUAff, &ValFactor](
+                                        isl::pw_aff PwAff) -> isl::stat {
+      isl::space Space = PwAff.get_space();
+      isl::set Universe = isl::set::universe(Space.domain());
+      isl::pw_aff AffFactor{Universe, ValFactor};
+      isl::pw_aff DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
+      StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
+      return isl::stat::ok();
+    });
+
+    isl::union_set_list List = isl::union_set_list(Ctx, Factor);
+    for (auto i : seq<int>(0, Factor)) {
+      // { Stmt[] -> [x] }
+      isl::union_map UMap = isl::convert<isl::union_map>(PartialSchedUAff);
+
+      // { [x] }
+      isl::basic_set Divisible = isDivisibleBySet(Ctx, Factor, i);
+
+      // { Stmt[] }
+      isl::union_set UnrolledDomain = UMap.intersect_range(Divisible).domain();
+
+      List = List.add(UnrolledDomain);
+    }
+
+    isl::schedule_node Body =
+        isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
+    isl::schedule_node NewLoop =
+        Body.insert_partial_schedule(StridedPartialSchedUAff);
+
+    isl::id NewBandId = makeTransformLoopId(Ctx, nullptr, "unrolled");
+    if (!NewBandId.is_null())
+      NewLoop = insertMark(NewLoop, NewBandId);
+
+    return NewLoop.get_schedule();
+  }
+
+  llvm_unreachable("Negative unroll factor");
 }
 
 isl::schedule polly::applyFullUnroll(isl::schedule_node BandToUnroll) {
@@ -1212,6 +1353,7 @@ isl::schedule_node polly::applyRegisterTiling(isl::schedule_node Node,
       isl::union_set(Ctx, "{unroll[x]}"));
 }
 
+
 /// Find statements and sub-loops in (possibly nested) sequences.
 static void
 collectFussionableStmts(isl::schedule_node Node,
@@ -1269,4 +1411,239 @@ isl::schedule polly::applyGreedyFusion(isl::schedule Sched,
   // GreedyFusionRewriter due to working loop-by-loop, bands with multiple loops
   // may have been split into multiple bands.
   return collapseBands(Result);
+}
+
+isl::schedule polly::applyAutofission(isl::schedule_node BandToFission,
+                                      const Dependences *D) {
+  llvm_unreachable("not implemented");
+}
+
+static void
+collectFussionableStmts(isl::schedule_node Node,
+                        SmallVectorImpl<isl::schedule_node> &ScheduleStmts) {
+  if (isBand(Node) || isLeaf(Node)) {
+    ScheduleStmts.push_back(Node);
+    return;
+  }
+
+  if (Node.has_children()) {
+    auto C = Node.first_child();
+    while (true) {
+      collectFussionableStmts(C, ScheduleStmts);
+      if (!C.has_next_sibling())
+        break;
+      C = C.next_sibling();
+    }
+  }
+}
+static bool isFilter(const isl::schedule_node &Node) {
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_filter;
+}
+
+isl::schedule polly::applyFission(MDNode *LoopMD,
+                                  isl::schedule_node BandToFission,
+                                  ArrayRef<uint64_t> SplitAtPositions) {
+  auto Ctx = BandToFission.ctx();
+  BandToFission = removeMark(BandToFission);
+  auto BandBody = BandToFission.child(0);
+
+  SmallVector<uint64_t> Sorted(SplitAtPositions.begin(),
+                               SplitAtPositions.end());
+  llvm::sort(Sorted);
+
+  SmallVector<isl::schedule_node> FissionableStmts;
+  collectFussionableStmts(BandBody, FissionableStmts);
+  auto N = FissionableStmts.size();
+
+  int i = 0;
+  isl::union_set_list DomList = isl::union_set_list(Ctx, N);
+
+  auto AddUntil = [&](int n) {
+    SmallVector<isl::schedule_node> BodyNodes;
+    auto UDom = isl::union_set::empty(Ctx);
+    for (; i < n; i++) {
+      auto BodyPart = FissionableStmts[i];
+      BodyNodes.push_back(BodyPart);
+      auto Dom = BodyPart.get_domain();
+      UDom = UDom.unite(Dom);
+    }
+    DomList = DomList.add(UDom);
+  };
+  for (auto j : Sorted)
+    AddUntil(j);
+  AddUntil(N);
+
+  auto Fissioned = BandToFission.insert_sequence(DomList);
+  // Fissioned = Fissioned.parent();
+
+  MDNode *FissionedMD =
+      findNamedMetadataNode(LoopMD, "llvm.loop.fission.followup_fissioned");
+
+  if (FissionedMD) {
+    SmallVector<MDNode *> FissiondMDs;
+    for (auto &X : drop_begin(FissionedMD->operands(), 1)) {
+      auto OpNode = cast<MDNode>(X.get());
+      FissiondMDs.push_back(OpNode);
+    }
+    assert(N == FissiondMDs.size());
+    int i = 0;
+
+    if (Fissioned.has_children()) {
+      auto C = Fissioned.first_child();
+      while (true) {
+        auto NewBandId =
+            makeTransformLoopId(Ctx, FissiondMDs[i++], "fissioned");
+        bool IsFilter = !isBand(C);
+        if (IsFilter)
+          C = C.child(0);
+        if (!NewBandId.is_null()) {
+          C = insertMark(C, NewBandId);
+          C = C.parent();
+        }
+        if (IsFilter)
+          C = C.parent();
+        if (!C.has_next_sibling())
+          break;
+        C = C.next_sibling();
+      }
+      Fissioned = C.parent();
+    }
+  }
+
+  return Fissioned.get_schedule();
+}
+
+static bool isSequence(const isl::schedule_node &Node) {
+  auto Kind = isl_schedule_node_get_type(Node.get());
+  return Kind == isl_schedule_node_sequence;
+}
+
+isl::schedule polly::applyFusion(llvm::ArrayRef<isl::schedule_node> BandsToFuse,
+                                 MDNode *FusedMD) {
+  assert(BandsToFuse.size() >= 2);
+  auto Ctx = BandsToFuse[0].ctx();
+  auto N = BandsToFuse.size();
+
+  isl::schedule_node Parent;
+  isl::union_set_list DomainList = isl::union_set_list(Ctx, N);
+  DenseSet<isl_size> ParentPos;
+  for (auto Band : BandsToFuse) {
+    auto DirectChild = Band;
+    auto SequenceParent = DirectChild.parent();
+    while (!isSequence(SequenceParent)) {
+      DirectChild = SequenceParent;
+      SequenceParent = SequenceParent.parent();
+    }
+    auto ChildPos = DirectChild.get_child_position().release();
+    ParentPos.insert(ChildPos);
+
+    // DirectChildren.insert(DirectChild);
+
+    if (Parent.is_null())
+      Parent = SequenceParent;
+    else
+      assert(Parent.is_equal(SequenceParent));
+  }
+
+  auto NChildren = Parent.n_children();
+
+  bool Prolog = true;
+  SmallVector<isl::union_set> Before;
+  isl::union_set Inside = isl::union_set::empty(Ctx);
+  isl::union_map PartialScheds = isl::union_map::empty(Ctx);
+  SmallVector<isl::union_set> After;
+
+  int i = 0;
+  auto Node = Parent;
+  assert(isSequence(Node));
+  Node = Node.first_child();
+  while (true) {
+    // auto DirectChild = Node;
+    assert(isFilter(Node));
+    Node = Node.first_child(); // skip the filter
+
+    auto Domain = Node.get_domain();
+
+    if (ParentPos.count(i)) {
+      // Child is fused
+
+      Prolog = false;
+      Inside = Inside.unite(Domain);
+
+      int InbetweenCount = 0;
+      while (!isBand(Node)) {
+        Node = Node.first_child();
+        InbetweenCount += 1;
+      }
+      //  auto Body = Node.first_child();
+
+      isl::multi_union_pw_aff Sched =
+          isl::manage(isl_schedule_node_band_get_partial_schedule(Node.get()));
+      // assert(Sched.dim(isl::dim::out) == 1 && "Supporting just one loop per
+      // band"); auto PSched = Sched.get_union_pw_aff(0);
+      isl::union_map USched = isl::union_map::from(Sched);
+
+      // Combine the schedules of the bands; the partial schedule relative value
+      // defines the relative order
+      // FIXME: The partial schedule is usually zero-based, incrementing by one;
+      // this makes the fused loops aligned by the first iteration, allow to
+      // configure
+      PartialScheds = PartialScheds.unite(USched);
+
+      // Remove the old bands
+      for (auto j : llvm::seq<int>(0, InbetweenCount)) {
+        Node = isl::manage(isl_schedule_node_delete(Node.release()));
+        Node = Node.parent();
+      }
+      Node = isl::manage(isl_schedule_node_delete(Node.release()));
+
+    } else if (Prolog) {
+      Before.push_back(Domain);
+    } else {
+      After.push_back(Domain);
+    }
+
+    Node = Node.parent();
+
+    if (!Node.has_next_sibling())
+      break;
+    Node = Node.next_sibling();
+    i += 1;
+  }
+  Node = Node.parent();
+
+  isl::union_set_list OuterDomainList =
+      isl::union_set_list(Ctx, Before.size() + 1 + After.size());
+  int InsideIndex = Before.size();
+  for (auto S : Before)
+    OuterDomainList = OuterDomainList.add(S);
+
+  OuterDomainList = OuterDomainList.add(Inside);
+  for (auto S : After)
+    OuterDomainList = OuterDomainList.add(S);
+
+  // isl::union_set_list InnerDomainList = isl::union_set_list::alloc(Ctx, 1);
+  // InnerDomainList=    InnerDomainList.add(Inside);
+
+  // Insert new sequence
+  if (OuterDomainList.size().release() > 1) {
+    Node = Node.insert_sequence(OuterDomainList);
+    Node = Node.child(InsideIndex);
+    assert(isFilter(Node));
+    Node = Node.first_child(); // skip the filter
+  } else {
+    // No sibling of fused loop; don't add a sequence node to be able to form a
+    // perfect loop nest with parent loop
+  }
+
+  // Insert the new fused loop
+  isl::multi_union_pw_aff InnerSched =
+      isl::multi_union_pw_aff::from_union_map(PartialScheds);
+  Node = Node.insert_partial_schedule(InnerSched);
+
+  isl::id NewBandId = createGeneratedLoopAttr(Ctx, FusedMD);
+  if (!NewBandId.is_null())
+    Node = insertMark(Node, NewBandId);
+
+  return Node.get_schedule();
 }

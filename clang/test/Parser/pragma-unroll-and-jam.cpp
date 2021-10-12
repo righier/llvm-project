@@ -3,6 +3,8 @@
 // Note that this puts the expected lines before the directives to work around
 // limitations in the -verify mode.
 
+// XFAIL: *
+
 void test(int *List, int Length, int Value) {
   int i = 0;
 

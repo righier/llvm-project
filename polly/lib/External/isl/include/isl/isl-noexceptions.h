@@ -1448,7 +1448,7 @@ public:
   inline isl::map add_constraint(const isl::constraint &constraint) const;
   inline isl::map add_dims(isl::dim type, unsigned int n) const;
   inline isl::basic_map affine_hull() const;
-  inline isl::map align_params(const isl::space &model) const;
+  inline isl::basic_map align_params(isl::space model) const;
   inline isl::basic_map apply_domain(isl::basic_map bmap2) const;
   inline isl::map apply_domain(const isl::map &map2) const;
   inline isl::union_map apply_domain(const isl::union_map &umap2) const;
@@ -1583,7 +1583,7 @@ public:
   inline isl::union_map preimage_range(const isl::union_pw_multi_aff &upma) const;
   inline isl::map product(const isl::map &map2) const;
   inline isl::union_map product(const isl::union_map &umap2) const;
-  inline isl::map project_out(isl::dim type, unsigned int first, unsigned int n) const;
+  inline isl::basic_map project_out(isl::dim type, unsigned int first, unsigned int n) const;
   inline isl::map project_out_all_params() const;
   inline isl::set range() const;
   inline isl::map range_factor_domain() const;
@@ -1602,8 +1602,8 @@ public:
   inline isl::map set_domain_tuple(const std::string &id) const;
   inline isl::map set_range_tuple(const isl::id &id) const;
   inline isl::map set_range_tuple(const std::string &id) const;
-  inline isl::map set_tuple_id(isl::dim type, const isl::id &id) const;
-  inline isl::map set_tuple_id(isl::dim type, const std::string &id) const;
+  inline isl::basic_map set_tuple_id(isl::dim type, isl::id id) const;
+  inline isl::basic_map set_tuple_id(isl::dim type, const std::string &id) const;
   inline isl::space space() const;
   inline isl::map subtract(const isl::map &map2) const;
   inline isl::union_map subtract(const isl::union_map &umap2) const;
@@ -1621,7 +1621,7 @@ public:
   inline isl::basic_map unshifted_simple_hull() const;
   inline isl::map upper_bound(const isl::multi_pw_aff &upper) const;
   inline isl::map upper_bound_si(isl::dim type, unsigned int pos, int value) const;
-  inline isl::set wrap() const;
+  inline isl::basic_set wrap() const;
   inline isl::map zip() const;
 };
 
@@ -1830,7 +1830,7 @@ public:
   inline isl::set unite(const isl::point &bset2) const;
   static inline isl::basic_set universe(isl::space space);
   inline isl::basic_set unshifted_simple_hull() const;
-  inline isl::map unwrap() const;
+  inline isl::basic_map unwrap() const;
   inline isl::set upper_bound(const isl::multi_pw_aff &upper) const;
   inline isl::set upper_bound(const isl::multi_val &upper) const;
   inline isl::set upper_bound_val(isl::dim type, unsigned int pos, const isl::val &value) const;
@@ -2998,7 +2998,7 @@ public:
   inline isl::set unite(const isl::set &set2) const;
   inline isl::union_set unite(const isl::union_set &uset2) const;
   inline isl::basic_set unshifted_simple_hull() const;
-  inline isl::map unwrap() const;
+  inline isl::basic_map unwrap() const;
   inline isl::set upper_bound(const isl::multi_pw_aff &upper) const;
   inline isl::set upper_bound(const isl::multi_val &upper) const;
   inline isl::set upper_bound_val(isl::dim type, unsigned int pos, const isl::val &value) const;
@@ -7960,9 +7960,10 @@ isl::basic_map basic_map::affine_hull() const
   return manage(res);
 }
 
-isl::map basic_map::align_params(const isl::space &model) const
+isl::basic_map basic_map::align_params(isl::space model) const
 {
-  return isl::map(*this).align_params(model);
+  auto res = isl_basic_map_align_params(copy(), model.release());
+  return manage(res);
 }
 
 isl::basic_map basic_map::apply_domain(isl::basic_map bmap2) const
@@ -8659,9 +8660,10 @@ isl::union_map basic_map::product(const isl::union_map &umap2) const
   return isl::map(*this).product(umap2);
 }
 
-isl::map basic_map::project_out(isl::dim type, unsigned int first, unsigned int n) const
+isl::basic_map basic_map::project_out(isl::dim type, unsigned int first, unsigned int n) const
 {
-  return isl::map(*this).project_out(type, first, n);
+  auto res = isl_basic_map_project_out(copy(), static_cast<enum isl_dim_type>(type), first, n);
+  return manage(res);
 }
 
 isl::map basic_map::project_out_all_params() const
@@ -8756,12 +8758,13 @@ isl::map basic_map::set_range_tuple(const std::string &id) const
   return this->set_range_tuple(isl::id(ctx(), id));
 }
 
-isl::map basic_map::set_tuple_id(isl::dim type, const isl::id &id) const
+isl::basic_map basic_map::set_tuple_id(isl::dim type, isl::id id) const
 {
-  return isl::map(*this).set_tuple_id(type, id);
+  auto res = isl_basic_map_set_tuple_id(copy(), static_cast<enum isl_dim_type>(type), id.release());
+  return manage(res);
 }
 
-isl::map basic_map::set_tuple_id(isl::dim type, const std::string &id) const
+isl::basic_map basic_map::set_tuple_id(isl::dim type, const std::string &id) const
 {
   return this->set_tuple_id(type, isl::id(ctx(), id));
 }
@@ -8854,9 +8857,10 @@ isl::map basic_map::upper_bound_si(isl::dim type, unsigned int pos, int value) c
   return isl::map(*this).upper_bound_si(type, pos, value);
 }
 
-isl::set basic_map::wrap() const
+isl::basic_set basic_map::wrap() const
 {
-  return isl::map(*this).wrap();
+  auto res = isl_basic_map_wrap(copy());
+  return manage(res);
 }
 
 isl::map basic_map::zip() const
@@ -9807,9 +9811,10 @@ isl::basic_set basic_set::unshifted_simple_hull() const
   return isl::set(*this).unshifted_simple_hull();
 }
 
-isl::map basic_set::unwrap() const
+isl::basic_map basic_set::unwrap() const
 {
-  return isl::set(*this).unwrap();
+  auto res = isl_basic_set_unwrap(copy());
+  return manage(res);
 }
 
 isl::set basic_set::upper_bound(const isl::multi_pw_aff &upper) const
@@ -14967,7 +14972,7 @@ isl::basic_set point::unshifted_simple_hull() const
   return isl::basic_set(*this).unshifted_simple_hull();
 }
 
-isl::map point::unwrap() const
+isl::basic_map point::unwrap() const
 {
   return isl::basic_set(*this).unwrap();
 }
