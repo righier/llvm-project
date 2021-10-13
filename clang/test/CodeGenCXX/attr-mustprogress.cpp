@@ -1,3 +1,7 @@
+// XFAIL: *
+// We are disabling a basic block simplification that this test depends on.
+// CodeGenFunction::SimplifyForwardingBlocks
+
 // RUN: %clang_cc1 -std=c++98 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX98 %s
 // RUN: %clang_cc1 -std=c++11 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX11 %s
 // RUN: %clang_cc1 -std=c++14 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX11 %s
