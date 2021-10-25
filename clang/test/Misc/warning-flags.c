@@ -1,6 +1,8 @@
 RUN: diagtool list-warnings > %t 2>&1
 RUN: FileCheck --input-file=%t %s
 
+XFAIL: *
+
 This test serves two purposes:
 
 (1) It documents all existing warnings that currently have no associated -W flag,

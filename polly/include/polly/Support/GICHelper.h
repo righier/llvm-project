@@ -487,6 +487,59 @@ public:
     return isl_ctx_last_error(IslCtx) == isl_error_quota;
   }
 };
+
+static inline bool operator==(isl::size LHS, isl::size RHS) {
+  return LHS.release() == RHS.release();
+}
+static inline bool operator==(isl::size LHS, isl_size RHS) {
+  return LHS.release() == RHS;
+}
+
+static inline bool operator==(isl_size LHS, isl::size RHS) {
+  return LHS == RHS.release();
+}
+static inline bool operator!=(isl::size LHS, isl::size RHS) {
+  return LHS.release() != RHS.release();
+}
+
+static inline bool operator<(isl_size LHS, isl::size RHS) {
+  return LHS < RHS.release();
+}
+
+// TODO: convert<T> templated
+static inline isl::set to_set(isl::set Set) { return std::move(Set); }
+static inline isl::set to_set(isl::pw_aff PwAff) {
+  return isl::manage(isl_set_from_pw_aff(PwAff.release()));
+}
+
+static inline isl::map to_map(isl::map Map) { return std::move(Map); }
+static inline isl::map to_map(isl::pw_aff PwAff) {
+  return isl::manage(isl_map_from_pw_aff(PwAff.release()));
+}
+
+static inline isl::union_map to_union_map(isl::union_map UMap) {
+  return std::move(UMap);
+}
+static inline isl::union_map to_union_map(isl::union_pw_aff UPwAff) {
+  return isl::manage(isl_union_map_from_union_pw_aff(UPwAff.release()));
+}
+
+static inline isl::union_map emptyUMap(isl::ctx Ctx) {
+  return isl::manage(isl_union_map_empty_ctx(Ctx.get()));
+}
+
+static inline isl::union_map emptyUMap(isl::space ParamSpace) {
+  return isl::manage(isl_union_map_empty(ParamSpace.release()));
+}
+
+static inline isl::union_set emptyUSet(isl::ctx Ctx) {
+  return isl::manage(isl_union_set_empty_ctx(Ctx.get()));
+}
+
+static inline isl::union_set emptyUSet(isl::space ParamSpace) {
+  return isl::manage(isl_union_set_empty(ParamSpace.release()));
+}
+
 } // end namespace polly
 
 #endif

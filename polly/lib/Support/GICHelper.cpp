@@ -235,6 +235,7 @@ ISL_DUMP_OBJECT_IMPL(union_set)
 ISL_DUMP_OBJECT_IMPL(union_set_list)
 ISL_DUMP_OBJECT_IMPL(val)
 ISL_DUMP_OBJECT_IMPL(val_list)
+  //  isl::mat().dump();
 
 void polly::dumpIslObj(__isl_keep isl_schedule_node *node, raw_ostream &OS) {
   if (!node)

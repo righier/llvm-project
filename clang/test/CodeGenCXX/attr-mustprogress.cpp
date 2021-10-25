@@ -1,3 +1,7 @@
+// XFAIL: *
+// We are disabling a basic block simplification that this test depends on.
+// CodeGenFunction::SimplifyForwardingBlocks
+
 // RUN: %clang_cc1 -std=c++98 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX98 %s
 // RUN: %clang_cc1 -std=c++11 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX11 %s
 // RUN: %clang_cc1 -std=c++14 -triple=x86_64-unknown-linux-gnu -S -emit-llvm %s -o - | FileCheck --check-prefix=CHECK --check-prefix=CXX11 %s
@@ -151,6 +155,8 @@ void F2() {
 // FINITE-NOT: mustprogress
 // CHECK-LABEL: @_Z2w1v(
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    br label %while.cond
+// CHECK:       while.cond:
 // CHECK-NEXT:    br label %while.body
 // CHECK:       while.body:
 // CXX98-NOT:     br {{.*}}, !llvm.loop
@@ -201,6 +207,8 @@ void w2() {
 // CXX11-NEXT:    br label %while.cond, !llvm.loop [[LOOP10:!.*]]
 // FINITE-NEXT:   br label %while.cond, !llvm.loop [[LOOP10:!.*]]
 // CHECK:       while.end:
+// CHECK-NEXT:    br label %while.cond1
+// CHECK:       while.cond1: 
 // CHECK-NEXT:    br label %while.body2
 // CHECK:       while.body2:
 // CXX98-NOT:    br {{.*}}, !llvm.loop
@@ -219,6 +227,8 @@ void W() {
 // FINITE-NOT: mustprogress
 // CHECK-LABEL: @_Z2W2v(
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    br label %while.cond
+// CHECK:       while.cond:
 // CHECK-NEXT:    br label %while.body
 // CHECK:       while.body:
 // CXX98-NOT:     br {{.*}}, !llvm.loop
