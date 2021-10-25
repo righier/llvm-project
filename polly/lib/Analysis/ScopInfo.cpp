@@ -910,7 +910,6 @@ MemoryAccess::MemoryAccess(ScopStmt *Parent, const MemoryAccess *AccToClone) {
   this->AccessValue = AccToClone->AccessValue;
   this->IsAffine = AccToClone->IsAffine;
   this->Subscripts = AccToClone->Subscripts;
-  this->FAD = AccToClone->FAD;
 
   // TODO: As a clone, the AccessRelation has never been updated. Might set only
   // (Original)AccessRelation, or both to the same relation.
