@@ -689,7 +689,7 @@ InlinerPass::getAdvisor(const ModuleAnalysisManagerCGSCCProxy::Result &MAM,
 
 PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
                                    CGSCCAnalysisManager &AM, LazyCallGraph &CG,
-                                   CGSCCUpdateResult &UR) {
+                                   CGSCCUpdateResult &UR) {  
   const auto &MAMProxy =
       AM.getResult<ModuleAnalysisManagerCGSCCProxy>(InitialC, CG);
   bool Changed = false;

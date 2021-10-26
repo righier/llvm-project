@@ -1,8 +1,8 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --match-full-lines %s --check-prefix=PRINT
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s --check-prefix=IR
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck %s --dump-input-context=9999 -vvv --check-prefix=TRANS
-// RUN: %clang -DMAIN -std=c99 -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -lgomp -o %t_pragma_pack%exeext
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -mllvm -inline-threshold=0 -std=c99 -ast-print %s | FileCheck --match-full-lines %s --check-prefix=PRINT
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -mllvm -inline-threshold=0 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -mllvm -inline-threshold=0 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -mllvm -inline-threshold=0 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck %s --dump-input-context=9999 -vvv --check-prefix=TRANS
+// RUN: %clang -DMAIN                                       -mllvm -inline-threshold=0 -std=c99            -O3 -mllvm -polly -mllvm -polly-position=early -mllvm -polly-process-unprofitable %s -lgomp -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
@@ -53,11 +53,7 @@ int main() {
 
 // TRANS-LABEL: @pragma_parallelize_thread(
 // TRANS:       call void @GOMP_parallel_loop_runtime_start({{.*}} @pragma_parallelize_thread_polly_subfn, {{.*}})
-// TRANS:       call i8 @GOMP_loop_runtime_next
-// TRANS:       call i8 @GOMP_loop_runtime_next
-// TRANS:       store double 3.771000e+03
-// TRANS:       call void @GOMP_loop_end_nowait
-// TRANS:       call void @GOMP_parallel_end
+// TRANS:       @pragma_parallelize_thread_polly_subfn
 
 // TRANS-LABEL: define internal void @pragma_parallelize_thread_polly_subfn(i8* nocapture readonly %polly.par.userContext)
 // TRANS:       call i8 @GOMP_loop_runtime_next
