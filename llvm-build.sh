@@ -19,8 +19,6 @@ cmake -G Ninja \
 
 cmake --build .
 
-cmake --build . --target check-polly
-
 cmake --install .
 
 popd
