@@ -1,5 +1,9 @@
 #!/bin/bash
 
+BASE_DIR=$(dirname $(realpath $BASH_SOURCE))
+
+exit 0
+
 mkdir -p ./build
 mkdir -p ./build-install
 
@@ -9,7 +13,7 @@ cmake -G Ninja \
 	-DCMAKE_C_COMPILER=clang \
 	-DCMAKE_CXX_COMPILER=clang++ \
 	-DCMAKE_CXX_STANDARD=14 \
-	-DCMAKE_INSTALL_PREFIX=/home/ermanno/thesis/llvm-project/build-install \
+	-DCMAKE_INSTALL_PREFIX=$BASE_DIR/build-install \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DLLVM_ENABLE_ASSERTIONS=ON \
 	-DLLVM_USE_LINKER=lld \
