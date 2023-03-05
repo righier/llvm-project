@@ -2,8 +2,6 @@
 
 BASE_DIR=$(dirname $(realpath $BASH_SOURCE))
 
-exit 0
-
 mkdir -p ./build
 mkdir -p ./build-install
 
