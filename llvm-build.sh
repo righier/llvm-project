@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 BASE_DIR=$(dirname $(realpath $BASH_SOURCE))
 
