@@ -7,7 +7,7 @@ mkdir -p ./build-install
 
 pushd ./build
 
-cmake -G Ninja \
+cmake \
 	-DCMAKE_CXX_STANDARD=14 \
 	-DCMAKE_INSTALL_PREFIX=$BASE_DIR/build-install \
 	-DCMAKE_BUILD_TYPE=Release \
